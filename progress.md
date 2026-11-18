@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard commands, marking, sorting, type-ahead, quick filter, live updates and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -36,6 +36,14 @@ M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard c
 | 2026-11-18 | No emojis, symbol glyphs or decorative Unicode anywhere (UI, VoiceOver text, docs, comments) |
 | 2026-11-18 | No ".." row in panes; Backspace / Cmd+Up go to the parent |
 | 2026-11-18 | Pane lists are announced only as "Left pane" / "Right pane" (no folder name in the label) |
+| 2026-11-18 | Minimal speech: nothing announced on Tab or folder change; Cmd+I reads the status bar |
+| 2026-11-18 | "Selected" replaces "marked" everywhere; Space says "Selected, 2 items" / "Deselected, 1 item" / "Deselected" |
+| 2026-11-18 | Rows read like TC columns ("test, dir, ..."); no "file"/"folder" word added to names |
+| 2026-11-18 | Customisable columns: views (Brief, Full, custom) as ordered checkable column lists in Settings, columns can be added; Brief = single Name column |
+| 2026-11-18 | Keys: Cmd+F1/F2 locations menu for left/right pane, Cmd+D for current pane, Cmd+I status, Ctrl+F1 Brief, Ctrl+F2 Full, Ctrl+F3+ custom views |
+| 2026-11-18 | Locations menu: Home, volumes, bookmarks; setting to go to the volume root instead of the last folder visited there |
+| 2026-11-18 | Size column: bytes / KB / MB / GB / dynamic (default dynamic), 1 KB = 1024 by default (setting: 1000) |
+| 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
 
@@ -72,6 +80,10 @@ M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard c
 - [ ] VoiceOver verified by the user with real VoiceOver (speech wording, row reading, focus)
 - [x] Keyboard model, CommandRegistry, keybindings, type-ahead
 - [x] Quick filter (Cmd+S): wildcards, substring, `;` patterns, `|` exclusions, regex, cleared on directory change
+- [x] Settings window (Cmd+,): views and columns, size and date formats, navigation, bookmarks
+- [x] Brief / Full / custom views with configurable columns (incl. Created, Kind)
+- [x] Locations menu (Cmd+D, Cmd+F1, Cmd+F2) with volumes and bookmarks; per-volume last folder
+- [x] Read status bar (Cmd+I)
 - [ ] Explain the Full Disk Access permission in the app (currently only an error message in the status line)
 
 ### M2 - Operations

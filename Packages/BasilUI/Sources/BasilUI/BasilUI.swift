@@ -12,6 +12,8 @@ import BasilVFS
 @MainActor
 public final class MainWindowController: NSWindowController, WorkspaceContext {
     private let commands: CommandRegistry
+    private let settings: SettingsStore
+    private let defaults: UserDefaults
     private let left: PaneViewController
     private let right: PaneViewController
     private var functionBar: FunctionKeyBar!
@@ -20,18 +22,21 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     private let persistsDirectories: Bool
 
     /// - Parameter startDirectories: overrides the restored start folders (left, right).
-    public init(providers: ProviderRegistry, commands: CommandRegistry,
+    /// - Parameter defaults: where pane state (folders, views) is remembered; UI tests pass an isolated domain.
+    public init(providers: ProviderRegistry, commands: CommandRegistry, settings: SettingsStore,
+                defaults: UserDefaults = .standard,
                 startDirectories: (left: VFSPath, right: VFSPath)? = nil) {
         self.commands = commands
+        self.settings = settings
+        self.defaults = defaults
         self.persistsDirectories = startDirectories == nil
-        let defaults = UserDefaults.standard
         let home = VFSPath.local(FileManager.default.homeDirectoryForCurrentUser.path)
         func restored(_ side: PaneSide) -> VFSPath {
             if let start = startDirectories { return side == .left ? start.left : start.right }
             return defaults.string(forKey: side.defaultsKey).map(VFSPath.local) ?? home
         }
-        left = PaneViewController(side: .left, model: PaneModel(registry: providers, directory: restored(.left)))
-        right = PaneViewController(side: .right, model: PaneModel(registry: providers, directory: restored(.right)))
+        left = PaneViewController(side: .left, model: PaneModel(registry: providers, directory: restored(.left)), settings: settings, defaults: defaults)
+        right = PaneViewController(side: .right, model: PaneModel(registry: providers, directory: restored(.right)), settings: settings, defaults: defaults)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
@@ -76,10 +81,25 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         functionBar.updateEnabled { [unowned self] id in commands.command(id)?.isEnabled(self) ?? false }
     }
 
+    /// Tab: VoiceOver already reads the focused list's label ("Left pane"/"Right pane"), so nothing extra is announced.
     func switchPane() {
-        let target = otherPane
-        window?.makeFirstResponder(target.tableView) // becomes active via first-responder callback
-        announce("\(target.side.accessibilityLabel), \(target.directorySummary)")
+        window?.makeFirstResponder(otherPane.tableView) // becomes active via first-responder callback
+    }
+
+    func showLocationsMenu(for side: PaneSide) {
+        let pane = side == .left ? left : right
+        window?.makeFirstResponder(pane.tableView)
+        pane.showLocationsMenu()
+    }
+
+    /// The id of the n-th (1-based) custom view, in settings order.
+    func customViewID(_ n: Int) -> String? {
+        let custom = settings.settings.views.filter { !$0.isBuiltin }
+        return custom.indices.contains(n - 1) ? custom[n - 1].id : nil
+    }
+
+    func showSettings(tab: SettingsTab = .views) {
+        SettingsWindowController.show(settings: settings, tab: tab)
     }
 
     // MARK: WorkspaceContext
@@ -89,7 +109,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public var cursorItem: FileItem? { activePane.cursorItem }
 
     public var targetItems: [FileItem] {
-        let marked = activePane.model.markedItems
+        let marked = activePane.model.selectedItems
         if !marked.isEmpty { return marked }
         return activePane.cursorItem.map { [$0] } ?? []
     }
@@ -125,11 +145,15 @@ extension MainWindowController: PaneViewControllerDelegate {
         announce(message)
     }
 
+    /// Nothing is announced: VoiceOver reads the item under the cursor.
     func paneDidChangeDirectory(_ pane: PaneViewController) {
         if persistsDirectories {
-            UserDefaults.standard.set(pane.model.directory.path, forKey: pane.side.defaultsKey)
+            defaults.set(pane.model.directory.path, forKey: pane.side.defaultsKey)
         }
-        if pane.side == activeSide { announce(pane.directorySummary) }
+    }
+
+    func paneRequestsSettings(_ pane: PaneViewController) {
+        showSettings(tab: .bookmarks)
     }
 }
 

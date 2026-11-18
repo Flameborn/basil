@@ -18,10 +18,10 @@ public enum Theme {
     static let text = dynamic(light: 0x1A1A1A, dark: 0xE4E4E4)
     static let directoryText = dynamic(light: 0x0B2E6B, dark: 0xA9C7FF)
     static let hiddenText = dynamic(light: 0x5F6368, dark: 0x9AA0A6)
-    static let markedText = dynamic(light: 0xC8102E, dark: 0xFF7B72)
+    static let selectedText = dynamic(light: 0xC8102E, dark: 0xFF7B72)
     static let cursorBackground = dynamic(light: 0x2B5797, dark: 0x3A68AE)
     static let cursorText = dynamic(light: 0xFFFFFF, dark: 0xFFFFFF)
-    static let cursorMarkedText = dynamic(light: 0xFFE27A, dark: 0xFFE27A)
+    static let cursorSelectedText = dynamic(light: 0xFFE27A, dark: 0xFFE27A)
     /// Cursor outline in the inactive pane.
     static let inactiveCursor = dynamic(light: 0x8A9BB5, dark: 0x6B7A93)
 

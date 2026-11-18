@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SortKey: String, Sendable, Codable, CaseIterable {
-    case name, ext, size, modified
+    case name, ext, size, modified, created
 }
 
 public struct ListSortOrder: Sendable, Equatable, Codable {
@@ -42,6 +42,7 @@ public enum ItemSorter {
         let isDir: Bool
         let size: Int64
         let modified: Date
+        let created: Date
         let rawName: String
         let name: [UInt32]
         let ext: [UInt32]
@@ -49,6 +50,7 @@ public enum ItemSorter {
             isDir = item.isDirectoryLike
             size = item.size ?? 0
             modified = item.modified ?? .distantPast
+            created = item.created ?? .distantPast
             rawName = item.name
             name = NaturalKey.make(item.name)
             ext = NaturalKey.make(item.nameAndExtension.ext)
@@ -67,6 +69,8 @@ public enum ItemSorter {
             primary = compare(a.size, b.size)
         case .modified:
             primary = compare(a.modified, b.modified)
+        case .created:
+            primary = compare(a.created, b.created)
         }
         var result = primary != .orderedSame ? primary : NaturalKey.compare(a.name, b.name)
         if result == .orderedSame { result = compare(a.rawName, b.rawName) } // stable, deterministic tie-break

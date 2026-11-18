@@ -110,15 +110,15 @@ final class PaneRowView: NSTableRowView {
     }
 }
 
-/// One cell. Colours come from the theme and depend on marked/hidden/directory/cursor state.
+/// One cell. Colours come from the theme and depend on selected/hidden/directory/cursor state.
 final class PaneCellView: NSTableCellView {
     enum Style { case normal, directory, hidden }
 
     var style: Style = .normal { didSet { updateColors() } }
-    var isMarked = false { didSet { updateColors() } }
+    var isSelectedItem = false { didSet { updateColors() } }
     var showsCursor = false { didSet { if oldValue != showsCursor { updateColors() } } }
 
-    /// What VoiceOver reads (e.g. "apple pie.txt, file, marked"); nil means the visible text,
+    /// What VoiceOver reads (e.g. "song, selected"); nil means the visible text,
     /// "" means the cell is silent (e.g. a folder's "<DIR>" size, already said by the name cell).
     var spokenLabel: String?
 
@@ -135,9 +135,9 @@ final class PaneCellView: NSTableCellView {
     private func updateColors() {
         guard let textField else { return }
         if showsCursor {
-            textField.textColor = isMarked ? Theme.cursorMarkedText : Theme.cursorText
-        } else if isMarked {
-            textField.textColor = Theme.markedText
+            textField.textColor = isSelectedItem ? Theme.cursorSelectedText : Theme.cursorText
+        } else if isSelectedItem {
+            textField.textColor = Theme.selectedText
         } else {
             textField.textColor = switch style {
             case .normal: Theme.text
@@ -158,9 +158,12 @@ extension KeyChord {
         if flags.contains(.control) { mods.insert(.control) }
         if flags.contains(.shift) { mods.insert(.shift) }
 
-        // charactersIgnoringModifiers still applies Shift (Shift+. gives ">"); bind on the unshifted key instead.
-        guard let chars = event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers,
-              let scalar = chars.unicodeScalars.first else { return nil }
+        guard let raw = event.charactersIgnoringModifiers, let rawScalar = raw.unicodeScalars.first else { return nil }
+        // Function/navigation keys (private-use range) are taken as reported. For ordinary characters,
+        // charactersIgnoringModifiers still applies Shift (Shift+. gives ">"), so bind on the unshifted key.
+        let isSpecialKey = (0xF700...0xF8FF).contains(rawScalar.value)
+        let chars = isSpecialKey ? raw : (event.characters(byApplyingModifiers: []) ?? raw)
+        guard let scalar = chars.unicodeScalars.first else { return nil }
         let key: Key
         switch Int(scalar.value) {
         case NSF1FunctionKey...NSF35FunctionKey: key = .function(Int(scalar.value) - NSF1FunctionKey + 1)

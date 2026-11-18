@@ -128,12 +128,35 @@ final class QuickFilterBar: ThemedBox, NSSearchFieldDelegate {
 
 // MARK: - Drive bar
 
-/// Buttons for mounted volumes plus Home, like Total Commander's drive bar.
+/// Buttons for Home and mounted volumes, like Total Commander's drive bar.
 @MainActor
 final class DriveBar: ThemedBox {
-    var onSelect: ((URL) -> Void)?
+    enum Target { case home, volume(URL) }
+
+    struct Volume {
+        let name: String
+        let url: URL
+        let icon: NSImage?
+    }
+
+    var onSelect: ((Target) -> Void)?
     private let stack = NSStackView()
     private var observers: [NSObjectProtocol] = []
+    private var targets: [Target] = []
+
+    static func volumes() -> [Volume] {
+        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .effectiveIconKey]
+        let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
+        return urls.map { url in
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            let icon = (values?.effectiveIcon as? NSImage).map { image -> NSImage in
+                let copy = image.copy() as! NSImage
+                copy.size = NSSize(width: 14, height: 14)
+                return copy
+            }
+            return Volume(name: values?.volumeLocalizedName ?? url.lastPathComponent, url: url, icon: icon)
+        }
+    }
 
     init(side: PaneSide) {
         super.init(frame: .zero)
@@ -173,36 +196,32 @@ final class DriveBar: ThemedBox {
 
     private func rebuild() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        var entries: [(String, URL, NSImage?)] = [
-            ("Home", FileManager.default.homeDirectoryForCurrentUser, nil),
-        ]
-        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .effectiveIconKey]
-        let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
-        for url in volumes {
-            let values = try? url.resourceValues(forKeys: Set(keys))
-            let icon = values?.effectiveIcon as? NSImage
-            entries.append((values?.volumeLocalizedName ?? url.lastPathComponent, url, icon))
-        }
-        for (title, url, image) in entries {
-            let button = NSButton(title: title, target: self, action: #selector(clicked(_:)))
-            button.bezelStyle = .accessoryBarAction
-            button.controlSize = .small
-            button.font = Theme.barFont
-            button.refusesFirstResponder = true
-            if let image {
-                image.size = NSSize(width: 14, height: 14)
-                button.image = image
-                button.imagePosition = .imageLeading
-            }
-            button.identifier = NSUserInterfaceItemIdentifier(url.path)
-            button.setAccessibilityLabel("Go to \(title)")
-            stack.addArrangedSubview(button)
+        targets = [.home]
+        addButton(title: "Home", image: nil)
+        for volume in Self.volumes() {
+            targets.append(.volume(volume.url))
+            addButton(title: volume.name, image: volume.icon)
         }
     }
 
+    private func addButton(title: String, image: NSImage?) {
+        let button = NSButton(title: title, target: self, action: #selector(clicked(_:)))
+        button.bezelStyle = .accessoryBarAction
+        button.controlSize = .small
+        button.font = Theme.barFont
+        button.refusesFirstResponder = true
+        if let image {
+            button.image = image
+            button.imagePosition = .imageLeading
+        }
+        button.tag = stack.arrangedSubviews.count
+        button.setAccessibilityLabel(title)
+        stack.addArrangedSubview(button)
+    }
+
     @objc private func clicked(_ sender: NSButton) {
-        guard let path = sender.identifier?.rawValue else { return }
-        onSelect?(URL(fileURLWithPath: path))
+        guard targets.indices.contains(sender.tag) else { return }
+        onSelect?(targets[sender.tag])
     }
 }
 

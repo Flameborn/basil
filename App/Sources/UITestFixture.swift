@@ -6,6 +6,16 @@ import Foundation
 /// starts both panes in it. Needed because Xcode sandboxes the UI-test runner, so files it
 /// creates live in its container, which other apps (Basil) are not allowed to read.
 enum UITestFixture {
+    static var isActive: Bool { ProcessInfo.processInfo.environment["BASIL_UITEST_FIXTURE"] == "1" }
+
+    /// A separate preferences domain, wiped at each launch, so tests never touch the user's settings.
+    static func isolatedDefaults() -> UserDefaults? {
+        guard isActive else { return nil }
+        let suite = "com.erion.basil.uitests"
+        UserDefaults().removePersistentDomain(forName: suite)
+        return UserDefaults(suiteName: suite)
+    }
+
     static func makeIfRequested() -> (left: VFSPath, right: VFSPath)? {
         guard ProcessInfo.processInfo.environment["BASIL_UITEST_FIXTURE"] == "1" else { return nil }
         let fm = FileManager.default

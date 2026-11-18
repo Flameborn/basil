@@ -8,6 +8,7 @@ protocol PaneViewControllerDelegate: AnyObject {
     func pane(_ pane: PaneViewController, perform chord: KeyChord) -> Bool
     func pane(_ pane: PaneViewController, announce message: String)
     func paneDidChangeDirectory(_ pane: PaneViewController)
+    func paneRequestsSettings(_ pane: PaneViewController)
 }
 
 /// One side of the window: drive bar, path header, file table, quick-filter bar and status line.
@@ -15,6 +16,8 @@ protocol PaneViewControllerDelegate: AnyObject {
 final class PaneViewController: NSViewController {
     let side: PaneSide
     let model: PaneModel
+    let settings: SettingsStore
+    private let defaults: UserDefaults
     weak var delegate: PaneViewControllerDelegate?
 
     private let table = PaneTableView()
@@ -26,14 +29,16 @@ final class PaneViewController: NSViewController {
     private let filterBar = QuickFilterBar()
     /// The directory currently displayed (after a load completes).
     private var shownDirectory: VFSPath?
+    private var settingsToken: UUID?
 
-    private static let columns: [(id: String, title: String, width: CGFloat, sort: SortKey, align: NSTextAlignment)] = [
-        ("name", "Name", 260, .name, .left),
-        ("ext", "Ext", 52, .ext, .left),
-        ("size", "Size", 96, .size, .right),
-        ("date", "Date", 128, .modified, .left),
-        ("attr", "Attr", 82, .name, .left),
-    ]
+    /// The list view (Brief, Full, custom) shown in this pane.
+    private(set) var viewID: String
+    private var columnContext: ColumnDefinition.Context
+    private var isApplyingColumns = false
+    private var widthSaveTask: Task<Void, Never>?
+
+    /// Last folder visited per volume (volume root path -> folder), for the drive menu.
+    private var lastDirectoryByVolume: [String: String]
 
     var isActive = false {
         didSet {
@@ -42,38 +47,51 @@ final class PaneViewController: NSViewController {
         }
     }
 
-    init(side: PaneSide, model: PaneModel) {
+    init(side: PaneSide, model: PaneModel, settings: SettingsStore, defaults: UserDefaults) {
         self.side = side
         self.model = model
+        self.settings = settings
+        self.defaults = defaults
         self.driveBar = DriveBar(side: side)
+        viewID = defaults.string(forKey: "pane.\(side.identifier).view") ?? ListView.full.id
+        lastDirectoryByVolume = defaults.dictionary(forKey: "pane.\(side.identifier).volumeDirectories") as? [String: String] ?? [:]
+        columnContext = ColumnDefinition.Context(formatters: settings.formatters, viewHasExtColumn: true)
         super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    isolated deinit {
+        if let settingsToken { settings.removeHandler(settingsToken) }
+    }
+
     var tableView: NSTableView { table }
 
     // MARK: View
 
     override func loadView() {
-        // The pane container is not an accessibility element: VoiceOver should land directly
-        // on the list, which is labelled just "Left pane" / "Right pane".
+        // The pane container is not an accessibility element: VoiceOver lands directly on the
+        // list, which is labelled just "Left pane" / "Right pane".
         let root = NSView()
 
-        driveBar.onSelect = { [weak self] url in
-            self?.navigate(to: .local(url.path))
+        driveBar.onSelect = { [weak self] target in
+            switch target {
+            case .home: self?.navigate(to: .local(FileManager.default.homeDirectoryForCurrentUser.path))
+            case .volume(let url): self?.switchToVolume(url)
+            }
         }
 
         header.font = Theme.barFont
         header.lineBreakMode = .byTruncatingHead
-        header.setAccessibilityElement(false) // the table's label carries the path for VoiceOver
+        header.setAccessibilityLabel("Path")
+        header.setAccessibilityIdentifier("pane.\(side.identifier).path")
         headerBox.addSubview(header)
 
         configureTable()
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.backgroundColor = Theme.paneBackground
@@ -122,22 +140,13 @@ final class PaneViewController: NSViewController {
 
         model.onEvent = { [weak self] event in self?.handle(event) }
         model.currentCursorProvider = { [weak self] in self?.cursorPath }
+        settingsToken = settings.onChange { [weak self] _ in self?.settingsChanged() }
         updateHeader()
     }
 
     private func configureTable() {
-        for col in Self.columns {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(col.id))
-            column.title = col.title
-            column.width = col.width
-            column.minWidth = 36
-            column.headerCell.alignment = col.align
-            if col.id != "attr" {
-                column.sortDescriptorPrototype = NSSortDescriptor(key: col.sort.rawValue, ascending: true)
-            }
-            table.addTableColumn(column)
-        }
-        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        table.columnAutoresizingStyle = .noColumnAutoresizing
+        table.allowsColumnReordering = true
         table.rowHeight = Theme.rowHeight
         table.intercellSpacing = NSSize(width: 6, height: 0)
         table.style = .plain
@@ -146,14 +155,100 @@ final class PaneViewController: NSViewController {
         table.allowsMultipleSelection = false
         table.allowsEmptySelection = false
         table.usesAutomaticRowHeights = false
-        table.sortDescriptors = [NSSortDescriptor(key: SortKey.name.rawValue, ascending: true)]
-        table.dataSource = self
-        table.delegate = self
-        table.keyDelegate = self
         table.target = self
         table.doubleAction = #selector(doubleClicked)
         table.setAccessibilityIdentifier("pane.\(side.identifier).table")
         table.setAccessibilityLabel(side.accessibilityLabel)
+        applyColumns()
+        table.dataSource = self
+        table.delegate = self
+        table.keyDelegate = self
+    }
+
+    // MARK: Views and columns
+
+    var currentView: ListView { settings.settings.view(id: viewID) }
+
+    func setView(_ id: String) {
+        guard settings.settings.views.contains(where: { $0.id == id }) else { return }
+        viewID = id
+        defaults.set(id, forKey: "pane.\(side.identifier).view")
+        applyColumns()
+        table.reloadData()
+        delegate?.pane(self, announce: "\(currentView.name) view")
+    }
+
+    /// Rebuilds the table columns from the current view.
+    private func applyColumns() {
+        isApplyingColumns = true
+        defer { isApplyingColumns = false }
+        let specs = currentView.visibleColumns
+        for column in table.tableColumns { table.removeTableColumn(column) }
+        for spec in specs {
+            guard let def = ColumnCatalog.definition(spec.id) else { continue }
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(spec.id.rawValue))
+            column.title = def.title
+            column.width = spec.width
+            column.minWidth = 36
+            column.headerCell.alignment = def.alignment == .trailing ? .right : .left
+            column.resizingMask = .userResizingMask
+            if let key = def.sortKey {
+                column.sortDescriptorPrototype = NSSortDescriptor(key: key.rawValue, ascending: true)
+            }
+            table.addTableColumn(column)
+        }
+        let order = model.sortOrder
+        table.sortDescriptors = [NSSortDescriptor(key: order.key.rawValue, ascending: order.ascending)]
+        columnContext = ColumnDefinition.Context(
+            formatters: settings.formatters,
+            viewHasExtColumn: specs.contains { $0.id == .ext }
+        )
+    }
+
+    private func settingsChanged() {
+        let wanted = currentView.visibleColumns.map(\.id.rawValue)
+        let shown = table.tableColumns.map(\.identifier.rawValue)
+        if wanted != shown {
+            applyColumns()
+        } else {
+            // Same columns: only widths/formatting may have changed. Don't rebuild (the user may be dragging).
+            for spec in currentView.visibleColumns {
+                if let column = table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(spec.id.rawValue)),
+                   abs(column.width - spec.width) > 0.5 {
+                    column.width = spec.width
+                }
+            }
+            columnContext = ColumnDefinition.Context(formatters: settings.formatters,
+                                                     viewHasExtColumn: wanted.contains(ColumnID.ext.rawValue))
+        }
+        table.reloadData()
+        updateStatus()
+    }
+
+    /// Writes the table's column order and widths back to the view (debounced while dragging).
+    private func saveColumnLayout() {
+        guard !isApplyingColumns else { return }
+        widthSaveTask?.cancel()
+        widthSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled else { return }
+            var view = self.currentView
+            let tableOrder = self.table.tableColumns.map { ColumnID(rawValue: $0.identifier.rawValue) }
+            var reordered: [ColumnSpec] = []
+            for id in tableOrder {
+                var spec = view.columns.first(where: { $0.id == id }) ?? ColumnSpec(id)
+                spec.isVisible = true
+                if let col = self.table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(id.rawValue)) {
+                    spec.width = col.width
+                }
+                reordered.append(spec)
+            }
+            reordered += view.columns.filter { spec in !tableOrder.contains(spec.id) }
+            view.columns = reordered
+            if let index = self.settings.settings.views.firstIndex(where: { $0.id == view.id }) {
+                self.settings.settings.views[index] = view
+            }
+        }
     }
 
     // MARK: Navigation
@@ -198,20 +293,93 @@ final class PaneViewController: NSViewController {
         table.scrollRowToVisible(clamped)
     }
 
-    func toggleMarkAtCursor(advance: Int = 0) {
+    // MARK: Selection (Total Commander "marking"; the cursor is separate)
+
+    func toggleSelectionAtCursor(advance: Int = 0) {
         guard let row = cursorRow else { return }
         let item = model.rows[row]
-        model.toggleMark(item.path)
-        let state = model.marked.contains(item.path) ? "marked" : "unmarked"
-        delegate?.pane(self, announce: "\(item.name) \(state), \(model.marked.count) marked")
+        model.toggleSelection(item.path)
+        let count = model.selected.count
+        if model.selected.contains(item.path) {
+            delegate?.pane(self, announce: "Selected, \(itemCount(count))")
+        } else {
+            delegate?.pane(self, announce: count > 0 ? "Deselected, \(itemCount(count))" : "Deselected")
+        }
         if advance != 0 { moveCursor(to: row + advance) }
     }
 
     func setSort(_ key: SortKey) {
         let current = model.sortOrder
-        let order = ListSortOrder(key: key, ascending: current.key == key ? !current.ascending : true)
-        table.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: order.ascending)]
+        let ascending = current.key == key ? !current.ascending : true
         // tableView(_:sortDescriptorsDidChange:) applies it.
+        table.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: ascending)]
+    }
+
+    // MARK: Drive / bookmark menu
+
+    func showLocationsMenu() {
+        let menu = NSMenu(title: "\(side.accessibilityLabel) locations")
+        menu.autoenablesItems = false
+
+        func add(_ title: String, image: NSImage? = nil, action: @escaping () -> Void) {
+            let item = ClosureMenuItem(title: title, action: action)
+            item.image = image
+            menu.addItem(item)
+        }
+
+        add("Home") { [weak self] in self?.navigate(to: .local(FileManager.default.homeDirectoryForCurrentUser.path)) }
+        for volume in DriveBar.volumes() {
+            add(volume.name, image: volume.icon) { [weak self] in self?.switchToVolume(volume.url) }
+        }
+
+        let bookmarks = settings.settings.bookmarks
+        if !bookmarks.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(.sectionHeader(title: "Bookmarks"))
+            for bookmark in bookmarks {
+                add(bookmark.name) { [weak self] in self?.navigate(to: bookmark.path) }
+            }
+        }
+        menu.addItem(.separator())
+        add("Add Current Folder to Bookmarks") { [weak self] in self?.bookmarkCurrentFolder() }
+        add("Manage Bookmarks...") { [weak self] in
+            guard let self else { return }
+            self.delegate?.paneRequestsSettings(self)
+        }
+
+        let anchor = NSPoint(x: 4, y: headerBox.bounds.height)
+        menu.popUp(positioning: menu.items.first, at: anchor, in: headerBox)
+    }
+
+    private func bookmarkCurrentFolder() {
+        let dir = model.directory
+        guard !settings.settings.bookmarks.contains(where: { $0.path == dir }) else {
+            delegate?.pane(self, announce: "Already in bookmarks")
+            return
+        }
+        settings.settings.bookmarks.append(Bookmark(name: dir.name, path: dir))
+        delegate?.pane(self, announce: "Bookmark added")
+    }
+
+    /// Goes to the volume's root, or to the last folder visited there (unless the
+    /// "go to root" setting is on or that folder no longer exists).
+    func switchToVolume(_ url: URL) {
+        let root = VFSPath.local(url.path)
+        if !settings.settings.goToRootOnVolumeSwitch,
+           let last = lastDirectoryByVolume[url.standardizedFileURL.path],
+           FileManager.default.fileExists(atPath: last) {
+            navigate(to: .local(last))
+        } else {
+            navigate(to: root)
+        }
+    }
+
+    private func rememberVolumeDirectory() {
+        guard model.directory.location == .local else { return }
+        let url = URL(fileURLWithPath: model.directory.path)
+        guard let volume = try? url.resourceValues(forKeys: [.volumeURLKey]).volume else { return }
+        lastDirectoryByVolume[volume.standardizedFileURL.path] = model.directory.path
+        defaults.set(lastDirectoryByVolume, forKey: "pane.\(side.identifier).volumeDirectories")
     }
 
     // MARK: Quick filter
@@ -219,7 +387,6 @@ final class PaneViewController: NSViewController {
     func showQuickFilter() {
         filterBar.isHidden = false
         filterBar.focus()
-        delegate?.pane(self, announce: "Filter")
     }
 
     private func applyFilter(text: String, isRegex: Bool) {
@@ -247,11 +414,9 @@ final class PaneViewController: NSViewController {
         }
         view.window?.makeFirstResponder(table)
         if !cleared, model.filter != nil {
-            delegate?.pane(self, announce: "\(visibleItemCount) matches")
+            delegate?.pane(self, announce: "\(itemCount(model.rows.count)) shown")
         }
     }
-
-    private var visibleItemCount: Int { model.rows.count }
 
     // MARK: Model events
 
@@ -269,12 +434,13 @@ final class PaneViewController: NSViewController {
             updateStatus()
             if shownDirectory != model.directory {
                 shownDirectory = model.directory
+                rememberVolumeDirectory()
                 delegate?.paneDidChangeDirectory(self)
             }
             if filterBar.isEditing {
-                filterBar.matchCount = visibleItemCount
+                filterBar.matchCount = model.rows.count
             }
-        case .marksChanged:
+        case .selectionChanged:
             let visible = table.rows(in: table.visibleRect)
             table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
                              columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
@@ -315,35 +481,38 @@ final class PaneViewController: NSViewController {
         }
     }
 
-    /// Spoken after navigation, e.g. "Documents, 42 items".
-    var directorySummary: String {
-        "\(model.directory.name == "/" ? "Root" : model.directory.name), \(visibleItemCount) items"
-    }
-
     private func updateHeader() {
-        let path = model.directory.description
-        header.stringValue = path
+        header.stringValue = model.directory.description
         headerBox.fillColor = isActive ? Theme.headerActiveBackground : Theme.headerInactiveBackground
         header.textColor = isActive ? Theme.headerActiveText : Theme.headerInactiveText
     }
 
+    /// The status line text; also what Cmd+I reads.
+    var statusText: String {
+        if model.isLoading { return "Loading..." }
+        let size = settings.formatters.size
+        var files = 0, dirs = 0, selFiles = 0, selDirs = 0
+        var totalBytes: Int64 = 0, selBytes: Int64 = 0
+        for item in model.rows {
+            let isSel = model.selected.contains(item.path)
+            if item.isDirectoryLike {
+                dirs += 1
+                if isSel { selDirs += 1 }
+            } else {
+                files += 1
+                totalBytes += item.size ?? 0
+                if isSel { selFiles += 1; selBytes += item.size ?? 0 }
+            }
+        }
+        var text = "\(size.string(selBytes)) of \(size.string(totalBytes)) in \(selFiles) of \(files) files, \(selDirs) of \(dirs) folders selected"
+        if let filter = model.filter { text += ", filter \(filter.text)" }
+        if model.showHidden { text += ", hidden files shown" }
+        return text
+    }
+
     private func updateStatus() {
         statusLabel.textColor = Theme.barText
-        if model.isLoading {
-            statusLabel.stringValue = "Loading..."
-            return
-        }
-        // Counts cover what is shown (hidden files and filtered-out items excluded), like Total Commander.
-        let files = model.rows.filter { !$0.isDirectoryLike }
-        let totalBytes = files.reduce(Int64(0)) { $0 + ($1.size ?? 0) }
-        let marked = model.markedItems
-        let markedBytes = marked.reduce(Int64(0)) { $0 + ($1.size ?? 0) }
-        var text = "\(Formatting.humanBytes(markedBytes)) of \(Formatting.humanBytes(totalBytes)) in \(marked.count) of \(files.count) files marked"
-        if let filter = model.filter {
-            text += ", filter \(filter.text): \(visibleItemCount) shown"
-        }
-        if model.showHidden { text += ", hidden files shown" }
-        statusLabel.stringValue = text
+        statusLabel.stringValue = statusText
     }
 }
 
@@ -365,47 +534,40 @@ extension PaneViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let column = tableColumn, row < model.rows.count else { return nil }
-        let id = column.identifier
-        let cell = tableView.makeView(withIdentifier: id, owner: nil) as? PaneCellView ?? makeCell(id)
-
+        guard let column = tableColumn, row < model.rows.count,
+              let def = ColumnCatalog.definition(ColumnID(rawValue: column.identifier.rawValue)) else { return nil }
+        let cell = tableView.makeView(withIdentifier: column.identifier, owner: nil) as? PaneCellView
+            ?? makeCell(column.identifier, alignment: def.alignment)
         let item = model.rows[row]
-        let text: String
-        var accessibility: String?
-        let split = item.nameAndExtension
-        switch id.rawValue {
-        case "name":
-            text = item.isDirectoryLike ? item.name : split.base
-            cell.imageView?.image = Formatting.icon(for: item)
-            let marked = model.marked.contains(item.path) ? ", marked" : ""
-            accessibility = "\(item.name), \(Formatting.kindDescription(item))\(marked)"
-        case "ext": text = item.isDirectoryLike ? "" : split.ext
-        case "size":
-            text = Formatting.size(item)
-            accessibility = Formatting.spokenSize(item)
-        case "date": text = Formatting.date(item.modified)
-        default: text = Formatting.attributes(item)
+        let isSelected = model.selected.contains(item.path)
+        let text = def.text(item, columnContext)
+
+        cell.textField?.stringValue = text
+        if def.id == .name {
+            cell.imageView?.image = Icons.icon(for: item)
+            cell.spokenLabel = isSelected ? "\(text), selected" : nil
+        } else {
+            cell.spokenLabel = def.spoken(item, columnContext)
         }
         cell.style = item.isHidden ? .hidden : (item.isDirectoryLike ? .directory : .normal)
-        cell.isMarked = model.marked.contains(item.path)
-        cell.textField?.stringValue = text
-        cell.textField?.font = (id.rawValue == "size" || id.rawValue == "date") ? Theme.listDigitsFont
-            : (cell.style == .directory && id.rawValue == "name" ? Theme.listBoldFont : Theme.listFont)
-        cell.spokenLabel = accessibility
+        cell.isSelectedItem = isSelected
+        cell.textField?.font = def.alignment == .trailing || def.id == .modified || def.id == .created
+            ? Theme.listDigitsFont
+            : (cell.style == .directory && def.id == .name ? Theme.listBoldFont : Theme.listFont)
         return cell
     }
 
-    private func makeCell(_ id: NSUserInterfaceItemIdentifier) -> PaneCellView {
+    private func makeCell(_ id: NSUserInterfaceItemIdentifier, alignment: ColumnDefinition.Alignment) -> PaneCellView {
         let cell = PaneCellView()
         cell.identifier = id
         let field = CellTextField(labelWithString: "")
         field.lineBreakMode = .byTruncatingMiddle
         field.translatesAutoresizingMaskIntoConstraints = false
-        field.alignment = Self.columns.first { $0.id == id.rawValue }?.align ?? .left
+        field.alignment = alignment == .trailing ? .right : .left
         cell.addSubview(field)
         cell.textField = field
         var leading = field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2)
-        if id.rawValue == "name" {
+        if id.rawValue == ColumnID.name.rawValue {
             let image = NSImageView()
             image.translatesAutoresizingMaskIntoConstraints = false
             image.imageScaling = .scaleProportionallyDown
@@ -429,14 +591,14 @@ extension PaneViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        guard let d = tableView.sortDescriptors.first, let key = d.key.flatMap(SortKey.init(rawValue:)) else { return }
+        guard !isApplyingColumns,
+              let d = tableView.sortDescriptors.first, let key = d.key.flatMap(SortKey.init(rawValue:)) else { return }
         model.setSortOrder(ListSortOrder(key: key, ascending: d.ascending), cursor: cursorPath)
         delegate?.pane(self, announce: "Sorted by \(key.spokenName), \(d.ascending ? "ascending" : "descending")")
     }
 
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        // Keep the cursor visible after keyboard moves; nothing else to do - the cursor is the selection.
-    }
+    func tableViewColumnDidResize(_ notification: Notification) { saveColumnLayout() }
+    func tableViewColumnDidMove(_ notification: Notification) { saveColumnLayout() }
 }
 
 // MARK: - Keys
@@ -485,6 +647,23 @@ extension SortKey {
         case .ext: "extension"
         case .size: "size"
         case .modified: "date"
+        case .created: "creation date"
         }
     }
+}
+
+/// A menu item that runs a closure (for menus built on the fly).
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, action handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    @objc private func run() { handler() }
 }

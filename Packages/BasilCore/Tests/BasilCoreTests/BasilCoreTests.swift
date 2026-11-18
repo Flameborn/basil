@@ -154,3 +154,86 @@ import Testing
         #expect(!registry.perform(KeyChord(.enter), in: Ctx()))
     }
 }
+
+@Suite struct SizeFormatTests {
+    @Test func dynamicPicksLargestFittingUnit() {
+        let f = SizeFormat(unit: .dynamic, base: 1024)
+        #expect(f.string(0) == "0 B")
+        #expect(f.string(1023) == "1,023 B")
+        #expect(f.string(1024) == "1 KB")
+        #expect(f.string(1536) == "1.5 KB")
+        #expect(f.string(5 * 1024 * 1024) == "5 MB")
+        #expect(f.string(900 * 1024 * 1024) == "900 MB")
+        #expect(f.string(Int64(2.5 * 1024 * 1024 * 1024)) == "2.5 GB")
+    }
+
+    @Test func fixedUnitsAndDecimalBase() {
+        #expect(SizeFormat(unit: .bytes).string(1_234_567) == "1,234,567 B")
+        #expect(SizeFormat(unit: .kilobytes).string(10) == "0.1 KB")
+        #expect(SizeFormat(unit: .megabytes).string(150 * 1024 * 1024) == "150 MB")
+        #expect(SizeFormat(unit: .dynamic, base: 1000).string(1_500_000) == "1.5 MB")
+        #expect(SizeFormat(unit: .gigabytes, base: 1000).string(250_000_000) == "0.3 GB")
+    }
+}
+
+@Suite struct DateFormatTests {
+    let locale = Locale(identifier: "en_US_POSIX")
+    let date = Date(timeIntervalSince1970: 1_795_000_000) // 2026-11-18 ... UTC
+
+    @Test func patternCombinesDateAndTime() {
+        #expect(DateFormatSettings(datePattern: "yyyy-MM-dd", time: .twentyFourHour).pattern(locale: locale) == "yyyy-MM-dd HH:mm")
+        #expect(DateFormatSettings(datePattern: "MM-dd-yyyy", time: .twelveHour).pattern(locale: locale) == "MM-dd-yyyy h:mm a")
+        #expect(DateFormatSettings(datePattern: "dd.MM.yyyy", time: .hidden).pattern(locale: locale) == "dd.MM.yyyy")
+        #expect(!DateFormatSettings().pattern(locale: locale).isEmpty)
+    }
+
+    @Test func formattersUseSettings() {
+        let f = DisplayFormatters(size: SizeFormat(), date: DateFormatSettings(datePattern: "yyyy-MM-dd", time: .hidden), locale: locale)
+        #expect(f.date(date).count == 10)
+        #expect(f.date(nil) == "")
+    }
+}
+
+@Suite struct ColumnTests {
+    let ctx = ColumnDefinition.Context(formatters: DisplayFormatters(size: SizeFormat(), date: DateFormatSettings()), viewHasExtColumn: true)
+
+    @Test func nameIncludesExtensionOnlyWithoutExtColumn() throws {
+        let file = FileItem(path: .local("/t/song.mp3"), kind: .file, size: 1)
+        let name = try #require(ColumnCatalog.definition(.name))
+        #expect(name.text(file, ctx) == "song")
+        let briefCtx = ColumnDefinition.Context(formatters: ctx.formatters, viewHasExtColumn: false)
+        #expect(name.text(file, briefCtx) == "song.mp3")
+    }
+
+    @Test func directorySizeShowsDirAndSpeaksDir() throws {
+        let dir = FileItem(path: .local("/t/test"), kind: .directory)
+        let size = try #require(ColumnCatalog.definition(.size))
+        #expect(size.text(dir, ctx) == "<DIR>")
+        #expect(size.spoken(dir, ctx) == "dir")
+    }
+
+    @Test func nameColumnCannotBeHidden() {
+        var view = ListView.full
+        view.columns[0].isVisible = false
+        #expect(view.visibleColumns.first?.id == .name)
+    }
+}
+
+@MainActor
+@Suite struct SettingsTests {
+    @Test func persistsAndToleratesMissingKeys() throws {
+        let defaults = try #require(UserDefaults(suiteName: "basil-test-\(UUID())"))
+        let store = SettingsStore(defaults: defaults)
+        var changed = 0
+        store.onChange { _ in changed += 1 }
+        store.settings.size = SizeFormat(unit: .megabytes, base: 1000)
+        store.settings.bookmarks.append(Bookmark(name: "Tmp", path: .local("/tmp")))
+        #expect(changed == 2)
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.settings == store.settings)
+
+        let partial = try JSONDecoder().decode(BasilSettings.self, from: Data(#"{"goToRootOnVolumeSwitch":true}"#.utf8))
+        #expect(partial.goToRootOnVolumeSwitch)
+        #expect(partial.views.map(\.id) == ["brief", "full"])
+    }
+}

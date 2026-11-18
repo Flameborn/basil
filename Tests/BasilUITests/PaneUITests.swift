@@ -83,7 +83,70 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(.end, modifierFlags: [])
         leftTable.typeKey(" ", modifierFlags: [])
         let status = app.staticTexts["pane.left.status"]
-        XCTAssertTrue(waitFor { (status.value as? String)?.contains("1 of 4 files marked") == true }, "\(status.value ?? "")")
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("1 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
+        // The selected file's name cell is read with ", selected".
+        XCTAssertEqual(leftTable.tableRows.element(boundBy: 5).cells.element(boundBy: 0).staticTexts.firstMatch.label, "track, selected")
+    }
+
+    func testHomeAndEndKeys() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.end, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 5).isSelected })
+        leftTable.typeKey(.home, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
+    }
+
+    func testRowsReadLikeTotalCommanderColumns() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let folderRow = leftTable.tableRows.element(boundBy: 0)
+        XCTAssertEqual(folderRow.cells.element(boundBy: 0).staticTexts.firstMatch.label, "Alpha")
+        XCTAssertEqual(folderRow.cells.element(boundBy: 2).staticTexts.firstMatch.label, "dir")
+    }
+
+    func testBriefAndFullViews() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(XCUIKeyboardKey.F1, modifierFlags: .control)
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 1 })
+        // Brief has no Ext column, so names include the extension.
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song.mp3") }, "\(names(in: leftTable))")
+        leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: .control)
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 5 })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song") })
+    }
+
+    func testLocationsMenuOpensForCurrentPane() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("d", modifierFlags: .command)
+        XCTAssertTrue(app.menuItems["Home"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.menuItems["Add Current Folder to Bookmarks"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    func testColumnsAreConfigurableInSettings() throws {
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 5 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        let created = settings.checkBoxes["Created"]
+        XCTAssertTrue(created.waitForExistence(timeout: 2), settings.debugDescription)
+        created.click()
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 6 })
+        // Audits the app with the settings window in front.
+        try app.performAccessibilityAudit { issue in
+            if issue.auditType == .sufficientElementDescription, let element = issue.element,
+               element.elementType == .cell, element.label.isEmpty {
+                return true // deliberately silent file-list cells, see testMainWindowPassesAccessibilityAudit
+            }
+            // SwiftUI's own Picker pop-up button reports "Action is missing" to the audit although
+            // VoiceOver can open it (VO-Space). Verify manually with VoiceOver when changing pickers.
+            // Disabled controls (e.g. "Add Column" when every column is already in the view) have no action by design.
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            print("AUDIT settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
     }
 
     func testMainWindowPassesAccessibilityAudit() throws {

@@ -14,7 +14,7 @@ enum BuiltinCommands {
         weak let w = window
         func pane() -> PaneViewController? { w?.activePane }
 
-        let commands: [C] = [
+        var commands: [C] = [
             C(id: "pane.switch", title: "Switch Pane", defaultKeys: [K(.tab), K(.tab, .shift)]) { _ in w?.switchPane() },
             C(id: "pane.open", title: "Open", defaultKeys: [K(.enter), K(.down, .command)]) { _ in pane()?.openCursor() },
             C(id: "pane.parent", title: "Parent Folder", defaultKeys: [K(.backspace), K(.up, .command)]) { _ in pane()?.goToParent() },
@@ -23,33 +23,53 @@ enum BuiltinCommands {
                 p.model.reload(cursor: p.cursorPath)
                 ctx.announce("Reread")
             },
-            C(id: "pane.toggleHidden", title: "Show/Hide Hidden Files", defaultKeys: [K(.character("."), [.command, .shift])]) { ctx in
+            C(id: "pane.toggleHidden", title: "Show or Hide Hidden Files", defaultKeys: [K(.character("."), [.command, .shift])]) { ctx in
                 guard let p = pane() else { return }
                 p.model.setShowHidden(!p.model.showHidden, cursor: p.cursorPath)
                 ctx.announce(p.model.showHidden ? "Showing hidden files" : "Hiding hidden files")
             },
             C(id: "pane.quickFilter", title: "Quick Filter", defaultKeys: [K(.character("s"), .command)]) { _ in pane()?.showQuickFilter() },
+            C(id: "pane.readStatus", title: "Read Status Bar", defaultKeys: [K(.character("i"), .command)]) { ctx in
+                guard let p = pane() else { return }
+                ctx.announce(p.statusText)
+            },
+            C(id: "pane.locations", title: "Locations and Bookmarks", defaultKeys: [K(.character("d"), .command)]) { _ in
+                pane()?.showLocationsMenu()
+            },
+            C(id: "pane.locationsLeft", title: "Left Pane Locations", defaultKeys: [K(.function(1), .command)]) { _ in
+                w?.showLocationsMenu(for: .left)
+            },
+            C(id: "pane.locationsRight", title: "Right Pane Locations", defaultKeys: [K(.function(2), .command)]) { _ in
+                w?.showLocationsMenu(for: .right)
+            },
             C(id: "cursor.first", title: "First Item", defaultKeys: [K(.home)]) { _ in pane()?.moveCursor(to: 0) },
             C(id: "cursor.last", title: "Last Item", defaultKeys: [K(.end)]) { _ in pane()?.moveCursor(to: .max) },
 
-            // Marking (Total Commander "selection"): the cursor and the marks are separate.
-            C(id: "mark.toggle", title: "Mark/Unmark", defaultKeys: [K(.space)]) { _ in pane()?.toggleMarkAtCursor() },
-            C(id: "mark.toggleDown", title: "Mark and Move Down", defaultKeys: [K(.down, .shift)]) { _ in pane()?.toggleMarkAtCursor(advance: 1) },
-            C(id: "mark.toggleUp", title: "Mark and Move Up", defaultKeys: [K(.up, .shift)]) { _ in pane()?.toggleMarkAtCursor(advance: -1) },
-            C(id: "mark.all", title: "Mark All Files", defaultKeys: [K(.character("a"), .command)]) { ctx in
-                pane()?.model.markAllVisibleFiles()
-                ctx.announce("\(pane()?.model.marked.count ?? 0) marked")
+            // Selection (Total Commander "marking"): the cursor and the selection are separate.
+            C(id: "select.toggle", title: "Select or Deselect", defaultKeys: [K(.space)]) { _ in pane()?.toggleSelectionAtCursor() },
+            C(id: "select.toggleDown", title: "Select and Move Down", defaultKeys: [K(.down, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: 1) },
+            C(id: "select.toggleUp", title: "Select and Move Up", defaultKeys: [K(.up, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: -1) },
+            C(id: "select.allFiles", title: "Select All Files", defaultKeys: [K(.character("a"), .command)]) { ctx in
+                guard let p = pane() else { return }
+                p.model.selectAllFiles()
+                ctx.announce("Selected, \(itemCount(p.model.selected.count))")
             },
-            C(id: "mark.none", title: "Unmark All", defaultKeys: [K(.character("a"), [.command, .shift])]) { ctx in
-                pane()?.model.unmarkAll()
-                ctx.announce("All unmarked")
+            C(id: "select.none", title: "Deselect All", defaultKeys: [K(.character("a"), [.command, .shift])]) { ctx in
+                pane()?.model.deselectAll()
+                ctx.announce("Deselected")
             },
 
-            // Sorting (TC: Ctrl+F3...F6 -> Cmd+F3...F6).
+            // Sorting (TC: Ctrl+F3-F6 -> Cmd+F3-F6).
             C(id: "sort.name", title: "Sort by Name", defaultKeys: [K(.function(3), .command)]) { _ in pane()?.setSort(.name) },
             C(id: "sort.ext", title: "Sort by Extension", defaultKeys: [K(.function(4), .command)]) { _ in pane()?.setSort(.ext) },
             C(id: "sort.date", title: "Sort by Date", defaultKeys: [K(.function(5), .command)]) { _ in pane()?.setSort(.modified) },
             C(id: "sort.size", title: "Sort by Size", defaultKeys: [K(.function(6), .command)]) { _ in pane()?.setSort(.size) },
+
+            // Views (TC: Ctrl+F1 brief, Ctrl+F2 full; custom views from Ctrl+F3).
+            C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), .control)]) { _ in pane()?.setView(ListView.brief.id) },
+            C(id: "view.full", title: "Full View", defaultKeys: [K(.function(2), .control)]) { _ in pane()?.setView(ListView.full.id) },
+
+            C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
 
             // File operations: implemented in later milestones (M2/M3).
             C(id: "file.view", title: "View", defaultKeys: [K(.function(3))], isEnabled: { _ in false }) { _ in },
@@ -61,6 +81,15 @@ enum BuiltinCommands {
             C(id: "file.delete", title: "Delete", defaultKeys: [K(.function(8)), K(.forwardDelete)], isEnabled: { _ in false }) { _ in },
             C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)], isEnabled: { _ in false }) { _ in },
         ]
+
+        // Custom views 1-9 on Ctrl+F3 ... Ctrl+F11, in the order they appear in settings.
+        for n in 1...9 {
+            commands.append(C(id: CommandID(rawValue: "view.custom\(n)"), title: "Custom View \(n)",
+                              defaultKeys: [K(.function(n + 2), .control)],
+                              isEnabled: { _ in w?.customViewID(n) != nil }) { _ in
+                if let id = w?.customViewID(n) { pane()?.setView(id) }
+            })
+        }
         commands.forEach(registry.register)
     }
 }

@@ -3,13 +3,13 @@ import BasilVFS
 import Foundation
 
 /// State of one file pane: directory, sorted listing, visible rows (after hidden/filter),
-/// marks and the cursor. Heavy work (listing, sorting, filtering) runs off the main actor.
+/// selection and the cursor. Heavy work (listing, sorting, filtering) runs off the main actor.
 @MainActor
 final class PaneModel {
     enum Event {
         /// Rows were replaced. `cursor` is the path the cursor should land on, if any.
         case reloaded(cursor: VFSPath?)
-        case marksChanged
+        case selectionChanged
         case loadingChanged
         case failed(Error)
     }
@@ -21,7 +21,7 @@ final class PaneModel {
     private(set) var allItems: [FileItem] = []
     /// The visible items (after hidden/filter). There is no ".." row: Backspace goes up.
     private(set) var rows: [FileItem] = []
-    private(set) var marked: Set<VFSPath> = []
+    private(set) var selected: Set<VFSPath> = []
     private(set) var isLoading = false
     private(set) var sortOrder = ListSortOrder.default
     private(set) var showHidden = false
@@ -44,7 +44,7 @@ final class PaneModel {
         self.directory = directory
     }
 
-    var markedItems: [FileItem] { allItems.filter { marked.contains($0.path) } }
+    var selectedItems: [FileItem] { allItems.filter { selected.contains($0.path) } }
 
     // MARK: Loading
 
@@ -75,10 +75,10 @@ final class PaneModel {
                 self.directory = target
                 self.allItems = sorted
                 if changedDirectory {
-                    self.marked = []
+                    self.selected = []
                     self.filter = nil // Quick filter is cleared on directory change.
                 } else if !keepState {
-                    self.marked = self.marked.intersection(sorted.map(\.path))
+                    self.selected = self.selected.intersection(sorted.map(\.path))
                 }
                 if changedDirectory { self.startWatching(provider) }
                 await self.rebuildRows(cursor: cursor)
@@ -138,19 +138,19 @@ final class PaneModel {
 
     // MARK: Marks
 
-    func toggleMark(_ path: VFSPath) {
-        if marked.remove(path) == nil { marked.insert(path) }
-        onEvent?(.marksChanged)
+    func toggleSelection(_ path: VFSPath) {
+        if selected.remove(path) == nil { selected.insert(path) }
+        onEvent?(.selectionChanged)
     }
 
-    func markAllVisibleFiles() {
-        for item in rows where !item.isDirectoryLike { marked.insert(item.path) }
-        onEvent?(.marksChanged)
+    func selectAllFiles() {
+        for item in rows where !item.isDirectoryLike { selected.insert(item.path) }
+        onEvent?(.selectionChanged)
     }
 
-    func unmarkAll() {
-        marked.removeAll()
-        onEvent?(.marksChanged)
+    func deselectAll() {
+        selected.removeAll()
+        onEvent?(.selectionChanged)
     }
 
     // MARK: Watching
@@ -211,7 +211,7 @@ final class PaneModel {
             return result
         }.value
         allItems = patched
-        marked = marked.filter { path in updated[path] == nil || updated[path]! != nil }
+        selected = selected.filter { path in updated[path] == nil || updated[path]! != nil }
         await rebuildRows(cursor: cursorHint)
     }
 

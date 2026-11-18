@@ -146,16 +146,32 @@ Sync compares two directories (left and right panes), optionally including subdi
 
 ### Panes (implemented in BasilUI)
 
-- `PaneModel` (one per pane) owns directory, sorted `allItems`, visible `rows` (hidden/filter applied), marks and sort order. All listing, sorting and filtering runs in detached tasks. Every async result is checked against a generation counter, so stale results (older keystroke, older sort, older load) are dropped. Keep this pattern for anything async that writes model state.
-- **There is no ".." row.** Backspace or Cmd+Up goes to the parent folder, and the cursor lands on the folder you came from.
-- The cursor is the table's single selection. Marks (Total Commander "selection") are separate: `model.marked`, drawn in the marked colour.
-- Keys: `PaneTableView.keyDown` translates the event to a `KeyChord` and goes through `CommandRegistry` first. Plain printable characters are type-ahead (jump to the first name with that prefix). Built-in commands and their default keys live in `BuiltinCommands.swift`. Shifted keys bind on the unshifted character (Cmd+Shift+. is `.character(".")` with `.shift`).
-- Default keys: Tab switches pane. Enter or Cmd+Down opens. Backspace or Cmd+Up goes to the parent. Cmd+R rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Home and End jump to the first or last item. Space toggles a mark, and Shift+Up/Down marks while moving. Cmd+A marks all files, and Cmd+Shift+A unmarks all. Cmd+F3, F4, F5 and F6 sort by name, extension, date and size. F3-F8, Shift+F6 and Cmd+M are registered but disabled until their milestones.
-- VoiceOver:
-  - The lists are labelled only "Left pane" / "Right pane". The pane container is not an accessibility element.
-  - Each `PaneCellView` is the accessibility element (static text), with `spokenLabel`, e.g. "song.mp3, file, marked". The inner text field is hidden. Empty cells, or cells with `spokenLabel == ""`, are skipped; for example a folder's "<DIR>" size is silent.
-  - State changes are spoken through `WorkspaceContext.announce`: directory loaded, pane switched, mark counts, sort, filter results, errors.
-- Colours are drawn in views (`ThemedBox`, row views), not set as layer `cgColor`, so light/dark switches apply immediately.
+- **State and async work:** `PaneModel` (one per pane) owns the directory, sorted `allItems`, visible `rows` (hidden files and the filter applied), the `selected` set and the sort order. Listing, sorting and filtering run in detached tasks. Every async result is checked against a generation counter, so stale results from an older keystroke, sort or load are dropped. Keep this pattern for anything async that writes model state.
+- **Navigation:** there is no ".." row. Backspace or Cmd+Up goes to the parent folder, and the cursor lands on the folder you came from.
+- **Selection:** the user-facing word is "selected", never "marked". The cursor is the table's single selection; selected items (Total Commander "marking") are separate, in `model.selected`, and drawn in the selection colour.
+- **Keys:** `PaneTableView.keyDown` turns the event into a `KeyChord` and tries `CommandRegistry` first. Plain printable characters are type-ahead. Commands and their default keys live in `BuiltinCommands.swift`. Function and navigation keys keep their raw key code; other keys bind on the unshifted character (Cmd+Shift+. is `.character(".")` with `.shift`).
+- **Default keys:**
+  - Tab switches pane. Enter or Cmd+Down opens. Backspace or Cmd+Up goes to the parent folder.
+  - Home and End (Fn+Left/Right on Mac keyboards) jump to the first or last item.
+  - Cmd+R rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Cmd+I reads the status bar.
+  - Cmd+D opens the locations menu for the current pane, Cmd+F1 for the left pane, Cmd+F2 for the right.
+  - Space selects or deselects. Shift+Up/Down selects while moving. Cmd+A selects all files. Cmd+Shift+A deselects all.
+  - Cmd+F3, F4, F5 and F6 sort by name, extension, date and size.
+  - Ctrl+F1 is Brief view, Ctrl+F2 Full view, and Ctrl+F3-F11 custom views 1-9.
+  - Cmd+, opens Settings.
+  - F3-F8, Shift+F6 and Cmd+M are registered but disabled until their milestones.
+- **Views and columns:** a view (`ListView`) is an ordered list of `ColumnSpec` (id, visible, width). Brief and Full are built in; users add custom views in Settings. Columns come from `ColumnCatalog` (BasilCore), which plugins can extend. Each `ColumnDefinition` gives the display text and optionally different spoken text.
+  - The Name column shows the full name when the view has no Ext column; otherwise it omits the extension.
+  - Resizing or dragging columns in the table header writes back to the view, debounced.
+- **Settings:** `SettingsStore` (BasilCore, `@Observable`) is persisted as JSON in UserDefaults and is tolerant of missing keys. AppKit code observes it with `onChange`. It holds size format (unit and 1024/1000 base), date format (pattern plus time format), views, the go-to-root-on-volume-switch flag, and bookmarks. The Settings window is SwiftUI (`SettingsWindow.swift`), with Move Up/Down buttons and also VoiceOver actions for reordering.
+- **Locations menu:** an NSMenu listing Home, volumes, bookmarks, "Add Current Folder to Bookmarks" and "Manage Bookmarks...". Choosing a volume restores the last folder visited on it (per pane) unless the go-to-root setting is on.
+- **VoiceOver speech rules (the user asked for minimal chatter):**
+  - The lists are labelled only "Left pane" / "Right pane". Nothing is announced on Tab or on a folder change; VoiceOver reads the item under the cursor.
+  - Rows read like Total Commander columns: "test, dir, date, ..." or "song, mp3, 1.5 MB, ...". No "file" or "folder" word is added. A selected item's name reads "song, selected".
+  - Space says "Selected, 2 items", "Deselected, 1 item", or just "Deselected" when nothing is left selected.
+  - Each `PaneCellView` is the accessibility element (static text) with an optional `spokenLabel`, and the inner text field is hidden. Empty cells are skipped.
+  - The path header is an accessible static text labelled "Path".
+- **Colours** are drawn in views (`ThemedBox`, row views), not set as layer `cgColor`, so light/dark switches apply immediately.
 
 ### Large directories
 
@@ -185,7 +201,8 @@ swift test --package-path Packages/BasilOperations --filter SecureCopyTests/sour
 for p in Packages/*/; do swift test --package-path "$p"; done   # all package tests
 ```
 
-- UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`) and start both panes in it. Forced start folders are never saved as the user's start folders.
+- UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`), start both panes in it, and use an isolated preferences domain (`com.erion.basil.uitests`, wiped each launch). Tests must never touch the user's real settings. Pass `UserDefaults` in explicitly; don't use `UserDefaults.standard` in BasilUI.
+- The accessibility audit has three documented exceptions in the tests: empty table cells that are silent on purpose, SwiftUI Picker pop-ups ("Action is missing", a false positive), and disabled controls. Anything else fails the test.
 - 200k-item benchmark (skipped unless `BASIL_PERF_DIR` is set): `BASIL_PERF_DIR=/path/to/big swift test -c release --package-path Packages/BasilUI --filter largeDirectory`. Last result: load and sort 0.87 s, re-sort 0.10 s, filter 0.04 s.
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.
 - `xcodebuild` prints `DVTCoreDeviceCore` / "CoreSimulator is out of date" plug-in errors on this machine. They are Xcode environment noise and do not affect macOS builds.
