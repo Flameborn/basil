@@ -1,0 +1,21 @@
+# Xcode / XcodeGen
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+build/
+App/Resources/Info.plist
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Vendored build outputs (sources are committed, products are rebuilt by scripts/bootstrap.sh)
+Vendor/build/
+Vendor/products/
+
+# Local overrides
+Config/*.local.xcconfig
+
+.DS_Store

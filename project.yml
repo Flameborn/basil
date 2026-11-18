@@ -1,0 +1,74 @@
+name: Basil
+options:
+  bundleIdPrefix: com.erion
+  deploymentTarget:
+    macOS: "27.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
+
+packages:
+  BasilCore: { path: Packages/BasilCore }
+  BasilVFS: { path: Packages/BasilVFS }
+  BasilOperations: { path: Packages/BasilOperations }
+  BasilArchives: { path: Packages/BasilArchives }
+  BasilRemote: { path: Packages/BasilRemote }
+  BasilGit: { path: Packages/BasilGit }
+  BasilSearch: { path: Packages/BasilSearch }
+  BasilSync: { path: Packages/BasilSync }
+  BasilPlugins: { path: Packages/BasilPlugins }
+  BasilIntegrations: { path: Packages/BasilIntegrations }
+  BasilUI: { path: Packages/BasilUI }
+
+targets:
+  Basil:
+    type: application
+    platform: macOS
+    sources: [App/Sources]
+    info:
+      path: App/Resources/Info.plist
+      properties:
+        CFBundleName: Basil
+        CFBundleDisplayName: Basil
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.utilities
+        NSHumanReadableCopyright: ""
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil
+        PRODUCT_NAME: Basil
+    dependencies:
+      - package: BasilCore
+      - package: BasilVFS
+      - package: BasilOperations
+      - package: BasilArchives
+      - package: BasilRemote
+      - package: BasilGit
+      - package: BasilSearch
+      - package: BasilSync
+      - package: BasilPlugins
+      - package: BasilIntegrations
+      - package: BasilUI
+
+  BasilUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [Tests/BasilUITests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Basil
+    dependencies:
+      - target: Basil
+
+schemes:
+  Basil:
+    build:
+      targets:
+        Basil: all
+    test:
+      targets: [BasilUITests]

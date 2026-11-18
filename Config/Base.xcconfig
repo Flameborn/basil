@@ -1,0 +1,13 @@
+// Shared build settings for all Basil targets.
+MACOSX_DEPLOYMENT_TARGET = 27.0
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+
+// Signing: a stable local identity (NOT ad hoc) so the Full Disk Access grant
+// survives rebuilds. Override in Config/Signing.local.xcconfig (gitignored).
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = dev
+DEVELOPMENT_TEAM =
+ENABLE_HARDENED_RUNTIME = NO
+
+#include? "Signing.local.xcconfig"
