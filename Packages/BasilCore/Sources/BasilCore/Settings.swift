@@ -21,6 +21,10 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     /// Switching to a volume from the drive menu goes to its root instead of the last folder visited there.
     public var goToRootOnVolumeSwitch = false
     public var bookmarks: [Bookmark] = []
+    /// Copying and moving: read the destination back and compare hashes (off by default).
+    public var verifyCopies = false
+    /// Automatic re-reads of a source that changes during a copy, before asking what to do.
+    public var unstableSourceRetries = 3
 
     public init() {}
 
@@ -32,6 +36,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         views = try c.decodeIfPresent([ListView].self, forKey: .views) ?? d.views
         goToRootOnVolumeSwitch = try c.decodeIfPresent(Bool.self, forKey: .goToRootOnVolumeSwitch) ?? d.goToRootOnVolumeSwitch
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? d.bookmarks
+        verifyCopies = try c.decodeIfPresent(Bool.self, forKey: .verifyCopies) ?? d.verifyCopies
+        unstableSourceRetries = try c.decodeIfPresent(Int.self, forKey: .unstableSourceRetries) ?? d.unstableSourceRetries
         // Built-in views must always exist.
         for builtin in ListView.defaults where !views.contains(where: { $0.id == builtin.id }) {
             views.append(builtin)

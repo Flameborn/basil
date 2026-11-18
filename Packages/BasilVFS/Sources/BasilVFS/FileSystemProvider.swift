@@ -1,4 +1,5 @@
 import BasilCore
+import Foundation
 import Synchronization
 
 /// Errors any provider may surface. Providers wrap underlying errors where possible.
@@ -8,6 +9,25 @@ public enum VFSError: Error, Sendable, Equatable {
     case permissionDenied(VFSPath)
     case noProvider(ProviderLocation)
     case posix(code: Int32, path: VFSPath)
+    case alreadyExists(VFSPath)
+    case directoryNotEmpty(VFSPath)
+    /// The provider or volume can't do this (for example clone on a non-APFS volume).
+    case unsupported(String)
+}
+
+extension VFSError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notFound(let p): "\(p) does not exist"
+        case .notADirectory(let p): "\(p) is not a folder"
+        case .permissionDenied(let p): "No permission for \(p)"
+        case .noProvider(let l): "No provider for \(l.provider)"
+        case .posix(let code, let p): "\(String(cString: strerror(code))) (\(p))"
+        case .alreadyExists(let p): "\(p) already exists"
+        case .directoryNotEmpty(let p): "\(p) is not empty"
+        case .unsupported(let what): "Not supported: \(what)"
+        }
+    }
 }
 
 /// A change reported by a provider's watcher. Consumers re-stat or re-list as needed.
@@ -19,7 +39,7 @@ public enum VFSChange: Sendable, Equatable {
 }
 
 /// The interface every location type (local, SFTP, archive, ...) implements.
-/// Mutating calls are added with the Operations milestone (M2).
+/// Mutating calls live in `WritableProvider`.
 public protocol FileSystemProvider: Sendable {
     var location: ProviderLocation { get }
     var capabilities: ProviderCapabilities { get }
@@ -52,6 +72,14 @@ public final class ProviderRegistry: Sendable {
 
     public func provider(for location: ProviderLocation) throws -> any FileSystemProvider {
         guard let p = providers.withLock({ $0[location] }) else { throw VFSError.noProvider(location) }
+        return p
+    }
+
+    /// The provider for `location` if it supports mutating calls.
+    public func writableProvider(for location: ProviderLocation) throws -> any WritableProvider {
+        guard let p = try provider(for: location) as? any WritableProvider else {
+            throw VFSError.unsupported("writing to \(location.provider)")
+        }
         return p
     }
 }

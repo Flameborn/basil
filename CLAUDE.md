@@ -136,6 +136,15 @@ Sync compares two directories (left and right panes), optionally including subdi
 - **Stateless:** like Total Commander, sync keeps no history database, so a file that exists on one side only is offered as a copy, not detected as a deletion.
 - **Execution:** sync turns into queue operations that use the secure copy engine.
 
+### Copy engine (implemented)
+
+- `SecureCopyEngine` (BasilOperations, `SecureCopyEngine.swift`) does the work for copy and move. `transfer(_:to:mode:)` handles a file, symlink or folder tree (existing destination folders are merged); `transferFile` does one file. It talks to its runner through `TransferMonitor` (checkpoint, log, bytes transferred, and `decide` for a source that keeps changing).
+- Providers that can be written implement `WritableProvider` (BasilVFS, `ProviderIO.swift`): fingerprint, metadata read/apply, volume identifier, open for reading, create file, rename (with or without replacing), clone, remove, mkdir, symlinks, synchronize, `maxTransferChunkSize`. `LocalProvider+Write.swift` does blocking I/O on its own dispatch queue (`LocalIO`), never on the cooperative pool.
+- Strategy choice: move on the same volume renames; copy on the same volume clones (falls back to streaming when the volume can't clone); everything else streams. Same volume means same provider location and equal `volumeIdentifier`.
+- Stream pass: the next chunk is read while the current one is hashed (BLAKE3) and written. Later passes write only chunks whose hash changed, then truncate. Metadata is applied to the partial file, then F_FULLFSYNC, then rename; BSD flags go on after the rename.
+- Tests (`SecureCopyTests.swift`) use internal `EngineHooks` to change the source after a given chunk or clone and to force the stream strategy on one volume. Keep adding a test for every new strategy or provider.
+- `Vendor/BLAKE3` is an unmodified copy of the official C code (see its `VERSION`); BasilOperations depends on it by path.
+
 ### Accessibility requirements
 
 - Every interactive element needs a correct accessibility role, label and value. Panes expose rows and cells as proper table rows and cells.
@@ -214,4 +223,5 @@ for p in Packages/*/; do swift test --package-path "$p"; done   # all package te
 - 200k-item benchmark (skipped unless `BASIL_PERF_DIR` is set): `BASIL_PERF_DIR=/path/to/big swift test -c release --package-path Packages/BasilUI --filter largeDirectory`. Last result: load and sort 0.87 s, re-sort 0.10 s, filter 0.04 s.
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.
 - `xcodebuild` prints `DVTCoreDeviceCore` / "CoreSimulator is out of date" plug-in errors on this machine. They are Xcode environment noise and do not affect macOS builds.
-- `scripts/bootstrap.sh` (building vendored C deps into `Vendor/`) does not exist yet. It is blocked on open questions in `progress.md`.
+- `scripts/bootstrap.sh` (building vendored C deps into `Vendor/`) does not exist yet. It is blocked on open questions in `progress.md`. BLAKE3 does not need it: `Vendor/BLAKE3` is a SwiftPM package of C sources (`swift test --package-path Vendor/BLAKE3`).
+- SwiftUI `Toggle` and `Stepper` inside a grouped `Form` expose no label on the switch/stepper itself (the text is a separate static text). Always add `.accessibilityLabel` with the same text.

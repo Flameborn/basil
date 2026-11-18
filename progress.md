@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M2 started: the operation queue and its panel are done; real operations (copy engine etc.) are next. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 in progress: the operation queue and its panel are done, and the SecureCopyEngine (rename / clone / chunked stream with BLAKE3 delta re-copy, tested against appended, truncated and rewritten sources) is done. Next: F5/F6 copy and move as queue operations with the TC-style conflict dialog and the unstable-source prompt. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -47,11 +47,15 @@ M0 done. M2 started: the operation queue and its panel are done; real operations
 | 2026-11-18 | The operation queue does not survive app restarts |
 | 2026-11-18 | Queue panel: Cmd+J, floating window (panes stay usable); new operations start right away when the queue is idle |
 | 2026-11-18 | Queue list keys: Space pause/resume, Cmd+Up/Down move, Delete cancel and remove; same as buttons and VoiceOver actions |
+| 2026-11-18 | BLAKE3: official C sources (portable + NEON, tag 1.8.7) vendored unmodified in `Vendor/BLAKE3` as a SwiftPM package; no build script needed |
+| 2026-11-18 | Copy chunk size is adaptive by file size, chosen once per file: under 64 MB 1 MB, 64 MB to 1 GB 4 MB, over 1 GB 8 MB; remote providers capped at 1 MB (`maxTransferChunkSize`) |
+| 2026-11-18 | Copy conflicts (for F5/F6): Total Commander set: Overwrite, Skip, Overwrite all older, Overwrite all, Skip all, Rename (auto-number), sizes and dates shown, Cancel |
+| 2026-11-18 | Read-back verification runs on the partial file before it is renamed into place, so a bad copy never appears under the real name |
+| 2026-11-18 | "Accept latest stable snapshot" keeps the last pass's copy; a move then keeps the source. A move re-checks the source fingerprint right before deleting it |
+| 2026-11-18 | Settings has a Copying tab: verify copies (off), retries for a changing source (default 3) |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
-
-- [ ] Copy chunk size: fixed 1 MB, or adaptive by file size and volume type?
 
 - [ ] Multi-rename: should the first version include all of Total Commander's placeholders (incl. EXIF/ID3 metadata fields), or start with the core set?
 - [ ] Crypto backend for libssh2: OpenSSL 3 or mbedTLS?
@@ -65,13 +69,15 @@ M0 done. M2 started: the operation queue and its panel are done; real operations
 - [ ] Sound effects: which operations play sounds, which sound files are bundled, and per-event configuration?
 - [ ] Themes: should users be able to edit/create colour themes (and import/export them)?
 
+- [ ] UI tests are timing-flaky in the full suite: `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
+
 - [ ] Git scope for the first version: status/commit/pull/push/checkout/branch. Also diff, stash, log, blame?
 
 ## Milestones
 
 ### M0 - Foundation
 - [x] `git init`, `.gitignore`, `project.yml`, app target, package skeletons (Basil* packages)
-- [ ] `scripts/bootstrap.sh` for vendored deps (blocked: libssh2 crypto, 7-Zip, UnRAR, LuaJIT build questions)
+- [ ] `scripts/bootstrap.sh` for vendored deps (blocked: libssh2 crypto, 7-Zip, UnRAR, LuaJIT build questions). BLAKE3 needs none: vendored as sources in `Vendor/BLAKE3`
 - [x] Signing with stable local identity `dev` (Config/Base.xcconfig)
 - [ ] Document / prompt for the Full Disk Access flow in-app
 - [x] Local build + test commands working (in CLAUDE.md)
@@ -91,9 +97,10 @@ M0 done. M2 started: the operation queue and its panel are done; real operations
 
 ### M2 - Operations
 - [x] Operation queue (serial, pause/reorder/cancel, per-item log) + queue window (Cmd+J); tested with a Debug-menu test operation until real operations exist
-- [ ] SecureCopyEngine: rename / clonefile / single-pass chunked copy + delta re-copy; tests for appended, truncated and rewritten sources in each strategy
-- [ ] Optional destination read-back verification setting
-- [ ] Copy, move, delete, mkdir, rename; conflict dialogs
+- [x] SecureCopyEngine: rename / clonefile / single-pass chunked copy + delta re-copy; tests for appended, truncated and rewritten sources in each strategy (`WritableProvider` API in BasilVFS, BLAKE3 vendored)
+- [x] Optional destination read-back verification setting (Settings, Copying tab; engine option)
+- [ ] Queue integration of the engine: copy/move queue operation, unstable-source prompt (Keep retrying / Accept / Skip / Cancel) shown from the queue
+- [ ] Copy (F5), move (F6), delete, mkdir, rename; TC-style conflict dialog
 - [ ] Sound effects for operation events
 - [ ] Multi-rename tool (masks, counter, search/replace + regex, case, preview grid, presets, undo, cycle-safe batch op)
 

@@ -153,6 +153,27 @@ final class PaneUITests: XCTestCase {
         }
     }
 
+    func testCopySettingsTab() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copying'")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
+        tab.click()
+        let verify = settings.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Verify copies by reading the destination back'")).firstMatch
+        XCTAssertTrue(verify.waitForExistence(timeout: 2), settings.debugDescription)
+        XCTAssertEqual(verify.elementType, .switch)
+        XCTAssertEqual(verify.value as? Int, 0, "verification is off by default")
+        XCTAssertTrue(settings.steppers["Retries when a file changes during copying"].exists, settings.debugDescription)
+        try app.performAccessibilityAudit { issue in
+            if issue.auditType == .action, let element = issue.element, !element.isEnabled { return true }
+            print("AUDIT copy settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+    }
+
     func testMainWindowPassesAccessibilityAudit() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         XCTAssertTrue(rightTable.exists)
@@ -162,3 +183,4 @@ final class PaneUITests: XCTestCase {
         }
     }
 }
+
