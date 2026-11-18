@@ -65,7 +65,7 @@ M0 skeleton done: git repo, XcodeGen project, 11 module packages, app showing an
 - [x] Local build + test commands working (in CLAUDE.md)
 
 ### M1 — Core browsing
-- [ ] BasilCore models, VFSPath, ProviderRegistry, LocalProvider
+- [x] BasilCore models (VFSPath, FileItem, capabilities), ProviderRegistry, LocalProvider (getattrlistbulk streaming), FSEvents DirectoryWatcher
 - [ ] Dual-pane AppKit UI, streamed listing, sorting, FSEvents diffs (benchmark with 200k+ entries)
 - [ ] Full VoiceOver support for panes + accessibility audit UI test
 - [ ] Keyboard model, CommandRegistry, keybindings
