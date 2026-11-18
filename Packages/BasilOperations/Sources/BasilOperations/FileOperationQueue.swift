@@ -30,11 +30,36 @@ extension QueueOperation {
 public enum QueuePrompt: Sendable {
     case conflict(FileConflict)
     case unstableSource(UnstableSource)
+    case itemFailed(ItemFailure)
 }
 
 public enum QueuePromptAnswer: Sendable, Equatable {
     case conflict(ConflictChoice)
     case unstableSource(UnstableSourceDecision)
+    case itemFailed(ItemFailureChoice)
+}
+
+/// One item of a copy, move or delete failed, e.g. "Cannot copy notes.txt: Permission denied".
+public struct ItemFailure: Sendable, Equatable {
+    public let path: VFSPath
+    /// "copy", "move", "delete" or "move to the Trash".
+    public let action: String
+    public let reason: String
+
+    public init(path: VFSPath, action: String, reason: String) {
+        self.path = path
+        self.action = action
+        self.reason = reason
+    }
+
+    public var question: String { "Cannot \(action) \(path.name)" }
+}
+
+/// Total Commander's error dialog. "Skip All" skips every later failure of the same operation.
+public enum ItemFailureChoice: Sendable, Equatable {
+    case retry, skip, skipAll, cancel
+    /// Stop and mark the operation failed with the error. Used when nobody can be asked.
+    case fail
 }
 
 /// Total Commander's overwrite dialog.
@@ -138,7 +163,7 @@ public final class FileOperationQueue {
 
     @ObservationIgnored public var onEvent: ((QueueEvent) -> Void)?
     /// Shows a prompt to the user and returns the answer. Without a handler, conflicts are
-    /// skipped and a changing source is skipped.
+    /// skipped, a changing source is skipped and a failed item fails the operation.
     @ObservationIgnored public var promptHandler: ((QueueItem, QueuePrompt) async -> QueuePromptAnswer)?
 
     public init() {}
@@ -231,6 +256,7 @@ public final class FileOperationQueue {
         switch prompt {
         case .conflict(let c): question = "\(c.destination.name) already exists"
         case .unstableSource(let u): question = "\(u.path.name) keeps changing"
+        case .itemFailed(let f): question = "\(f.question): \(f.reason)"
         }
         item.log.append("Waiting for a decision: \(question)")
         onEvent?(event(.needsDecision, item, reason: question))
@@ -239,6 +265,7 @@ public final class FileOperationQueue {
             switch prompt {
             case .conflict: return .conflict(.skip)
             case .unstableSource: return .unstableSource(.skip)
+            case .itemFailed: return .itemFailed(.fail)
             }
         }
         return await handler(item, prompt)

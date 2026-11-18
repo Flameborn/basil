@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Next: multi-rename, retry/skip prompt on errors, and the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel. Next: multi-rename (core placeholders first), and the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -63,11 +63,12 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-18 | F8 / Forward Delete moves to the Trash, Shift+F8 / Shift+Forward Delete deletes permanently (TC: recycle bin by default) |
 | 2026-11-18 | F5/F6/F7/Shift+F6/F8 dialogs are NSAlert sheets with a text field (rename: sheet, not TC's inline edit; decided by Claude, change if wrong) |
 | 2026-11-18 | Speech counts top-level items ("2 items copied"), not every file inside folders |
+| 2026-11-18 | Multi-rename starts with the core placeholders ([N], [E], ranges, [C] counter, date/time), search and replace, case; EXIF/ID3 fields later |
+| 2026-11-18 | Item errors in copy, move and delete ask Retry / Skip / Skip All / Cancel (TC); the operation still ends "finished" when items were skipped, the log lists them. New folder and rename just fail (one item) |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
 
-- [ ] Multi-rename: should the first version include all of Total Commander's placeholders (incl. EXIF/ID3 metadata fields), or start with the core set?
 - [ ] Crypto backend for libssh2: OpenSSL 3 or mbedTLS?
 - [ ] FTP implementation: system libcurl, or a custom client?
 - [ ] Dropbox: official SwiftyDropbox SDK, or direct REST via URLSession?
@@ -113,7 +114,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [x] Copy (F5), move (F6), delete (F8 Trash, Shift+F8 permanent), mkdir (F7), rename (Shift+F6); TC-style conflict dialog
 - [x] "Secure copy and move" setting (off = TC style)
 - [x] Sounds and speech for operation events (Settings, Sounds and Speech tab)
-- [ ] Retry / Skip / Skip All / Cancel prompt when an item fails (now the whole operation fails)
+- [x] Retry / Skip / Skip All / Cancel prompt when an item of a copy, move or delete fails
 - [ ] Verified by the user with VoiceOver: dialogs, speech wording
 - [ ] Multi-rename tool (masks, counter, search/replace + regex, case, preview grid, presets, undo, cycle-safe batch op)
 

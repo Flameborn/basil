@@ -112,8 +112,11 @@ extension MainWindowController {
 
     func answer(_ prompt: QueuePrompt) async -> QueuePromptAnswer {
         guard let window else {
-            if case .conflict = prompt { return .conflict(.skip) }
-            return .unstableSource(.skip)
+            switch prompt {
+            case .conflict: return .conflict(.skip)
+            case .unstableSource: return .unstableSource(.skip)
+            case .itemFailed: return .itemFailed(.fail)
+            }
         }
         window.makeKeyAndOrderFront(nil)
         switch prompt {
@@ -138,6 +141,19 @@ extension MainWindowController {
             for (title, _) in choices { alert.addButton(withTitle: title) }
             let index = await present(alert, in: window)
             return .unstableSource(choices.indices.contains(index) ? choices[index].1 : .cancel)
+        case .itemFailed(let f):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = f.question
+            // Most reasons already name the full path; only add the folder when they don't.
+            let folder = f.path.parent?.path ?? ""
+            alert.informativeText = f.reason.contains(folder) ? f.reason : "\(f.reason)\nIn \(folder)"
+            let choices: [(String, ItemFailureChoice)] = [
+                ("Retry", .retry), ("Skip", .skip), ("Skip All", .skipAll), ("Cancel", .cancel),
+            ]
+            for (title, _) in choices { alert.addButton(withTitle: title) }
+            let index = await present(alert, in: window)
+            return .itemFailed(choices.indices.contains(index) ? choices[index].1 : .cancel)
         }
     }
 

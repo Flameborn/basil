@@ -1,5 +1,6 @@
 import BasilCore
 import BasilVFS
+import Darwin
 import Foundation
 import Synchronization
 import Testing
@@ -299,5 +300,152 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         try box.write("other", Data())
         let clash = await run(queue, RenameOperation(source: box.path("Made"), destination: box.path("other"), registry: registry))
         if case .failed = clash.state {} else { Issue.record("rename onto an existing item should fail") }
+    }
+}
+
+/// Retry / Skip / Skip All / Cancel when one item fails. Files are made unreadable (mode 000)
+/// or undeletable (parent folder mode 555) to fail on purpose.
+@MainActor
+@Suite struct ItemFailureTests {
+    let registry: ProviderRegistry = {
+        let r = ProviderRegistry()
+        r.register(LocalProvider())
+        return r
+    }()
+
+    func run(_ queue: FileOperationQueue, _ op: any QueueOperation) async -> QueueItem {
+        let item = queue.add(op)
+        _ = await waitUntil { item.state.isDone }
+        return item
+    }
+
+    func chmod(_ p: VFSPath, _ mode: mode_t) { _ = Darwin.chmod(p.path, mode) }
+
+    /// src/a.txt, src/bad.txt (unreadable), src/c.txt
+    func makeTree(_ box: Sandbox, bad: [String] = ["bad.txt"]) throws -> VFSPath {
+        try box.mkdir("src")
+        try box.mkdir("out")
+        for name in ["a.txt", "c.txt"] + bad { try box.write("src/\(name)", Data(name.utf8)) }
+        for name in bad { chmod(box.path("src/\(name)"), 0) }
+        return box.path("src")
+    }
+
+    func copy(_ mode: TransferMode, _ src: VFSPath, _ box: Sandbox, secure: Bool) -> TransferOperation {
+        TransferOperation(mode: mode, sources: [src], target: box.path("out"), registry: registry,
+                          options: SecureCopyOptions(secure: secure))
+    }
+
+    @Test(arguments: [true, false])
+    func skipLeavesOutTheFailedFileAndGoesOn(secure: Bool) async throws {
+        let box = try Sandbox()
+        let src = try makeTree(box)
+        defer { chmod(box.path("src/bad.txt"), 0o644) }
+        let queue = FileOperationQueue()
+        var failures: [ItemFailure] = []
+        queue.promptHandler = { _, prompt in
+            guard case .itemFailed(let f) = prompt else { return .conflict(.cancel) }
+            failures.append(f)
+            return .itemFailed(.skip)
+        }
+        let item = await run(queue, copy(.copy, src, box, secure: secure))
+        #expect(item.state == .finished)
+        #expect(failures.map(\.path) == [box.path("src/bad.txt")])
+        #expect(failures.first?.question == "Cannot copy bad.txt")
+        #expect(try box.names("out/src") == ["a.txt", "c.txt"])
+        #expect(item.log.contains { $0.hasPrefix("Skipped \(box.path("src/bad.txt").path)") })
+    }
+
+    @Test func moveKeepsSkippedSourceAndItsFolder() async throws {
+        let box = try Sandbox()
+        let src = try makeTree(box, bad: [])
+        // A file in a read-only folder cannot be renamed or deleted, so moving it fails.
+        try box.mkdir("src/locked")
+        try box.write("src/locked/bad.txt", Data())
+        chmod(box.path("src/locked"), 0o555)
+        defer { chmod(box.path("src/locked"), 0o755) }
+        let queue = FileOperationQueue()
+        var asked: [VFSPath] = []
+        queue.promptHandler = { _, prompt in
+            if case .itemFailed(let f) = prompt { asked.append(f.path) }
+            return .itemFailed(.skip)
+        }
+        // Into an existing, non-empty folder of the same name, so the move merges item by item.
+        try box.mkdir("out/src")
+        try box.write("out/src/z.txt", Data())
+        let item = await run(queue, copy(.move, src, box, secure: true))
+        #expect(item.state == .finished)
+        #expect(asked == [box.path("src/locked/bad.txt")])
+        #expect(try box.names("out/src") == ["a.txt", "c.txt", "locked", "z.txt"])
+        #expect(try box.names("src") == ["locked"])
+        #expect(try box.names("src/locked") == ["bad.txt"])
+        #expect(item.itemsDone == 0)
+    }
+
+    @Test func retryRunsTheItemAgain() async throws {
+        let box = try Sandbox()
+        let src = try makeTree(box)
+        let bad = box.path("src/bad.txt")
+        let queue = FileOperationQueue()
+        var asked = 0
+        queue.promptHandler = { _, _ in
+            asked += 1
+            Darwin.chmod(bad.path, 0o644)
+            return .itemFailed(.retry)
+        }
+        let item = await run(queue, copy(.copy, src, box, secure: true))
+        #expect(item.state == .finished)
+        #expect(asked == 1)
+        #expect(try box.names("out/src") == ["a.txt", "bad.txt", "c.txt"])
+        #expect(try contents(box.path("out/src/bad.txt")) == Data("bad.txt".utf8))
+        #expect(item.itemsDone == 1)
+    }
+
+    @Test func skipAllAsksOnlyOnce() async throws {
+        let box = try Sandbox()
+        let src = try makeTree(box, bad: ["bad1.txt", "bad2.txt"])
+        defer { for n in ["bad1.txt", "bad2.txt"] { chmod(box.path("src/\(n)"), 0o644) } }
+        let queue = FileOperationQueue()
+        var asked = 0
+        queue.promptHandler = { _, _ in asked += 1; return .itemFailed(.skipAll) }
+        let item = await run(queue, copy(.copy, src, box, secure: false))
+        #expect(item.state == .finished)
+        #expect(asked == 1)
+        #expect(try box.names("out/src") == ["a.txt", "c.txt"])
+    }
+
+    @Test func cancelStopsAndWithoutHandlerItFails() async throws {
+        let box = try Sandbox()
+        let src = try makeTree(box)
+        defer { chmod(box.path("src/bad.txt"), 0o644) }
+        let queue = FileOperationQueue()
+        queue.promptHandler = { _, _ in .itemFailed(.cancel) }
+        let cancelled = await run(queue, copy(.copy, src, box, secure: true))
+        #expect(cancelled.state == .cancelled)
+
+        queue.promptHandler = nil
+        let failed = await run(queue, copy(.copy, src, box, secure: true))
+        if case .failed = failed.state {} else { Issue.record("expected failed, got \(failed.state)") }
+    }
+
+    @Test func deleteSkipsWhatCannotBeRemoved() async throws {
+        let box = try Sandbox()
+        try box.mkdir("locked/inner")
+        try box.write("locked/inner/x", Data())
+        try box.write("other.txt", Data())
+        chmod(box.path("locked/inner"), 0o555)
+        defer { chmod(box.path("locked/inner"), 0o755) }
+        let queue = FileOperationQueue()
+        var failures: [ItemFailure] = []
+        queue.promptHandler = { _, prompt in
+            if case .itemFailed(let f) = prompt { failures.append(f) }
+            return .itemFailed(.skip)
+        }
+        let item = await run(queue, DeleteOperation(paths: [box.path("locked"), box.path("other.txt")],
+                                                    toTrash: false, registry: registry))
+        #expect(item.state == .finished)
+        #expect(failures.map(\.path) == [box.path("locked/inner/x")])
+        #expect(failures.first?.question == "Cannot delete x")
+        #expect(try box.names() == ["locked"])
+        #expect(item.itemsDone == 1 && item.itemsTotal == 2)
     }
 }

@@ -60,10 +60,21 @@ public protocol TransferMonitor: Sendable {
     /// The target file exists. Without an implementation the copy fails with `.alreadyExists`
     /// (or replaces it when `replaceExisting` is set).
     func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution
+    /// One file, symlink or folder step failed. Return `.retry` to run that step again or `.skip`
+    /// to leave the item out and go on; throw to stop the whole transfer. Without an
+    /// implementation the error is rethrown, so the transfer stops.
+    func handleError(_ error: any Error, at path: VFSPath) async throws -> ItemErrorDecision
 }
 
 extension TransferMonitor {
     public func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution { .fail }
+    public func handleError(_ error: any Error, at path: VFSPath) async throws -> ItemErrorDecision { throw error }
+}
+
+/// What to do after one item of a multi-item operation failed.
+public enum ItemErrorDecision: Sendable, Equatable {
+    case retry
+    case skip
 }
 
 /// A file that would be written over an existing one.
@@ -148,6 +159,8 @@ public struct TransferSummary: Sendable {
     public var directories = 0
     public var symlinks = 0
     public var skipped: [VFSPath] = []
+    /// Items that failed and were skipped (Skip or Skip All after an error).
+    public var failed: [VFSPath] = []
     public var acceptedUnstable: [VFSPath] = []
     /// Move sources that were left in place (unstable, skipped, or a folder that still has items).
     public var sourcesKept: [VFSPath] = []
@@ -243,45 +256,93 @@ public struct SecureCopyEngine: Sendable {
         try await monitor.checkpoint()
         switch fp.kind {
         case .file:
-            let r = try await transferFile(source, to: destination, mode: mode, src, dst)
+            guard let r = try await attempt(source, {
+                try await transferFile(source, to: destination, mode: mode, src, dst)
+            }) else { return summary.failed.append(source) }
             summary.add(r, source: source)
             if mode == .move, !r.sourceRemoved { summary.sourcesKept.append(source) }
         case .symlink:
-            try await copySymlink(source, to: destination, src, dst)
+            guard try await attempt(source, {
+                if (try? await dst.fingerprint(of: destination))?.kind == .symlink,
+                   (try? await dst.readSymlink(destination)) == (try await src.readSymlink(source)) {
+                    return // made by an earlier attempt that failed later
+                }
+                try await copySymlink(source, to: destination, src, dst)
+            }) != nil else { return summary.failed.append(source) }
             summary.symlinks += 1
-            if mode == .move { try await src.remove(source) }
+            if mode == .move, try await attempt(source, { try await src.remove(source) }) == nil {
+                summary.failed.append(source)
+            }
         case .directory:
             try await copyDirectory(source, to: destination, mode: mode, src, dst, &summary)
         case .other:
-            throw CopyError.unsupportedItem(source)
+            if try await attempt(source, { throw CopyError.unsupportedItem(source) }) == nil {
+                summary.failed.append(source)
+            }
+        }
+    }
+
+    /// Runs one step for `path`. When it fails, the monitor decides: run it again, or skip it
+    /// (nil). Cancellation always goes through.
+    private func attempt<T>(_ path: VFSPath, _ body: () async throws -> T) async throws -> T? {
+        while true {
+            do {
+                return try await body()
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                switch try await monitor.handleError(error, at: path) {
+                case .retry:
+                    monitor.log("Retrying \(path.path)")
+                case .skip:
+                    return nil
+                }
+            }
         }
     }
 
     private func copyDirectory(_ source: VFSPath, to destination: VFSPath, mode: TransferMode,
                                _ src: any WritableProvider, _ dst: any WritableProvider,
                                _ summary: inout TransferSummary) async throws {
-        do {
-            try await dst.makeDirectory(destination)
-        } catch VFSError.alreadyExists {
-            guard try await dst.fingerprint(of: destination).kind == .directory else {
-                throw VFSError.alreadyExists(destination)
+        let made: Void? = try await attempt(source) {
+            do {
+                try await dst.makeDirectory(destination)
+            } catch VFSError.alreadyExists {
+                guard try await dst.fingerprint(of: destination).kind == .directory else {
+                    throw VFSError.alreadyExists(destination)
+                }
             }
         }
-        var children: [FileItem] = []
-        for try await batch in src.list(source) { children += batch }
+        guard made != nil, let children = try await attempt(source, {
+            var children: [FileItem] = []
+            for try await batch in src.list(source) { children += batch }
+            return children
+        }) else { return summary.failed.append(source) }
         for child in children {
-            let fp = try await src.fingerprint(of: child.path)
+            guard let fp = try await attempt(child.path, { try await src.fingerprint(of: child.path) }) else {
+                summary.failed.append(child.path)
+                continue
+            }
             try await transferItem(child.path, fp, to: destination.appending(child.name), mode: mode, src, dst, &summary)
         }
         // Dates and permissions last: writing the children would change the folder's dates,
         // and a read-only folder could not receive them.
-        let metadata = try await src.metadata(of: source)
-        for warning in try await dst.applyMetadata(metadata, to: destination) { monitor.log("\(destination.name): \(warning)") }
+        let warnings = try await attempt(source) {
+            try await dst.applyMetadata(try await src.metadata(of: source), to: destination)
+        }
+        guard let warnings else { return summary.failed.append(source) }
+        for warning in warnings { monitor.log("\(destination.name): \(warning)") }
         summary.directories += 1
         if mode == .move {
-            do {
-                try await src.remove(source)
-            } catch VFSError.directoryNotEmpty {
+            let removed = try await attempt(source) { () async throws -> Bool in
+                do {
+                    try await src.remove(source)
+                    return true
+                } catch VFSError.directoryNotEmpty {
+                    return false
+                }
+            }
+            if removed != true {
                 summary.sourcesKept.append(source)
                 monitor.log("Kept folder \(source) because it still contains items that were not moved")
             }
