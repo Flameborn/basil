@@ -15,6 +15,12 @@
 // Then: copy metadata, F_FULLFSYNC, rename into place atomically. Optional read-back
 // verification runs on the partial file before it is renamed, so a bad copy never appears
 // under the real name. A move removes the source only once the copy of it was stable.
+//
+// With `secure` off (the default in settings) the engine works like Total Commander: same-volume
+// moves still rename and same-volume copies still clone, but other copies write straight to the
+// target name in one pass, nothing checks whether the source changed, there is no F_FULLFSYNC,
+// and a move deletes the source right after copying it. A failed or cancelled copy removes the
+// incomplete target. Read-back verification still works when it is turned on.
 
 import BasilCore
 import BasilVFS
@@ -51,6 +57,30 @@ public protocol TransferMonitor: Sendable {
     /// Bytes newly copied (first pass only), for progress.
     func transferred(bytes: Int64)
     func decide(_ source: UnstableSource) async -> UnstableSourceDecision
+    /// The target file exists. Without an implementation the copy fails with `.alreadyExists`
+    /// (or replaces it when `replaceExisting` is set).
+    func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution
+}
+
+extension TransferMonitor {
+    public func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution { .fail }
+}
+
+/// A file that would be written over an existing one.
+public struct FileConflict: Sendable {
+    public let source: VFSPath
+    public let destination: VFSPath
+    public let sourceFingerprint: FileFingerprint
+    public let destinationFingerprint: FileFingerprint
+}
+
+public enum ConflictResolution: Sendable, Equatable {
+    case overwrite
+    case skip
+    /// Write under this name (in the same folder) instead.
+    case rename(String)
+    /// Fail with `VFSError.alreadyExists`.
+    case fail
 }
 
 public struct SecureCopyOptions: Sendable {
@@ -62,13 +92,16 @@ public struct SecureCopyOptions: Sendable {
     public var retryDelay: Duration = .milliseconds(500)
     /// Replace an existing destination file. Without it, an existing file fails with `.alreadyExists`.
     public var replaceExisting = false
+    /// Secure mode (source-change detection, partial file, F_FULLFSYNC). Off means Total Commander style.
+    public var secure = true
 
     public init(verifyDestination: Bool = false, unstableRetries: Int = 3,
-                retryDelay: Duration = .milliseconds(500), replaceExisting: Bool = false) {
+                retryDelay: Duration = .milliseconds(500), replaceExisting: Bool = false, secure: Bool = true) {
         self.verifyDestination = verifyDestination
         self.unstableRetries = unstableRetries
         self.retryDelay = retryDelay
         self.replaceExisting = replaceExisting
+        self.secure = secure
     }
 }
 
@@ -195,8 +228,9 @@ public struct SecureCopyEngine: Sendable {
                 return summary
             } catch VFSError.unsupported {
                 // Different volume after all: fall through to copy and delete.
-            } catch VFSError.alreadyExists where fp.kind == .directory {
-                // Target folder exists: merge item by item below.
+            } catch VFSError.alreadyExists where fp.kind == .directory || fp.kind == .file {
+                // Target folder exists: merge item by item below. Target file exists: the
+                // file transfer below asks how to resolve the conflict.
             }
         }
         try await transferItem(source, fp, to: destination, mode: mode, src, dst, &summary)
@@ -281,8 +315,34 @@ public struct SecureCopyEngine: Sendable {
     public func transferFile(_ source: VFSPath, to destination: VFSPath, mode: TransferMode,
                              _ src: any WritableProvider, _ dst: any WritableProvider) async throws -> FileTransferResult {
         guard let parent = destination.parent else { throw VFSError.alreadyExists(destination) }
-        if !options.replaceExisting, (try? await dst.fingerprint(of: destination)) != nil {
-            throw VFSError.alreadyExists(destination)
+        var destination = destination
+        var replace = options.replaceExisting
+        if !replace, let existing = try? await dst.fingerprint(of: destination) {
+            let sourceFingerprint = try await src.fingerprint(of: source)
+            let conflict = FileConflict(source: source, destination: destination,
+                                        sourceFingerprint: sourceFingerprint, destinationFingerprint: existing)
+            switch try await monitor.resolveConflict(conflict) {
+            case .overwrite:
+                replace = true
+            case .skip:
+                monitor.log("Skipped \(source.name): the target exists")
+                return FileTransferResult(outcome: .skipped, strategy: .stream)
+            case .rename(let name):
+                destination = parent.appending(name)
+                if (try? await dst.fingerprint(of: destination)) != nil { throw VFSError.alreadyExists(destination) }
+            case .fail:
+                throw VFSError.alreadyExists(destination)
+            }
+        }
+        if mode == .move, hooks.allowed.contains(.rename), try await canRename(source, to: destination, src, dst) {
+            // Same volume: a rename keeps writes from open handles, in both modes.
+            try await dst.rename(source, to: destination, replacing: replace)
+            monitor.log("Moved \(source.name) by renaming")
+            monitor.transferred(bytes: (try? await dst.fingerprint(of: destination))?.size ?? 0)
+            return FileTransferResult(outcome: .completed, strategy: .rename, sourceRemoved: true)
+        }
+        if !options.secure {
+            return try await plainTransferFile(source, to: destination, mode: mode, replacing: replace, src, dst)
         }
         let partial = parent.appending(Self.partialName(for: destination.name))
 
@@ -300,7 +360,7 @@ public struct SecureCopyEngine: Sendable {
                 monitor.log("Skipped \(source.name)")
                 return result
             }
-            try await dst.rename(partial, to: destination, replacing: options.replaceExisting)
+            try await dst.rename(partial, to: destination, replacing: replace)
         } catch {
             try? await dst.remove(partial)
             throw error
@@ -326,6 +386,70 @@ public struct SecureCopyEngine: Sendable {
             } else {
                 monitor.log("Kept \(source.name): its copy was accepted while the file was still changing")
             }
+        }
+        return result
+    }
+
+    /// Total Commander style: clone on the same volume, otherwise one pass straight into the
+    /// target. No source-change check and no F_FULLFSYNC. The incomplete target is removed on failure.
+    private func plainTransferFile(_ source: VFSPath, to destination: VFSPath, mode: TransferMode, replacing: Bool,
+                                   _ src: any WritableProvider, _ dst: any WritableProvider) async throws -> FileTransferResult {
+        try await monitor.checkpoint()
+        let fp = try await src.fingerprint(of: source)
+        guard fp.kind == .file else { throw CopyError.sourceTypeChanged(source) }
+        var result = FileTransferResult(outcome: .completed, strategy: .stream)
+
+        var cloned = false
+        if hooks.allowed.contains(.clone), src.capabilities.contains(.clone),
+           try await canRename(source, to: destination, src, dst), let parent = destination.parent {
+            // Clone next to the target and rename over it, so an overwrite never leaves no file at all.
+            let partial = parent.appending(Self.partialName(for: destination.name))
+            do {
+                try await src.clone(source, to: partial)
+                do {
+                    try await dst.rename(partial, to: destination, replacing: replacing)
+                } catch {
+                    try? await dst.remove(partial)
+                    throw error
+                }
+                cloned = true
+                result.strategy = .clone
+                monitor.transferred(bytes: fp.size)
+            } catch VFSError.unsupported {}
+        }
+
+        if !cloned {
+            if replacing { try await dst.remove(destination) }
+            let limit = [src.maxTransferChunkSize, dst.maxTransferChunkSize].compactMap { $0 }.min()
+            let chunk = Self.chunkSize(forFileSize: fp.size, limit: limit)
+            let writer = try await dst.createFile(destination)
+            do {
+                var hashes: [BLAKE3Digest] = []
+                _ = try await pass(source, src, writer, chunk: chunk, hashes: &hashes, number: 0,
+                                   hashing: options.verifyDestination)
+                if options.verifyDestination {
+                    try await writer.synchronize()
+                    try await verify(destination, dst, chunk: chunk, hashes: hashes)
+                }
+                let metadata = try await src.metadata(of: source)
+                for warning in try await writer.apply(metadata) { monitor.log("\(source.name): \(warning)") }
+                await writer.close()
+            } catch {
+                await writer.close()
+                try? await dst.remove(destination)
+                throw error
+            }
+        }
+
+        let metadata = try await src.metadata(of: source)
+        if let flags = metadata.flags, flags != 0 {
+            for warning in try await dst.applyMetadata(FileMetadata(flags: flags), to: destination) {
+                monitor.log("\(destination.name): \(warning)")
+            }
+        }
+        if mode == .move {
+            try await src.remove(source)
+            result.sourceRemoved = true
         }
         return result
     }
@@ -447,7 +571,8 @@ public struct SecureCopyEngine: Sendable {
     /// hash differs from the one recorded, then cut the file to the new length.
     /// Reading the next chunk overlaps with hashing and writing the current one.
     private func pass(_ source: VFSPath, _ src: any WritableProvider, _ writer: any WritableFile,
-                      chunk: Int, hashes: inout [BLAKE3Digest], number: Int) async throws -> (length: Int64, rewritten: Int64) {
+                      chunk: Int, hashes: inout [BLAKE3Digest], number: Int,
+                      hashing: Bool = true) async throws -> (length: Int64, rewritten: Int64) {
         let reader = try await src.openForReading(source, bypassCache: false)
         let first = hashes.isEmpty
         var offset: Int64 = 0
@@ -466,7 +591,10 @@ public struct SecureCopyEngine: Sendable {
                     next = Task { try await reader.read(at: at, count: chunk) }
                 }
                 if !data.isEmpty {
-                    if first {
+                    if first, !hashing {
+                        try await writer.write(data, at: offset)
+                        monitor.transferred(bytes: Int64(data.count))
+                    } else if first {
                         async let digest = Self.hash(data)
                         try await writer.write(data, at: offset)
                         hashes.append(await digest)

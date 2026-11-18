@@ -30,7 +30,9 @@ Progress, completed milestones and open questions are tracked in **`progress.md`
 | Plugins | **LuaJIT** (Lua 5.1 semantics + LuaJIT extensions; write plugin APIs against 5.1) |
 | Unstable copy source | Retry N times with backoff (configurable, default 3), then pause the queue item and ask: Keep retrying / Accept latest stable snapshot / Skip / Cancel |
 | Remote services | SFTP, FTP/FTPS and Dropbox first. Then WebDAV, SMB (NetFS mount), S3-compatible, Google Drive and OneDrive as provider modules, added over time |
-| Copy verification | Destination read-back verification is **off by default for both copy and move** and is enabled by a setting. Source-stability checking (below) always runs. |
+| Copy verification | Destination read-back verification is **off by default for both copy and move** and is enabled by a setting. |
+| Copy mode | Setting **"Secure copy and move", off by default**. Off = Total Commander style (write straight to the target, no source-change check, no F_FULLFSYNC, move deletes the source right after copying; same-volume move still renames, same-volume copy still clones). On = the secure engine below. |
+| Queue sounds and speech | Per operation kind (copy, move, delete, Trash, new folder, rename, other; plugins can add kinds) and outcome (finished, failed, cancelled, needs a decision): sound (None, macOS system sound, or any audio file), speak on/off, and text with placeholders. "Any operation" defaults, per-kind overrides. Defaults: Glass / Basso / none / Funk, all spoken. Speech goes to VoiceOver when it runs, otherwise the system voice. |
 | Search | Two engines: **Spotlight** (`NSMetadataQuery`/`MDQuery`) and Basil's own **Everything-style filename index** stored in a **custom binary format** |
 | Chunk hash | **BLAKE3** (official C implementation with NEON). It is cryptographic, so it has no known collisions, unlike XXH3. Hashing runs in a pipeline alongside the reads and writes, so it never adds wait time. |
 | Search index | Covers the **local boot volume by default**. Other volumes, including network ones, can be added later. It stores **name, size, dates and attributes** so results can be filtered. |
@@ -61,7 +63,7 @@ Packages/               one local SwiftPM package per module, each with a <Name>
   BasilSync/            directory compare + sync planning, executed as queue operations          (-> Core, VFS, Operations)
   BasilPlugins/         LuaJIT bridge, plugin manifest/loader, Lua API surface                   (-> Core, VFS)
   BasilIntegrations/    terminal launcher, viewer/editor associations (F3/F4), sound effects     (-> Core)
-  BasilUI/              AppKit panes/main window, SwiftUI dialogs and settings                   (-> Core, VFS, Operations)
+  BasilUI/              AppKit panes/main window, SwiftUI dialogs and settings                   (-> Core, VFS, Operations, Integrations)
 Vendor/                 third-party sources + build scripts (libarchive, 7-Zip, UnRAR, libssh2, LuaJIT, BLAKE3, ...)
 ```
 
@@ -75,7 +77,7 @@ Key concepts:
 - **Commands** (F-keys, menu items, command palette, Lua plugins) are registered by ID in a `CommandRegistry`, and keybindings map to command IDs. Built-in features use the same registry as plugins.
 - **Built-in providers, archive backends and commands register through the same registries Lua plugins use.** New features should be addable without changing the UI module.
 
-### Secure copy/move (critical invariant)
+### Secure copy/move (critical invariant, when the "Secure copy and move" setting is on)
 
 This fixes the ForkLift bug where only the bytes present at the start of the copy are copied.
 
@@ -142,6 +144,7 @@ Sync compares two directories (left and right panes), optionally including subdi
 - Providers that can be written implement `WritableProvider` (BasilVFS, `ProviderIO.swift`): fingerprint, metadata read/apply, volume identifier, open for reading, create file, rename (with or without replacing), clone, remove, mkdir, symlinks, synchronize, `maxTransferChunkSize`. `LocalProvider+Write.swift` does blocking I/O on its own dispatch queue (`LocalIO`), never on the cooperative pool.
 - Strategy choice: move on the same volume renames; copy on the same volume clones (falls back to streaming when the volume can't clone); everything else streams. Same volume means same provider location and equal `volumeIdentifier`.
 - Stream pass: the next chunk is read while the current one is hashed (BLAKE3) and written. Later passes write only chunks whose hash changed, then truncate. Metadata is applied to the partial file, then F_FULLFSYNC, then rename; BSD flags go on after the rename.
+- The engine asks `TransferMonitor.resolveConflict` when a target file exists (default: fail). A move on the same volume renames per file too, also inside merged folders.
 - Tests (`SecureCopyTests.swift`) use internal `EngineHooks` to change the source after a given chunk or clone and to force the stream strategy on one volume. Keep adding a test for every new strategy or provider.
 - `Vendor/BLAKE3` is an unmodified copy of the official C code (see its `VERSION`); BasilOperations depends on it by path.
 
@@ -162,13 +165,14 @@ Sync compares two directories (left and right panes), optionally including subdi
 - **Default keys:**
   - Tab switches pane. Enter or Cmd+Down opens. Backspace or Cmd+Up goes to the parent folder.
   - Home and End (Fn+Left/Right on Mac keyboards) jump to the first or last item.
-  - Cmd+R rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Cmd+I reads the status bar.
+  - F2 rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Cmd+I reads the status bar.
   - Cmd+D opens the locations menu for the current pane, Cmd+F1 for the left pane, Cmd+F2 for the right.
   - Space selects or deselects. Shift+Up/Down selects while moving. Cmd+A selects all files. Cmd+Shift+A deselects all.
   - Cmd+F3, F4, F5 and F6 sort by name, extension, date and size.
   - Ctrl+F1 is Brief view, Ctrl+F2 Full view, and Ctrl+F3-F11 custom views 1-9.
-  - Cmd+, opens Settings. Cmd+J opens or closes the operation queue panel.
-  - F3-F8, Shift+F6 and Cmd+M are registered but disabled until their milestones.
+  - Cmd+, opens Settings, Cmd+W closes it (only the settings window: the main menu has no Close item, so Cmd+W never closes the main window). Cmd+J opens or closes the operation queue panel.
+  - F5 copy and F6 move (sheet with the target path, prefilled with the other pane; relative paths and ~ work), Shift+F6 rename (sheet, name without extension preselected), F7 new folder, F8 or Forward Delete moves to the Trash, Shift+F8 or Shift+Forward Delete deletes permanently. Each confirms in a sheet and runs in the queue. Without items they say "No items".
+  - F3, F4 and Cmd+M are registered but disabled until their milestones.
 - **Views and columns:** a view (`ListView`) is an ordered list of `ColumnSpec` (id, visible, width). Brief and Full are built in; users add custom views in Settings. Columns come from `ColumnCatalog` (BasilCore), which plugins can extend. Each `ColumnDefinition` gives the display text and optionally different spoken text.
   - The Name column shows the full name when the view has no Ext column; otherwise it omits the extension.
   - Resizing or dragging columns in the table header writes back to the view, debounced.
@@ -188,6 +192,10 @@ Sync compares two directories (left and right panes), optionally including subdi
 - Items run one at a time and a new item starts right away when the queue is idle. Pausing the running item holds the queue; a paused waiting item is skipped until resumed. Removing the running item cancels it and drops it once it has stopped. Finished, failed and cancelled items stay in the list (with their log) until "Remove Finished".
 - Queue events (finished, failed, cancelled) are announced through `MainWindowController.announce`, which posts on `NSApp` so they are heard while the queue panel is key.
 - The queue panel (`QueueWindow.swift`) is a floating `NSPanel` hosting SwiftUI. In its list: Space pauses or resumes, Cmd+Up/Down move, Delete cancels and removes. Escape or Cmd+J (whatever is bound to `queue.show`) closes it. Each row is one static-text element ("Copy ..., running, 45 percent, 12 of 40 files") with VoiceOver actions for the same commands.
+- Operations declare a `kind` (`OperationKind`, BasilCore) and report `context.items(done:total:)`; `QueueEvent` carries kind, outcome, counts and reason, and `MainWindowController.handle` turns it into sound and speech (`EventFeedbackPlayer`, BasilIntegrations).
+- Operations ask questions with `context.ask(.conflict / .unstableSource)`; the queue marks the item "waiting for your decision", sends a `.needsDecision` event and calls `promptHandler` (the UI shows an NSAlert sheet on the main window). Conflict choices are Total Commander's: Overwrite, Skip, Overwrite All Older, Overwrite All, Skip All, Rename ("name (2).ext"), Cancel; "All" answers last for the rest of the operation.
+- File operations (`FileOperations.swift`): `TransferOperation` (counts bytes first, progress by bytes), `DeleteOperation` (Trash through the provider's `.trash` capability, or recursive remove), `MakeDirectoryOperation`, `RenameOperation` (a change of case only is allowed). `QueueItem.whenDone` lets the UI put the cursor on a new folder or renamed item.
+- An error stops the operation (it fails); there is no retry/skip-on-error prompt yet.
 - Debug builds have a "Debug" menu with "Add Test Operation" (a 10-second fake operation in `App/Sources/DebugMenu.swift`), used by `QueueUITests`.
 
 ### Large directories

@@ -1,3 +1,5 @@
+import BasilCore
+import BasilVFS
 import Foundation
 import Synchronization
 import Testing
@@ -48,7 +50,7 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         let rec = Recorder()
         let queue = FileOperationQueue()
         var events: [String] = []
-        queue.onEvent = { if case .finished(let t) = $0 { events.append(t) } }
+        queue.onEvent = { if $0.outcome == .finished { events.append($0.title) } }
         let a = queue.add(StepOperation(title: "A", steps: 3, recorder: rec))
         let b = queue.add(StepOperation(title: "B", steps: 3, recorder: rec))
         #expect(a.state == .running)
@@ -127,7 +129,7 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         let rec = Recorder()
         let queue = FileOperationQueue()
         var cancelled: [String] = []
-        queue.onEvent = { if case .cancelled(let t) = $0 { cancelled.append(t) } }
+        queue.onEvent = { if $0.outcome == .cancelled { cancelled.append($0.title) } }
         let a = queue.add(StepOperation(title: "A", steps: 100, stepTime: .milliseconds(10), recorder: rec))
         let b = queue.add(StepOperation(title: "B", steps: 1, recorder: rec))
         #expect(await waitUntil { rec.count("A") >= 2 })
@@ -170,7 +172,7 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         let rec = Recorder()
         let queue = FileOperationQueue()
         var failures: [String] = []
-        queue.onEvent = { if case .failed(let t, let r) = $0 { failures.append("\(t): \(r)") } }
+        queue.onEvent = { if $0.outcome == .failed { failures.append("\($0.title): \($0.reason)") } }
         let a = queue.add(StepOperation(title: "A", steps: 3, failAt: 1, recorder: rec))
         let b = queue.add(StepOperation(title: "B", steps: 1, recorder: rec))
         #expect(await waitUntil { b.state == .finished })
@@ -197,5 +199,105 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         #expect(queue.togglePause(a.id) == .running)
         #expect(await waitUntil { a.state == .finished })
         #expect(queue.togglePause(a.id) == nil)
+    }
+}
+
+@MainActor
+@Suite struct FileOperationTests {
+    let registry: ProviderRegistry = {
+        let r = ProviderRegistry()
+        r.register(LocalProvider())
+        return r
+    }()
+
+    func run(_ queue: FileOperationQueue, _ op: any QueueOperation) async -> QueueItem {
+        let item = queue.add(op)
+        _ = await waitUntil { item.state.isDone }
+        return item
+    }
+
+    @Test(arguments: [true, false])
+    func copyAsksOnConflictAndRemembersAll(secure: Bool) async throws {
+        let box = try Sandbox()
+        try box.mkdir("out")
+        let a = try box.write("a.txt", Data("new a".utf8))
+        let b = try box.write("b.txt", Data("new b".utf8))
+        let c = try box.write("c.txt", Data("new c".utf8))
+        try box.write("out/a.txt", Data("old".utf8))
+        try box.write("out/b.txt", Data("old".utf8))
+        let queue = FileOperationQueue()
+        var asked = 0
+        var events: [QueueEvent] = []
+        queue.onEvent = { events.append($0) }
+        queue.promptHandler = { item, prompt in
+            asked += 1
+            #expect(item.isWaitingForDecision)
+            guard case .conflict = prompt else { return .conflict(.cancel) }
+            return .conflict(.overwriteAll)
+        }
+        let op = TransferOperation(mode: .copy, sources: [a, b, c], target: box.path("out"), registry: registry,
+                                   options: SecureCopyOptions(secure: secure))
+        let item = await run(queue, op)
+        #expect(item.state == .finished)
+        #expect(asked == 1)
+        #expect(try contents(box.path("out/b.txt")) == Data("new b".utf8))
+        #expect(try contents(box.path("out/c.txt")) == Data("new c".utf8))
+        #expect(item.itemsDone == 3 && item.itemsTotal == 3)
+        #expect(events.map(\.outcome) == [.needsDecision, .finished])
+        #expect(events.last == QueueEvent(outcome: .finished, kind: .copy, title: op.title, done: 3, total: 3))
+    }
+
+    @Test func renameChoicePicksFreeNumberedName() async throws {
+        let box = try Sandbox()
+        try box.mkdir("out")
+        let a = try box.write("a.txt", Data("new".utf8))
+        try box.write("out/a.txt", Data("old".utf8))
+        try box.write("out/a (2).txt", Data("old".utf8))
+        let queue = FileOperationQueue()
+        queue.promptHandler = { _, _ in .conflict(.rename) }
+        let item = await run(queue, TransferOperation(mode: .move, sources: [a], target: box.path("out"),
+                                                      registry: registry, options: .init(secure: false)))
+        #expect(item.state == .finished)
+        #expect(try contents(box.path("out/a (3).txt")) == Data("new".utf8))
+        #expect(!exists(a))
+    }
+
+    @Test func singleSourceToNewNameAndSeveralIntoNewFolder() async throws {
+        let box = try Sandbox()
+        let a = try box.write("a.txt", Data("a".utf8))
+        let b = try box.write("b.txt", Data("b".utf8))
+        let queue = FileOperationQueue()
+        _ = await run(queue, TransferOperation(mode: .copy, sources: [a], target: box.path("renamed.txt"),
+                                               registry: registry, options: .init()))
+        #expect(try contents(box.path("renamed.txt")) == Data("a".utf8))
+        _ = await run(queue, TransferOperation(mode: .copy, sources: [a, b], target: box.path("new"),
+                                               registry: registry, options: .init()))
+        #expect(try box.names("new") == ["a.txt", "b.txt"])
+    }
+
+    @Test func deleteMkdirAndRename() async throws {
+        let box = try Sandbox()
+        try box.mkdir("tree/sub")
+        try box.write("tree/sub/x", Data("x".utf8))
+        try box.write("f.txt", Data("f".utf8))
+        let queue = FileOperationQueue()
+        var events: [QueueEvent] = []
+        queue.onEvent = { events.append($0) }
+
+        let del = await run(queue, DeleteOperation(paths: [box.path("tree"), box.path("f.txt")], toTrash: false, registry: registry))
+        #expect(del.state == .finished)
+        #expect(try box.names() == [])
+        #expect(events.last?.kind == .delete && events.last?.done == 2)
+
+        _ = await run(queue, MakeDirectoryOperation(path: box.path("made"), registry: registry))
+        #expect(try box.names() == ["made"])
+        let again = await run(queue, MakeDirectoryOperation(path: box.path("made"), registry: registry))
+        if case .failed = again.state {} else { Issue.record("mkdir over an existing folder should fail") }
+
+        _ = await run(queue, RenameOperation(source: box.path("made"), destination: box.path("Made"), registry: registry))
+        #expect(try box.names() == ["Made"])
+        try box.write("other", Data())
+        let clash = await run(queue, RenameOperation(source: box.path("Made"), destination: box.path("other"), registry: registry))
+        if case .failed = clash.state {} else { Issue.record("rename onto an existing item should fail") }
     }
 }

@@ -218,12 +218,16 @@ struct QueueRow: View {
         return "\(Int((fraction * 100).rounded())) percent"
     }
 
+    private var stateText: String {
+        item.isWaitingForDecision ? "waiting for your decision" : item.state.spokenName
+    }
+
     private var statusText: String {
-        [item.state.spokenName.capitalizedFirst, percent].compactMap { $0 }.joined(separator: ", ")
+        [stateText.capitalizedFirst, percent].compactMap { $0 }.joined(separator: ", ")
     }
 
     private var spokenText: String {
-        var parts = [item.title, item.state.spokenName]
+        var parts = [item.title, stateText]
         if let percent { parts.append(percent) }
         if !item.detail.isEmpty, !item.state.isDone { parts.append(item.detail) }
         return parts.joined(separator: ", ")

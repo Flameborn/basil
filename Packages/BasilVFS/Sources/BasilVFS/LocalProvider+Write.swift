@@ -120,6 +120,18 @@ extension LocalProvider: WritableProvider {
         }
     }
 
+    public func trash(_ path: VFSPath) async throws {
+        try await LocalIO.run {
+            do {
+                try FileManager.default.trashItem(at: URL(fileURLWithPath: path.path), resultingItemURL: nil)
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                throw VFSError.notFound(path)
+            } catch let error as CocoaError where error.code == .fileWriteNoPermission {
+                throw VFSError.permissionDenied(path)
+            }
+        }
+    }
+
     public func makeDirectory(_ path: VFSPath) async throws {
         try await LocalIO.run {
             guard mkdir(path.path, 0o755) == 0 else { throw Self.writeError(errno, path) }

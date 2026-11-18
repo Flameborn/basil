@@ -25,6 +25,11 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var verifyCopies = false
     /// Automatic re-reads of a source that changes during a copy, before asking what to do.
     public var unstableSourceRetries = 3
+    /// Secure copy and move (source-change detection, partial file, atomic rename). Off by default:
+    /// copying then works like Total Commander, writing straight to the target.
+    public var secureCopy = false
+    /// Sound and speech for queue events.
+    public var feedback = FeedbackSettings()
 
     public init() {}
 
@@ -38,6 +43,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? d.bookmarks
         verifyCopies = try c.decodeIfPresent(Bool.self, forKey: .verifyCopies) ?? d.verifyCopies
         unstableSourceRetries = try c.decodeIfPresent(Int.self, forKey: .unstableSourceRetries) ?? d.unstableSourceRetries
+        secureCopy = try c.decodeIfPresent(Bool.self, forKey: .secureCopy) ?? d.secureCopy
+        feedback = try c.decodeIfPresent(FeedbackSettings.self, forKey: .feedback) ?? d.feedback
         // Built-in views must always exist.
         for builtin in ListView.defaults where !views.contains(where: { $0.id == builtin.id }) {
             views.append(builtin)

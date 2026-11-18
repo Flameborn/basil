@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M2 in progress: the operation queue and its panel are done, and the SecureCopyEngine (rename / clone / chunked stream with BLAKE3 delta re-copy, tested against appended, truncated and rewritten sources) is done. Next: F5/F6 copy and move as queue operations with the TC-style conflict dialog and the unstable-source prompt. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Next: multi-rename, retry/skip prompt on errors, and the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -53,6 +53,15 @@ M0 done. M2 in progress: the operation queue and its panel are done, and the Sec
 | 2026-11-18 | Read-back verification runs on the partial file before it is renamed into place, so a bad copy never appears under the real name |
 | 2026-11-18 | "Accept latest stable snapshot" keeps the last pass's copy; a move then keeps the source. A move re-checks the source fingerprint right before deleting it |
 | 2026-11-18 | Settings has a Copying tab: verify copies (off), retries for a changing source (default 3) |
+| 2026-11-18 | F2 rereads the pane (replaces Cmd+R) |
+| 2026-11-18 | Cmd+W closes the settings window |
+| 2026-11-18 | "Secure copy and move" setting, off by default: off = Total Commander style copy (straight to the target, no source-change check); on = secure engine |
+| 2026-11-18 | TC-style mode details (decided by Claude, change if wrong): no F_FULLFSYNC, same-volume move still renames, same-volume copy still clones (into a temp name, then renamed over the target), an incomplete target is removed on failure or cancel, overwriting removes the old file first |
+| 2026-11-18 | Queue sounds and speech: per operation kind and outcome (finished, failed, cancelled, needs a decision), with "Any operation" defaults and per-kind overrides; sound = none / system sound / any audio file; editable text with placeholders; defaults Glass, Basso, none, Funk, all spoken |
+| 2026-11-18 | Speech goes to VoiceOver as an announcement when VoiceOver runs, otherwise to the system voice |
+| 2026-11-18 | F8 / Forward Delete moves to the Trash, Shift+F8 / Shift+Forward Delete deletes permanently (TC: recycle bin by default) |
+| 2026-11-18 | F5/F6/F7/Shift+F6/F8 dialogs are NSAlert sheets with a text field (rename: sheet, not TC's inline edit; decided by Claude, change if wrong) |
+| 2026-11-18 | Speech counts top-level items ("2 items copied"), not every file inside folders |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
@@ -66,10 +75,10 @@ M0 done. M2 in progress: the operation queue and its panel are done, and the Sec
 - [ ] How should LuaJIT be built and linked (prebuilt static lib/xcframework from `scripts/bootstrap.sh`)?
 - [ ] Should there be several queues in parallel (for example one per destination device), or strictly one global queue?
 - [ ] Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
-- [ ] Sound effects: which operations play sounds, which sound files are bundled, and per-event configuration?
 - [ ] Themes: should users be able to edit/create colour themes (and import/export them)?
 
-- [ ] UI tests are timing-flaky in the full suite: `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
+- [x] Fixed 2026-11-18: panes never watched their start folder, and watcher changes never removed deleted or renamed-away items from a pane.
+- [ ] UI tests are timing-flaky in the full suite (`testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
 
 - [ ] Git scope for the first version: status/commit/pull/push/checkout/branch. Also diff, stash, log, blame?
 
@@ -99,9 +108,12 @@ M0 done. M2 in progress: the operation queue and its panel are done, and the Sec
 - [x] Operation queue (serial, pause/reorder/cancel, per-item log) + queue window (Cmd+J); tested with a Debug-menu test operation until real operations exist
 - [x] SecureCopyEngine: rename / clonefile / single-pass chunked copy + delta re-copy; tests for appended, truncated and rewritten sources in each strategy (`WritableProvider` API in BasilVFS, BLAKE3 vendored)
 - [x] Optional destination read-back verification setting (Settings, Copying tab; engine option)
-- [ ] Queue integration of the engine: copy/move queue operation, unstable-source prompt (Keep retrying / Accept / Skip / Cancel) shown from the queue
-- [ ] Copy (F5), move (F6), delete, mkdir, rename; TC-style conflict dialog
-- [ ] Sound effects for operation events
+- [x] Queue integration of the engine: copy/move queue operation, unstable-source prompt (Keep retrying / Accept / Skip / Cancel) shown from the queue
+- [x] Copy (F5), move (F6), delete (F8 Trash, Shift+F8 permanent), mkdir (F7), rename (Shift+F6); TC-style conflict dialog
+- [x] "Secure copy and move" setting (off = TC style)
+- [x] Sounds and speech for operation events (Settings, Sounds and Speech tab)
+- [ ] Retry / Skip / Skip All / Cancel prompt when an item fails (now the whole operation fails)
+- [ ] Verified by the user with VoiceOver: dialogs, speech wording
 - [ ] Multi-rename tool (masks, counter, search/replace + regex, case, preview grid, presets, undo, cycle-safe batch op)
 
 ### M3 - View/Edit/Terminal

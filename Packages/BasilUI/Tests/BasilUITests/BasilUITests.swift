@@ -38,3 +38,39 @@ import Testing
         model.stop()
     }
 }
+
+@MainActor
+@Suite struct PaneModelWatchTests {
+    func poll(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return condition()
+    }
+
+    /// The start folder is watched too (it is loaded without a "directory change"), and both
+    /// creations and removals show up.
+    @Test func startFolderPicksUpCreatedAndRemovedFiles() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-pane-\(UUID())")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data().write(to: url.appendingPathComponent("a.txt"))
+        let registry = ProviderRegistry()
+        registry.register(LocalProvider())
+        let dir = VFSPath.local(url.path)
+        let model = PaneModel(registry: registry, directory: dir)
+        model.load(dir)
+        #expect(await poll { model.rows.map(\.name) == ["a.txt"] })
+        try await Task.sleep(for: .milliseconds(300))
+        try Data().write(to: url.appendingPathComponent("b.txt"))
+        #expect(await poll { model.rows.map(\.name) == ["a.txt", "b.txt"] }, "\(model.rows.map(\.name))")
+        try FileManager.default.moveItem(at: url.appendingPathComponent("b.txt"), to: url.appendingPathComponent("c.txt"))
+        #expect(await poll { model.rows.map(\.name) == ["a.txt", "c.txt"] }, "\(model.rows.map(\.name))")
+        model.reload(cursor: nil)
+        try await Task.sleep(for: .milliseconds(300))
+        try FileManager.default.removeItem(at: url.appendingPathComponent("c.txt"))
+        #expect(await poll { model.rows.map(\.name) == ["a.txt"] }, "\(model.rows.map(\.name))")
+        model.stop()
+    }
+}

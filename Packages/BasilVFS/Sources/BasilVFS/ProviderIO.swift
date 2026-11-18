@@ -123,8 +123,11 @@ public protocol WritableProvider: FileSystemProvider {
     func createSymlink(_ path: VFSPath, target: String) async throws
     /// Largest chunk the engine should use with this provider, or nil for no limit.
     var maxTransferChunkSize: Int? { get }
+    /// Moves an item (file or whole folder) to the trash. Requires the `.trash` capability.
+    func trash(_ path: VFSPath) async throws
 }
 
 extension WritableProvider {
     public var maxTransferChunkSize: Int? { nil }
+    public func trash(_ path: VFSPath) async throws { throw VFSError.unsupported("moving to the Trash") }
 }

@@ -237,3 +237,37 @@ import Testing
         #expect(partial.views.map(\.id) == ["brief", "full"])
     }
 }
+
+@MainActor
+@Suite struct FeedbackTests {
+    let copy = OperationKindInfo(kind: .copy, name: "Move", pastTense: "moved")
+
+    @Test func rendersDefaultTexts() {
+        let f = FeedbackSettings()
+        let done = FeedbackValues(kind: copy, title: "Move 2 items", done: 2, total: 2)
+        #expect(FeedbackText.render(f.feedback(for: .move, .finished).text, done) == "Move complete, 2 items moved")
+        let failed = FeedbackValues(kind: copy, title: "", done: 1, total: 3, reason: "Permission denied.")
+        #expect(FeedbackText.render(f.feedback(for: .move, .failed).text, failed) == "Move failed, 1 of 3 items moved. Permission denied")
+        let noReason = FeedbackValues(kind: copy, title: "", done: 0, total: 1)
+        #expect(FeedbackText.render("{operation} failed. {reason}", noReason) == "Move failed")
+    }
+
+    @Test func overridesReplaceDefaultsAndDecodeTolerantly() throws {
+        var f = FeedbackSettings()
+        let custom = EventFeedback(sound: .file("/tmp/a.aiff"), speak: false, text: "x")
+        f.setOverride(custom, for: .delete, .finished)
+        #expect(f.feedback(for: .delete, .finished) == custom)
+        #expect(f.feedback(for: .copy, .finished).sound == .system("Glass"))
+        f.setOverride(nil, for: .delete, .finished)
+        #expect(f.overrides.isEmpty)
+
+        let partial = try JSONDecoder().decode(FeedbackSettings.self, from: Data(#"{"defaults":{}}"#.utf8))
+        #expect(partial.feedback(for: .copy, .failed).sound == .system("Basso"))
+        var s = BasilSettings()
+        s.feedback = f
+        s.secureCopy = true
+        let round = try JSONDecoder().decode(BasilSettings.self, from: JSONEncoder().encode(s))
+        #expect(round == s)
+        #expect(BasilSettings().secureCopy == false)
+    }
+}

@@ -92,6 +92,30 @@ func collect(_ stream: AsyncThrowingStream<[FileItem], Error>) async throws -> [
         }
         #expect(change == .item(target))
     }
+
+    @Test func reportsRemovedChildAfterRename() async throws {
+        let tmp = try TempDir()
+        try tmp.file("a.txt")
+        let stream = try #require(LocalProvider().watch(tmp.vfs))
+        try await Task.sleep(for: .milliseconds(300))
+        let a = tmp.vfs.appending("a.txt"), b = tmp.vfs.appending("b.txt")
+        try await LocalProvider().rename(a, to: b, replacing: false)
+        try await Task.sleep(for: .milliseconds(500))
+        try await LocalProvider().remove(b)
+        let seen = await withTaskGroup(of: [VFSChange].self) { group in
+            group.addTask {
+                var all: [VFSChange] = []
+                for await c in stream { all.append(c); if all.count >= 3 { break } }
+                return all
+            }
+            group.addTask { try? await Task.sleep(for: .seconds(3)); return [] }
+            var result: [VFSChange] = []
+            for await r in group { result += r; if !r.isEmpty { group.cancelAll() } else { group.cancelAll() } }
+            return result
+        }
+        print("SEEN", seen)
+        #expect(seen.contains(.item(b)))
+    }
 }
 
 @Suite struct ProviderRegistryTests {

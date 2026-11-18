@@ -80,7 +80,8 @@ final class PaneModel {
                 } else if !keepState {
                     self.selected = self.selected.intersection(sorted.map(\.path))
                 }
-                if changedDirectory { self.startWatching(provider) }
+                // The start folder is never a "change", so it is also watched when nothing is yet.
+                if changedDirectory || self.watchTask == nil { self.startWatching(provider) }
                 await self.rebuildRows(cursor: cursor)
                 self.isLoading = false
                 self.onEvent?(.loadingChanged)
@@ -198,7 +199,10 @@ final class PaneModel {
 
         var updated: [VFSPath: FileItem?] = [:]
         for path in changes {
-            updated[path] = try? await provider.item(at: path)
+            // updateValue, not subscript assignment: assigning nil would drop the key, and a
+            // removed item must stay in the map as "gone" (.some(nil)).
+            let item = try? await provider.item(at: path)
+            updated.updateValue(item, forKey: path)
         }
         let order = sortOrder
         let items = allItems

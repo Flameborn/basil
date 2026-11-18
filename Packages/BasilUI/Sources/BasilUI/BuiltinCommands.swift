@@ -1,7 +1,7 @@
 import BasilCore
 
 /// Built-in pane and navigation commands with their default (Total Commander, Mac-adapted) keys.
-/// File operations (F3-F8) are registered but disabled until their milestones implement them.
+/// F3 and F4 are registered but disabled until their milestone implements them.
 @MainActor
 enum BuiltinCommands {
     static let functionBarIDs: [CommandID] = [
@@ -18,7 +18,7 @@ enum BuiltinCommands {
             C(id: "pane.switch", title: "Switch Pane", defaultKeys: [K(.tab), K(.tab, .shift)]) { _ in w?.switchPane() },
             C(id: "pane.open", title: "Open", defaultKeys: [K(.enter), K(.down, .command)]) { _ in pane()?.openCursor() },
             C(id: "pane.parent", title: "Parent Folder", defaultKeys: [K(.backspace), K(.up, .command)]) { _ in pane()?.goToParent() },
-            C(id: "pane.reload", title: "Reread", defaultKeys: [K(.character("r"), .command)]) { ctx in
+            C(id: "pane.reload", title: "Reread", defaultKeys: [K(.function(2))]) { ctx in
                 guard let p = pane() else { return }
                 p.model.reload(cursor: p.cursorPath)
                 ctx.announce("Reread")
@@ -72,14 +72,22 @@ enum BuiltinCommands {
             C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
 
-            // File operations: implemented in later milestones (M2/M3).
+            // File operations. All of them go through the queue.
+            C(id: "file.copy", title: "Copy", defaultKeys: [K(.function(5))]) { _ in w?.copyOrMove(.copy) },
+            C(id: "file.move", title: "Move", defaultKeys: [K(.function(6))]) { _ in w?.copyOrMove(.move) },
+            C(id: "file.rename", title: "Rename", defaultKeys: [K(.function(6), .shift)]) { _ in w?.renameCursorItem() },
+            C(id: "file.mkdir", title: "New Folder", defaultKeys: [K(.function(7))]) { _ in w?.makeDirectory() },
+            C(id: "file.delete", title: "Delete", defaultKeys: [K(.function(8)), K(.forwardDelete)]) { _ in
+                w?.delete(permanently: false)
+            },
+            C(id: "file.deletePermanently", title: "Delete Permanently",
+              defaultKeys: [K(.function(8), .shift), K(.forwardDelete, .shift)]) { _ in
+                w?.delete(permanently: true)
+            },
+
+            // Implemented in later milestones (M2/M3).
             C(id: "file.view", title: "View", defaultKeys: [K(.function(3))], isEnabled: { _ in false }) { _ in },
             C(id: "file.edit", title: "Edit", defaultKeys: [K(.function(4))], isEnabled: { _ in false }) { _ in },
-            C(id: "file.copy", title: "Copy", defaultKeys: [K(.function(5))], isEnabled: { _ in false }) { _ in },
-            C(id: "file.move", title: "Move", defaultKeys: [K(.function(6))], isEnabled: { _ in false }) { _ in },
-            C(id: "file.rename", title: "Rename", defaultKeys: [K(.function(6), .shift)], isEnabled: { _ in false }) { _ in },
-            C(id: "file.mkdir", title: "New Folder", defaultKeys: [K(.function(7))], isEnabled: { _ in false }) { _ in },
-            C(id: "file.delete", title: "Delete", defaultKeys: [K(.function(8)), K(.forwardDelete)], isEnabled: { _ in false }) { _ in },
             C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)], isEnabled: { _ in false }) { _ in },
         ]
 

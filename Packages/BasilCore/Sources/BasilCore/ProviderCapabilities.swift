@@ -19,4 +19,6 @@ public struct ProviderCapabilities: OptionSet, Sendable, Hashable {
     public static let checksums         = Self(rawValue: 1 << 11)
     public static let watch             = Self(rawValue: 1 << 12)
     public static let symlinks          = Self(rawValue: 1 << 13)
+    /// Items can be moved to a trash (Finder's Trash locally) instead of being deleted.
+    public static let trash             = Self(rawValue: 1 << 14)
 }

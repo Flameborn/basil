@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let isolated = UITestFixture.isolatedDefaults() {
             defaults = isolated
             settings = SettingsStore(defaults: isolated)
+            // UI tests run silently (no sounds, no system voice).
+            for outcome in QueueOutcome.allCases {
+                settings.settings.feedback.defaults[outcome.rawValue] = EventFeedback(sound: .none, speak: false, text: "")
+            }
         }
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,

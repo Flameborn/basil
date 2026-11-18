@@ -22,9 +22,17 @@ final class PaneUITests: XCTestCase {
     var rightTable: XCUIElement { app.tables["pane.right.table"] }
 
     /// The first cell of each row is the name ("track, selected" when selected; fixture names have no commas).
+    /// Read from one snapshot: rows change while file operations run, so querying them one by one races.
     func names(in table: XCUIElement) -> [String] {
-        table.tableRows.allElementsBoundByIndex.compactMap { row in
-            row.cells.element(boundBy: 0).label.components(separatedBy: ", ").first
+        guard let root = try? table.snapshot() else { return [] }
+        var rows: [any XCUIElementSnapshot] = []
+        func walk(_ s: any XCUIElementSnapshot) {
+            if s.elementType == .tableRow { rows.append(s); return }
+            s.children.forEach(walk)
+        }
+        walk(root)
+        return rows.compactMap { row in
+            row.children.first { $0.elementType == .cell }?.label.components(separatedBy: ", ").first
         }
     }
 
@@ -167,6 +175,9 @@ final class PaneUITests: XCTestCase {
         XCTAssertEqual(verify.elementType, .switch)
         XCTAssertEqual(verify.value as? Int, 0, "verification is off by default")
         XCTAssertTrue(settings.steppers["Retries when a file changes during copying"].exists, settings.debugDescription)
+        let secure = settings.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Secure copy and move'")).firstMatch
+        XCTAssertEqual(secure.value as? Int, 0, "secure mode is off by default")
         try app.performAccessibilityAudit { issue in
             if issue.auditType == .action, let element = issue.element, !element.isEnabled { return true }
             print("AUDIT copy settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
@@ -182,5 +193,87 @@ final class PaneUITests: XCTestCase {
             return false
         }
     }
-}
 
+    func testCommandWClosesSettings() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitFor { !settings.exists })
+        XCTAssertTrue(leftTable.exists, "Cmd+W must not close the main window")
+    }
+
+    func testSoundsAndSpeechTab() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Sounds and Speech'")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
+        tab.click()
+        let speak = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Finished: speak'")).firstMatch
+        XCTAssertTrue(speak.waitForExistence(timeout: 2), settings.debugDescription)
+        try app.performAccessibilityAudit { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            print("AUDIT sounds: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+    }
+
+    /// F7 new folder, F5 copy, Shift+F6 rename, Shift+F8 delete, each through its dialog and the queue.
+    func testFileOperationsWithKeyboard() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+
+        leftTable.typeKey(.F7, modifierFlags: [])
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        app.typeText("Gamma\r")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("Gamma") }, "\(names(in: leftTable))")
+
+        leftTable.typeText("so")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 5).isSelected })
+        leftTable.typeKey(.F5, modifierFlags: [])
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(sheet.textFields["Target folder"].exists, sheet.debugDescription)
+        app.typeKey(.return, modifierFlags: [])
+        if !waitFor({ self.names(in: self.rightTable) == ["song"] }) {
+            let sheetText = sheet.exists ? sheet.debugDescription : "no sheet"
+            leftTable.typeKey("j", modifierFlags: .command)
+            let query = app.descendants(matching: .any).matching(identifier: "queue.row")
+            _ = waitFor { query.allElementsBoundByIndex.allSatisfy { !$0.label.isEmpty } }
+            let rows = query.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label }
+            XCTFail("right=\(names(in: rightTable)) queue=\(rows) sheet=\(sheetText)")
+        }
+
+        leftTable.typeKey(.F6, modifierFlags: .shift)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        app.typeText("tune\r")   // the name without its extension is selected, so this keeps ".mp3"
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("tune") }, "\(names(in: leftTable))")
+        XCTAssertFalse(names(in: leftTable).contains("song"))
+
+        leftTable.typeKey(.F8, modifierFlags: .shift)   // the cursor is on the renamed item
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(sheet.buttons["Delete"].exists, sheet.debugDescription)
+        try app.performAccessibilityAudit { issue in
+            print("AUDIT delete dialog: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        app.typeKey(.return, modifierFlags: [])
+        if !waitFor({ !self.names(in: self.leftTable).contains("tune") }) {
+            leftTable.typeKey("j", modifierFlags: .command)
+            let query = app.descendants(matching: .any).matching(identifier: "queue.row")
+            _ = waitFor { query.count > 0 }
+            XCTFail("left=\(names(in: leftTable)) queue=\(query.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
+        }
+    }
+
+    func testF2Rereads() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.F2, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+    }
+}

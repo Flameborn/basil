@@ -5,6 +5,7 @@
 
 import AppKit
 import BasilCore
+import BasilIntegrations
 import BasilOperations
 import BasilVFS
 
@@ -13,7 +14,9 @@ import BasilVFS
 @MainActor
 public final class MainWindowController: NSWindowController, WorkspaceContext {
     private let commands: CommandRegistry
-    private let settings: SettingsStore
+    let settings: SettingsStore
+    let providers: ProviderRegistry
+    let feedbackPlayer = EventFeedbackPlayer()
     private let defaults: UserDefaults
     /// The single global operation queue (in memory only; it does not survive restarts).
     public let queue: FileOperationQueue
@@ -32,6 +35,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 startDirectories: (left: VFSPath, right: VFSPath)? = nil) {
         self.commands = commands
         self.settings = settings
+        self.providers = providers
         self.defaults = defaults
         self.queue = queue
         self.persistsDirectories = startDirectories == nil
@@ -69,7 +73,11 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         }
         setActive(.left)
         window.makeFirstResponder(left.tableView)
-        queue.onEvent = { [weak self] event in self?.announce(event.spokenText) }
+        queue.onEvent = { [weak self] event in self?.handle(event) }
+        queue.promptHandler = { [weak self] _, prompt in
+            guard let self else { return .conflict(.cancel) }
+            return await self.answer(prompt)
+        }
     }
 
     @available(*, unavailable)
@@ -175,16 +183,6 @@ extension MainWindowController: PaneViewControllerDelegate {
 
     func paneRequestsSettings(_ pane: PaneViewController) {
         showSettings(tab: .bookmarks)
-    }
-}
-
-extension QueueEvent {
-    var spokenText: String {
-        switch self {
-        case .finished(let title): "\(title) finished"
-        case .failed(let title, let reason): "\(title) failed, \(reason)"
-        case .cancelled(let title): "\(title) cancelled"
-        }
     }
 }
 

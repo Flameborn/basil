@@ -64,11 +64,23 @@ func truncateFile(_ p: VFSPath, to length: Int64) { #expect(Darwin.truncate(p.pa
 final class TestMonitor: TransferMonitor {
     private let state = Mutex<(log: [String], bytes: Int64, asked: Int, decisions: [UnstableSourceDecision])>(([], 0, 0, []))
 
-    init(decisions: [UnstableSourceDecision] = []) {
+    let conflict: (@Sendable (FileConflict) -> ConflictResolution)?
+
+    init(decisions: [UnstableSourceDecision] = [], conflict: (@Sendable (FileConflict) -> ConflictResolution)? = nil) {
+        self.conflict = conflict
         state.withLock { $0.decisions = decisions }
     }
 
-    func checkpoint() async throws { try Task.checkCancellation() }
+    func resolveConflict(_ c: FileConflict) async throws -> ConflictResolution { conflict?(c) ?? .fail }
+
+    private let cancelled = Atomic<Bool>(false)
+    /// Makes the next checkpoint throw, like the queue's cancel button.
+    func cancel() { cancelled.store(true, ordering: .relaxed) }
+
+    func checkpoint() async throws {
+        try Task.checkCancellation()
+        if cancelled.load(ordering: .relaxed) { throw CancellationError() }
+    }
     func log(_ message: String) { state.withLock { $0.log.append(message) } }
     func transferred(bytes: Int64) { state.withLock { $0.bytes += bytes } }
     func decide(_ source: UnstableSource) async -> UnstableSourceDecision {
@@ -512,5 +524,120 @@ func noPartials(_ box: Sandbox, _ folder: String = "") throws -> Bool {
         #expect(name.hasPrefix(".basil-partial-"))
         #expect(name.utf8.count <= 255)
         #expect(SecureCopyEngine.partialName(for: "a.txt").hasSuffix("-a.txt"))
+    }
+}
+
+// MARK: Total Commander style (secure off)
+
+@Suite struct PlainCopyTests {
+    let plain = SecureCopyOptions(retryDelay: .milliseconds(1), secure: false)
+
+    @Test func streamsStraightIntoTargetWithoutPartialFile() async throws {
+        let box = try Sandbox()
+        let data = randomData(3 * mb + 7)
+        let src = try box.write("a.bin", data)
+        #expect(chmod(src.path, 0o640) == 0)
+        let dst = box.path("b.bin")
+        let seenTarget = Once()
+        let monitor = TestMonitor()
+        let hooks = streamOnly { _, index in
+            if index == 0 { seenTarget { #expect(exists(dst)); #expect((try? noPartials(box)) == true) } }
+        }
+        let r = try await makeEngine(monitor, options: plain, hooks: hooks)
+            .transferFile(src, to: dst, mode: .copy, local, local)
+        #expect(r.outcome == .completed && r.retries == 0)
+        #expect(try contents(dst) == data)
+        var st = Darwin.stat()
+        #expect(stat(dst.path, &st) == 0 && st.st_mode & 0o777 == 0o640)
+        #expect(monitor.bytes == Int64(data.count))
+    }
+
+    @Test func doesNotCheckSourceForChanges() async throws {
+        let box = try Sandbox()
+        let data = randomData(2 * mb)
+        let src = try box.write("a.bin", data)
+        let once = Once()
+        let hooks = streamOnly { _, index in if index == 1 { once { try? append(src, randomData(10)) } } }
+        let monitor = TestMonitor()
+        let r = try await makeEngine(monitor, options: plain, hooks: hooks)
+            .transferFile(src, to: box.path("b.bin"), mode: .copy, local, local)
+        #expect(r.retries == 0 && monitor.asked == 0)
+        #expect(try contents(box.path("b.bin")) == data)
+    }
+
+    @Test func cancelRemovesIncompleteTarget() async throws {
+        let box = try Sandbox()
+        let src = try box.write("a.bin", randomData(3 * mb))
+        let dst = box.path("b.bin")
+        let monitor = TestMonitor()
+        let hooks = streamOnly { _, index in if index == 1 { monitor.cancel() } }
+        await #expect(throws: CancellationError.self) {
+            _ = try await makeEngine(monitor, options: plain, hooks: hooks)
+                .transferFile(src, to: dst, mode: .copy, local, local)
+        }
+        #expect(!exists(dst))
+        #expect(exists(src))
+    }
+
+    @Test(arguments: [true, false])
+    func moveRemovesSource(cloning: Bool) async throws {
+        let box = try Sandbox()
+        let data = randomData(mb + 3)
+        let src = try box.write("a.bin", data)
+        let hooks = EngineHooks(allowed: cloning ? [.clone] : [.stream])
+        let r = try await makeEngine(TestMonitor(), options: plain, hooks: hooks)
+            .transfer(src, to: box.path("b.bin"), mode: .move)
+        #expect(r.files == 1)
+        #expect(!exists(src))
+        #expect(try contents(box.path("b.bin")) == data)
+        #expect(try noPartials(box))
+    }
+
+    @Test func verificationWorksInPlainMode() async throws {
+        let box = try Sandbox()
+        let data = randomData(2 * mb + 1)
+        let src = try box.write("a.bin", data)
+        var options = plain
+        options.verifyDestination = true
+        _ = try await makeEngine(TestMonitor(), options: options, hooks: streamOnly())
+            .transferFile(src, to: box.path("b.bin"), mode: .copy, local, local)
+        #expect(try contents(box.path("b.bin")) == data)
+    }
+}
+
+// MARK: Conflicts
+
+@Suite struct ConflictTests {
+    @Test(arguments: [true, false])
+    func overwriteSkipAndRename(secure: Bool) async throws {
+        let box = try Sandbox()
+        let new = randomData(1000)
+        let old = randomData(10)
+        let src = try box.write("a.txt", new)
+        try box.mkdir("out")
+        let dst = try box.write("out/a.txt", old)
+        let options = SecureCopyOptions(retryDelay: .milliseconds(1), secure: secure)
+
+        let skip = TestMonitor { c in
+            #expect(c.sourceFingerprint.size == 1000 && c.destinationFingerprint.size == 10)
+            return .skip
+        }
+        let r1 = try await makeEngine(skip, options: options).transfer(src, to: dst, mode: .move)
+        #expect(r1.skipped == [src] && exists(src))
+        #expect(try contents(dst) == old)
+
+        let rename = TestMonitor { _ in .rename("a (2).txt") }
+        _ = try await makeEngine(rename, options: options).transfer(src, to: dst, mode: .copy)
+        #expect(try contents(box.path("out/a (2).txt")) == new)
+        #expect(try contents(dst) == old)
+
+        let overwrite = TestMonitor { _ in .overwrite }
+        _ = try await makeEngine(overwrite, options: options, hooks: streamOnly()).transfer(src, to: dst, mode: .copy)
+        #expect(try contents(dst) == new)
+        #expect(try noPartials(box, "out"))
+
+        await #expect(throws: VFSError.self) {
+            _ = try await makeEngine(TestMonitor(), options: options).transfer(src, to: dst, mode: .copy)
+        }
     }
 }

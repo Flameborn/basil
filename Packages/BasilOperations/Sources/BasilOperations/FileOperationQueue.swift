@@ -5,6 +5,7 @@
 // one stops at its next checkpoint), reordered, cancelled and removed. The queue lives only in
 // memory: it does not survive app restarts.
 
+import BasilCore
 import Foundation
 import Observation
 import Synchronization
@@ -15,7 +16,32 @@ import Synchronization
 public protocol QueueOperation: Sendable {
     /// Short description shown in the queue and spoken by VoiceOver, e.g. "Copy 3 items to Documents".
     var title: String { get }
+    /// Picks the sound and speech for this operation's events.
+    var kind: OperationKind { get }
     func run(_ context: OperationContext) async throws
+}
+
+extension QueueOperation {
+    public var kind: OperationKind { .other }
+}
+
+/// Questions an operation asks the user while it runs. The UI answers them through
+/// `FileOperationQueue.promptHandler`.
+public enum QueuePrompt: Sendable {
+    case conflict(FileConflict)
+    case unstableSource(UnstableSource)
+}
+
+public enum QueuePromptAnswer: Sendable, Equatable {
+    case conflict(ConflictChoice)
+    case unstableSource(UnstableSourceDecision)
+}
+
+/// Total Commander's overwrite dialog.
+public enum ConflictChoice: Sendable, Equatable {
+    case overwrite, skip, rename
+    case overwriteAll, overwriteAllOlder, skipAll
+    case cancel
 }
 
 public enum QueueItemState: Equatable, Sendable {
@@ -61,6 +87,15 @@ public final class QueueItem: Identifiable {
     public internal(set) var detail: String = ""
     /// This item's log, oldest first.
     public internal(set) var log: [String] = []
+    /// Top-level items done and in total (for speech: "2 of 3 items copied").
+    public internal(set) var itemsDone = 0
+    public internal(set) var itemsTotal = 0
+    /// True while the operation waits for the user to answer a prompt.
+    public internal(set) var isWaitingForDecision = false
+    public let kind: OperationKind
+    /// Called once the item has finished, failed or been cancelled (for example to put the
+    /// cursor on a new folder).
+    @ObservationIgnored public var whenDone: ((QueueItemState) -> Void)?
 
     let operation: any QueueOperation
     let gate = PauseGate()
@@ -70,14 +105,28 @@ public final class QueueItem: Identifiable {
     init(operation: any QueueOperation) {
         self.operation = operation
         title = operation.title
+        kind = operation.kind
     }
 }
 
-/// Events for announcements (VoiceOver, sounds).
-public enum QueueEvent: Sendable {
-    case finished(title: String)
-    case failed(title: String, reason: String)
-    case cancelled(title: String)
+/// Events for announcements (VoiceOver, speech, sounds).
+public struct QueueEvent: Sendable, Equatable {
+    public var outcome: QueueOutcome
+    public var kind: OperationKind
+    public var title: String
+    public var done: Int
+    public var total: Int
+    /// The error for `.failed`, the question for `.needsDecision`.
+    public var reason: String
+
+    public init(outcome: QueueOutcome, kind: OperationKind, title: String, done: Int = 0, total: Int = 0, reason: String = "") {
+        self.outcome = outcome
+        self.kind = kind
+        self.title = title
+        self.done = done
+        self.total = total
+        self.reason = reason
+    }
 }
 
 @MainActor
@@ -88,6 +137,9 @@ public final class FileOperationQueue {
     public private(set) var current: QueueItem?
 
     @ObservationIgnored public var onEvent: ((QueueEvent) -> Void)?
+    /// Shows a prompt to the user and returns the answer. Without a handler, conflicts are
+    /// skipped and a changing source is skipped.
+    @ObservationIgnored public var promptHandler: ((QueueItem, QueuePrompt) async -> QueuePromptAnswer)?
 
     public init() {}
 
@@ -162,8 +214,34 @@ public final class FileOperationQueue {
         } else {
             item.state = .cancelled
             item.log.append("Cancelled")
-            onEvent?(.cancelled(title: item.title))
+            onEvent?(event(.cancelled, item))
+            item.whenDone?(item.state)
         }
+    }
+
+    private func event(_ outcome: QueueOutcome, _ item: QueueItem, reason: String = "") -> QueueEvent {
+        QueueEvent(outcome: outcome, kind: item.kind, title: item.title, done: item.itemsDone,
+                   total: item.itemsTotal, reason: reason)
+    }
+
+    /// Called by a running operation (through its context) to ask the user something.
+    func ask(_ prompt: QueuePrompt, for item: QueueItem) async -> QueuePromptAnswer {
+        item.isWaitingForDecision = true
+        let question: String
+        switch prompt {
+        case .conflict(let c): question = "\(c.destination.name) already exists"
+        case .unstableSource(let u): question = "\(u.path.name) keeps changing"
+        }
+        item.log.append("Waiting for a decision: \(question)")
+        onEvent?(event(.needsDecision, item, reason: question))
+        defer { item.isWaitingForDecision = false }
+        guard let handler = promptHandler else {
+            switch prompt {
+            case .conflict: return .conflict(.skip)
+            case .unstableSource: return .unstableSource(.skip)
+            }
+        }
+        return await handler(item, prompt)
     }
 
     public func removeFinished() {
@@ -193,7 +271,10 @@ public final class FileOperationQueue {
 
     private func run(_ item: QueueItem) async {
         let (updates, sink) = AsyncStream.makeStream(of: OperationContext.Update.self, bufferingPolicy: .unbounded)
-        let context = OperationContext(gate: item.gate, sink: sink)
+        let context = OperationContext(gate: item.gate, sink: sink) { [weak self] prompt in
+            guard let self else { return nil }
+            return await self.ask(prompt, for: item)
+        }
         let operation = item.operation
         let consumer = Task { @MainActor in
             for await update in updates { self.apply(update, to: item) }
@@ -207,17 +288,18 @@ public final class FileOperationQueue {
             item.state = .finished
             item.fraction = 1
             item.log.append("Finished")
-            onEvent?(.finished(title: item.title))
+            onEvent?(event(.finished, item))
         case .failure(let error) where error is CancellationError || item.gate.isCancelled:
             item.state = .cancelled
             item.log.append("Cancelled")
-            onEvent?(.cancelled(title: item.title))
+            onEvent?(event(.cancelled, item))
         case .failure(let error):
             let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             item.state = .failed(reason)
             item.log.append("Failed: \(reason)")
-            onEvent?(.failed(title: item.title, reason: reason))
+            onEvent?(event(.failed, item, reason: reason))
         }
+        item.whenDone?(item.state)
         if item.removeWhenStopped { items.removeAll { $0 === item } }
         current = nil
         startNextIfIdle()
@@ -230,6 +312,9 @@ public final class FileOperationQueue {
             item.detail = detail
         case .log(let message):
             item.log.append(message)
+        case .items(let done, let total):
+            item.itemsDone = done
+            item.itemsTotal = total
         }
     }
 }
@@ -239,16 +324,31 @@ public final class OperationContext: Sendable {
     enum Update: Sendable {
         case progress(Double?, String)
         case log(String)
+        case items(done: Int, total: Int)
     }
 
     private let gate: PauseGate
     private let sink: AsyncStream<Update>.Continuation
+    private let asker: @Sendable (QueuePrompt) async -> QueuePromptAnswer?
     private let lastProgress = Mutex<ContinuousClock.Instant?>(nil)
     private static let progressInterval: Duration = .milliseconds(100)
 
-    init(gate: PauseGate, sink: AsyncStream<Update>.Continuation) {
+    init(gate: PauseGate, sink: AsyncStream<Update>.Continuation,
+         asker: @escaping @Sendable (QueuePrompt) async -> QueuePromptAnswer? = { _ in nil }) {
         self.gate = gate
         self.sink = sink
+        self.asker = asker
+    }
+
+    /// Asks the user (the queue item shows as waiting for a decision meanwhile). Nil when the
+    /// queue is gone.
+    public func ask(_ prompt: QueuePrompt) async -> QueuePromptAnswer? {
+        await asker(prompt)
+    }
+
+    /// Top-level items done and in total, for speech and the queue list.
+    public func items(done: Int, total: Int) {
+        sink.yield(.items(done: done, total: total))
     }
 
     /// Waits while the item is paused; throws CancellationError once it is cancelled.

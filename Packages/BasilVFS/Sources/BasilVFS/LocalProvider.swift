@@ -9,7 +9,7 @@ public struct LocalProvider: FileSystemProvider {
     public let location = ProviderLocation.local
     public let capabilities: ProviderCapabilities = [
         .read, .write, .randomAccessRead, .randomAccessWrite, .rename, .atomicRename,
-        .setPermissions, .setDates, .extendedAttrs, .clone, .watch, .symlinks,
+        .setPermissions, .setDates, .extendedAttrs, .clone, .watch, .symlinks, .trash,
     ]
 
     /// Listing runs on its own queue: getattrlistbulk blocks and must not occupy the cooperative pool.

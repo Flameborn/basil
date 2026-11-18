@@ -1,9 +1,10 @@
 import AppKit
 import BasilCore
+import BasilIntegrations
 import SwiftUI
 
 public enum SettingsTab: String, Hashable, Sendable {
-    case views, display, navigation, bookmarks, copying
+    case views, display, navigation, bookmarks, copying, sounds
 }
 
 @MainActor
@@ -27,8 +28,8 @@ public final class SettingsWindowController: NSWindowController {
     }
 
     private init(settings: SettingsStore) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 560),
+        let window = SettingsNSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -36,7 +37,7 @@ public final class SettingsWindowController: NSWindowController {
         window.title = "Basil Settings"
         window.setFrameAutosaveName("BasilSettingsWindow")
         // Wide enough that all tabs fit in the toolbar (otherwise one hides behind an overflow button).
-        window.contentMinSize = NSSize(width: 860, height: 480)
+        window.contentMinSize = NSSize(width: 980, height: 520)
         super.init(window: window)
         let hosting = NSHostingController(rootView: SettingsView(store: settings, navigation: navigation))
         hosting.view.setAccessibilityLabel("Settings")
@@ -51,6 +52,19 @@ public final class SettingsWindowController: NSWindowController {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+}
+
+/// Cmd+W closes the settings window. The main menu has no Close item, because Cmd+W must not
+/// close the main window (that would quit the app).
+final class SettingsNSWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
+            performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 struct SettingsView: View {
@@ -74,9 +88,12 @@ struct SettingsView: View {
             CopySettings(store: store)
                 .tabItem { Text("Copying") }
                 .tag(SettingsTab.copying)
+            FeedbackSettingsView(store: store)
+                .tabItem { Text("Sounds and Speech") }
+                .tag(SettingsTab.sounds)
         }
         .padding()
-        .frame(minWidth: 860, minHeight: 480)
+        .frame(minWidth: 980, minHeight: 520)
     }
 }
 
@@ -298,6 +315,11 @@ struct CopySettings: View {
 
     var body: some View {
         Form {
+            Toggle("Secure copy and move", isOn: $store.settings.secureCopy)
+                .accessibilityLabel("Secure copy and move")
+            Text("On: Basil copies into a temporary file, checks afterwards whether the source changed during the copy and copies the changed parts again, flushes to disk, then renames the file into place. A move deletes the source only when its copy is complete. Off (default): copying works like Total Commander and writes straight to the target. A file that is still being written can then be copied incomplete.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
             Toggle("Verify copies by reading the destination back", isOn: $store.settings.verifyCopies)
                 .accessibilityLabel("Verify copies by reading the destination back")
             Text("Reads every copied file again and compares it with what was read from the source. Slower; off by default. Applies to copy and move.")
@@ -308,7 +330,7 @@ struct CopySettings: View {
             }
             .accessibilityLabel("Retries when a file changes during copying")
             .accessibilityValue("\(store.settings.unstableSourceRetries)")
-            Text("A file that is still being written is read again this many times, waiting longer each time, before Basil asks what to do.")
+            Text("Secure mode only. A file that is still being written is read again this many times, waiting longer each time, before Basil asks what to do.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -372,4 +394,127 @@ private func announce(_ message: String) {
     guard let window = NSApp.keyWindow else { return }
     NSAccessibility.post(element: window, notification: .announcementRequested,
                          userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+}
+
+// MARK: - Sounds and speech
+
+/// Sound and speech per queue event. "Any operation" sets the defaults; each operation can
+/// override any of its events.
+struct FeedbackSettingsView: View {
+    @Bindable var store: SettingsStore
+    @State private var kind: OperationKind? = nil
+    @State private var player = EventFeedbackPlayer()
+    private let soundNames = EventFeedbackPlayer.systemSoundNames()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Operation", selection: $kind) {
+                Text("Any operation").tag(OperationKind?.none)
+                ForEach(OperationKindCatalog.all, id: \.kind) { info in
+                    Text(info.name).tag(OperationKind?.some(info.kind))
+                }
+            }
+            .frame(maxWidth: 360)
+            Text("Placeholders for the spoken text: \(FeedbackText.placeholderHelp). Speech goes to VoiceOver when it is running, otherwise the system voice speaks.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Form {
+                ForEach(QueueOutcome.allCases, id: \.self) { outcome in
+                    Section(outcome.title) { editor(outcome) }
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    @ViewBuilder
+    private func editor(_ outcome: QueueOutcome) -> some View {
+        let label = outcome.title
+        if let kind {
+            let overridden = store.settings.feedback.override(for: kind, outcome) != nil
+            Toggle("\(label): use the Any operation setting", isOn: Binding(
+                get: { !overridden },
+                set: { useDefault in
+                    let current = store.settings.feedback.feedback(for: kind, outcome)
+                    store.settings.feedback.setOverride(useDefault ? nil : current, for: kind, outcome)
+                }
+            ))
+            .accessibilityLabel("\(label): use the Any operation setting")
+            if overridden { fields(outcome, label: label) }
+        } else {
+            fields(outcome, label: label)
+        }
+    }
+
+    @ViewBuilder
+    private func fields(_ outcome: QueueOutcome, label: String) -> some View {
+        let feedback = binding(outcome)
+        HStack {
+            Picker("\(label) sound", selection: soundBinding(feedback)) {
+                Text("None").tag("none")
+                ForEach(soundNames, id: \.self) { Text($0).tag("system:" + $0) }
+                if case .file(let path) = feedback.wrappedValue.sound {
+                    Text((path as NSString).lastPathComponent).tag("file:" + path)
+                }
+                Text("Choose File...").tag("choose")
+            }
+            Button("Play") { player.play(feedback.wrappedValue.sound) }
+                .accessibilityLabel("Play \(label.lowercased()) sound")
+                .disabled(feedback.wrappedValue.sound == .none)
+        }
+        Toggle("\(label): speak", isOn: feedback.speak)
+            .accessibilityLabel("\(label): speak")
+        HStack {
+            TextField("\(label) text", text: feedback.text)
+            Button("Try") { player.speak(FeedbackText.render(feedback.wrappedValue.text, sample)) }
+                .accessibilityLabel("Try \(label.lowercased()) text")
+        }
+    }
+
+    private var sample: FeedbackValues {
+        FeedbackValues(kind: OperationKindCatalog.info(kind ?? .copy), title: "Copy 3 items to Documents",
+                       done: 2, total: 3, reason: "Permission denied")
+    }
+
+    private func binding(_ outcome: QueueOutcome) -> Binding<EventFeedback> {
+        Binding(
+            get: { store.settings.feedback.feedback(for: kind ?? .other, outcome) },
+            set: { value in
+                if let kind {
+                    store.settings.feedback.setOverride(value, for: kind, outcome)
+                } else {
+                    store.settings.feedback.defaults[outcome.rawValue] = value
+                }
+            }
+        )
+    }
+
+    private func soundBinding(_ feedback: Binding<EventFeedback>) -> Binding<String> {
+        Binding(
+            get: {
+                switch feedback.wrappedValue.sound {
+                case .none: "none"
+                case .system(let name): "system:" + name
+                case .file(let path): "file:" + path
+                }
+            },
+            set: { tag in
+                if tag == "none" {
+                    feedback.wrappedValue.sound = .none
+                } else if tag.hasPrefix("system:") {
+                    feedback.wrappedValue.sound = .system(String(tag.dropFirst(7)))
+                } else if tag.hasPrefix("file:") {
+                    feedback.wrappedValue.sound = .file(String(tag.dropFirst(5)))
+                } else if tag == "choose" {
+                    let panel = NSOpenPanel()
+                    panel.allowedContentTypes = [.audio]
+                    panel.message = "Choose a sound file"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        feedback.wrappedValue.sound = .file(url.path)
+                        player.play(.file(url.path))
+                    }
+                }
+            }
+        )
+    }
 }
