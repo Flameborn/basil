@@ -21,9 +21,11 @@ final class PaneUITests: XCTestCase {
     var leftTable: XCUIElement { app.tables["pane.left.table"] }
     var rightTable: XCUIElement { app.tables["pane.right.table"] }
 
+    /// Each row is one accessibility element read like the columns ("song, mp3, 1.5 MB, ...");
+    /// the name is the first part (fixture names contain no commas).
     func names(in table: XCUIElement) -> [String] {
         table.tableRows.allElementsBoundByIndex.compactMap { row in
-            row.cells.element(boundBy: 0).staticTexts.firstMatch.value as? String
+            row.label.components(separatedBy: ", ").first
         }
     }
 
@@ -84,8 +86,9 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(" ", modifierFlags: [])
         let status = app.staticTexts["pane.left.status"]
         XCTAssertTrue(waitFor { (status.value as? String)?.contains("1 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
-        // The selected file's name cell is read with ", selected".
-        XCTAssertEqual(leftTable.tableRows.element(boundBy: 5).cells.element(boundBy: 0).staticTexts.firstMatch.label, "track, selected")
+        // The selected file's name is read with ", selected".
+        XCTAssertTrue(leftTable.tableRows.element(boundBy: 5).label.hasPrefix("track, selected, flac, "),
+                      leftTable.tableRows.element(boundBy: 5).label)
     }
 
     func testHomeAndEndKeys() {
@@ -98,9 +101,12 @@ final class PaneUITests: XCTestCase {
 
     func testRowsReadLikeTotalCommanderColumns() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        // One element per row, no cells (no "column 2, row 1" from VoiceOver); a folder's empty
+        // extension is skipped and its size reads "dir".
         let folderRow = leftTable.tableRows.element(boundBy: 0)
-        XCTAssertEqual(folderRow.cells.element(boundBy: 0).staticTexts.firstMatch.label, "Alpha")
-        XCTAssertEqual(folderRow.cells.element(boundBy: 2).staticTexts.firstMatch.label, "dir")
+        XCTAssertTrue(folderRow.label.hasPrefix("Alpha, dir, "), folderRow.label)
+        XCTAssertEqual(folderRow.cells.count, 0)
+        XCTAssertTrue(leftTable.tableRows.element(boundBy: 4).label.hasPrefix("song, mp3, "))
     }
 
     func testBriefAndFullViews() {
@@ -133,10 +139,6 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 6 })
         // Audits the app with the settings window in front.
         try app.performAccessibilityAudit { issue in
-            if issue.auditType == .sufficientElementDescription, let element = issue.element,
-               element.elementType == .cell, element.label.isEmpty {
-                return true // deliberately silent file-list cells, see testMainWindowPassesAccessibilityAudit
-            }
             // SwiftUI's own Picker pop-up button reports "Action is missing" to the audit although
             // VoiceOver can open it (VO-Space). Verify manually with VoiceOver when changing pickers.
             // Disabled controls (e.g. "Add Column" when every column is already in the view) have no action by design.
@@ -153,12 +155,6 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         XCTAssertTrue(rightTable.exists)
         try app.performAccessibilityAudit { issue in
-            // Empty or deliberately silent table cells (a folder's extension and "<DIR>" size) are
-            // skipped by VoiceOver on purpose; NSTableView's own cell wrapper then has no description.
-            if issue.auditType == .sufficientElementDescription, let element = issue.element,
-               element.elementType == .cell, element.label.isEmpty {
-                return true
-            }
             print("AUDIT: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }

@@ -43,6 +43,8 @@ M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard c
 | 2026-11-18 | Keys: Cmd+F1/F2 locations menu for left/right pane, Cmd+D for current pane, Cmd+I status, Ctrl+F1 Brief, Ctrl+F2 Full, Ctrl+F3+ custom views |
 | 2026-11-18 | Locations menu: Home, volumes, bookmarks; setting to go to the volume root instead of the last folder visited there |
 | 2026-11-18 | Size column: bytes / KB / MB / GB / dynamic (default dynamic), 1 KB = 1024 by default (setting: 1000) |
+| 2026-11-18 | Pane rows are read as one element ("name, ext, size, date, attributes"); no cell position ("column 2, row 1") is spoken |
+| 2026-11-18 | The operation queue does not survive app restarts |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
@@ -56,7 +58,6 @@ M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard c
 - [ ] 7-Zip integration: bundled `7zz` CLI (password fed via stdin/pty), or link 7-Zip sources through a C/C++ bridge?
 - [ ] UnRAR integration: link the UnRAR library (`dll.hpp` API), or the `unrar` CLI?
 - [ ] How should LuaJIT be built and linked (prebuilt static lib/xcframework from `scripts/bootstrap.sh`)?
-- [ ] Should the operation queue persist across app restarts, and resume or ask?
 - [ ] Should there be several queues in parallel (for example one per destination device), or strictly one global queue?
 - [ ] Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
 - [ ] Sound effects: which operations play sounds, which sound files are bundled, and per-event configuration?

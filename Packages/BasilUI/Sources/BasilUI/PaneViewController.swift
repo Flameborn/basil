@@ -543,12 +543,7 @@ extension PaneViewController: NSTableViewDataSource, NSTableViewDelegate {
         let text = def.text(item, columnContext)
 
         cell.textField?.stringValue = text
-        if def.id == .name {
-            cell.imageView?.image = Icons.icon(for: item)
-            cell.spokenLabel = isSelected ? "\(text), selected" : nil
-        } else {
-            cell.spokenLabel = def.spoken(item, columnContext)
-        }
+        if def.id == .name { cell.imageView?.image = Icons.icon(for: item) }
         cell.style = item.isHidden ? .hidden : (item.isDirectoryLike ? .directory : .normal)
         cell.isSelectedItem = isSelected
         cell.textField?.font = def.alignment == .trailing || def.id == .modified || def.id == .created
@@ -615,6 +610,21 @@ extension PaneViewController: PaneTableViewKeyDelegate {
         } else {
             NSSound.beep()
         }
+    }
+
+    /// Reads like the visible columns: "song, selected, mp3, 1.5 MB, ...". A column's spoken text
+    /// replaces its visible text when given ("" silences it, e.g. a folder's empty extension).
+    func paneTable(_ table: PaneTableView, spokenTextForRow row: Int) -> String {
+        guard row < model.rows.count else { return "" }
+        let item = model.rows[row]
+        var parts: [String] = []
+        for column in table.tableColumns {
+            guard let def = ColumnCatalog.definition(ColumnID(rawValue: column.identifier.rawValue)) else { continue }
+            let text = def.spoken(item, columnContext) ?? def.text(item, columnContext)
+            if !text.isEmpty { parts.append(text) }
+            if def.id == .name, model.selected.contains(item.path) { parts.append("selected") }
+        }
+        return parts.joined(separator: ", ")
     }
 
     func paneTableDidBecomeFirstResponder(_ table: PaneTableView) {

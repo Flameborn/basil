@@ -169,7 +169,7 @@ Sync compares two directories (left and right panes), optionally including subdi
   - The lists are labelled only "Left pane" / "Right pane". Nothing is announced on Tab or on a folder change; VoiceOver reads the item under the cursor.
   - Rows read like Total Commander columns: "test, dir, date, ..." or "song, mp3, 1.5 MB, ...". No "file" or "folder" word is added. A selected item's name reads "song, selected".
   - Space says "Selected, 2 items", "Deselected, 1 item", or just "Deselected" when nothing is left selected.
-  - Each `PaneCellView` is the accessibility element (static text) with an optional `spokenLabel`, and the inner text field is hidden. Empty cells are skipped.
+  - Each row is one accessibility element (`PaneRowElement`, created by `PaneTableView`), labelled with the whole row ("song, mp3, 1.5 MB, ..."), built from the model by `PaneViewController.paneTable(_:spokenTextForRow:)` using each column's spoken text. Cells are not exposed: NSTableView's own AXCell proxies make VoiceOver add "column 2, row 1". Only the visible rows and the cursor row are exposed. Empty column texts are skipped.
   - The path header is an accessible static text labelled "Path".
 - **Colours** are drawn in views (`ThemedBox`, row views), not set as layer `cgColor`, so light/dark switches apply immediately.
 
@@ -202,7 +202,7 @@ for p in Packages/*/; do swift test --package-path "$p"; done   # all package te
 ```
 
 - UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`), start both panes in it, and use an isolated preferences domain (`com.erion.basil.uitests`, wiped each launch). Tests must never touch the user's real settings. Pass `UserDefaults` in explicitly; don't use `UserDefaults.standard` in BasilUI.
-- The accessibility audit has three documented exceptions in the tests: empty table cells that are silent on purpose, SwiftUI Picker pop-ups ("Action is missing", a false positive), and disabled controls. Anything else fails the test.
+- The accessibility audit has two documented exceptions in the tests: SwiftUI Picker pop-ups ("Action is missing", a false positive), and disabled controls. Anything else fails the test.
 - 200k-item benchmark (skipped unless `BASIL_PERF_DIR` is set): `BASIL_PERF_DIR=/path/to/big swift test -c release --package-path Packages/BasilUI --filter largeDirectory`. Last result: load and sort 0.87 s, re-sort 0.10 s, filter 0.04 s.
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.
 - `xcodebuild` prints `DVTCoreDeviceCore` / "CoreSimulator is out of date" plug-in errors on this machine. They are Xcode environment noise and do not affect macOS builds.

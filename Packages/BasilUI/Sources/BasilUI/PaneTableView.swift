@@ -7,6 +7,8 @@ protocol PaneTableViewKeyDelegate: AnyObject {
     func paneTable(_ table: PaneTableView, perform chord: KeyChord) -> Bool
     func paneTable(_ table: PaneTableView, typeAhead text: String)
     func paneTableDidBecomeFirstResponder(_ table: PaneTableView)
+    /// What VoiceOver reads for a row: the visible columns' spoken text joined in column order.
+    func paneTable(_ table: PaneTableView, spokenTextForRow row: Int) -> String
 }
 
 /// The file list. Routes key presses to the command registry first, then to
@@ -45,12 +47,91 @@ final class PaneTableView: NSTableView {
         super.keyDown(with: event)
     }
 
+    // MARK: Accessibility
+    //
+    // NSTableView normally exposes each row as an AXRow holding one AXCell per column, and VoiceOver
+    // then adds the cell position ("column 2, row 1") while reading a row. Basil exposes its own row
+    // elements instead: one per row, labelled with the whole row ("song, mp3, 1.5 MB, ..."), no cells.
+    // Only the visible rows and the cursor row are exposed, so 100k-row folders cost nothing here.
+
+    private var rowElements: [Int: PaneRowElement] = [:]
+
+    override func reloadData() {
+        rowElements.removeAll()
+        super.reloadData()
+    }
+
+    func rowElement(_ row: Int) -> PaneRowElement {
+        if let element = rowElements[row] { return element }
+        if rowElements.count > 500 { rowElements.removeAll() }
+        let element = PaneRowElement(table: self, row: row)
+        rowElements[row] = element
+        return element
+    }
+
+    private var exposedRows: [PaneRowElement] {
+        var indexes = IndexSet()
+        let visible = rows(in: visibleRect)
+        if visible.length > 0 { indexes.insert(integersIn: visible.location..<(visible.location + visible.length)) }
+        if selectedRow >= 0 { indexes.insert(selectedRow) }
+        return indexes.filter { $0 < numberOfRows }.map(rowElement)
+    }
+
+    // Keeps AppKit's other children (columns, header) so parents and children stay consistent.
+    override func accessibilityChildren() -> [Any]? {
+        // AppKit's own children are row proxies (dropped), NSTableColumn objects and the header view.
+        let others = (super.accessibilityChildren() ?? []).filter { $0 is NSTableColumn || $0 is NSView }
+        return exposedRows + others
+    }
+    @objc func accessibilityRows() -> [Any]? { exposedRows }
+    @objc func accessibilityVisibleRows() -> [Any]? { exposedRows }
+    @objc func accessibilitySelectedRows() -> [Any]? {
+        selectedRow >= 0 && selectedRow < numberOfRows ? [rowElement(selectedRow)] : []
+    }
+
     func refreshVisibleRows() {
         let range = rows(in: visibleRect)
         guard range.length > 0 else { return }
         for row in range.location..<(range.location + range.length) {
             (rowView(atRow: row, makeIfNecessary: false) as? PaneRowView)?.isActivePane = isActivePane
         }
+    }
+}
+
+/// One row as VoiceOver sees it. The text comes from the pane model, not from the cell views,
+/// so it is correct even for rows whose views are not loaded.
+final class PaneRowElement: NSAccessibilityElement {
+    private weak var table: PaneTableView?
+    let row: Int
+
+    init(table: PaneTableView, row: Int) {
+        self.table = table
+        self.row = row
+        super.init()
+        setAccessibilityParent(table)
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .row }
+    override func accessibilitySubrole() -> NSAccessibility.Subrole? { .tableRow }
+    override func accessibilityLabel() -> String? {
+        let table = table, row = row
+        return MainActor.assumeIsolated {
+            guard let table, row < table.numberOfRows else { return nil }
+            return table.keyDelegate?.paneTable(table, spokenTextForRow: row)
+        }
+    }
+    override func accessibilityIndex() -> Int { row }
+    override func isAccessibilityEnabled() -> Bool { true }
+    override func accessibilityChildren() -> [Any]? { [] }
+    override func isAccessibilitySelected() -> Bool { table?.selectedRow == row }
+    override func setAccessibilitySelected(_ selected: Bool) {
+        guard selected, let table, row < table.numberOfRows else { return }
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        table.scrollRowToVisible(row)
+    }
+    override func accessibilityFrame() -> NSRect {
+        guard let table, row < table.numberOfRows else { return .zero }
+        return NSAccessibility.screenRect(fromView: table, rect: table.rect(ofRow: row))
     }
 }
 
@@ -118,19 +199,9 @@ final class PaneCellView: NSTableCellView {
     var isSelectedItem = false { didSet { updateColors() } }
     var showsCursor = false { didSet { if oldValue != showsCursor { updateColors() } } }
 
-    /// What VoiceOver reads (e.g. "song, selected"); nil means the visible text,
-    /// "" means the cell is silent (e.g. a folder's "<DIR>" size, already said by the name cell).
-    var spokenLabel: String?
-
-    // The cell is the accessibility element; empty or silent cells are skipped.
-    override func isAccessibilityElement() -> Bool {
-        !(spokenLabel ?? textField?.stringValue ?? "").isEmpty
-    }
-    override func accessibilityLabel() -> String? { spokenLabel ?? textField?.stringValue }
-    override func accessibilityValue() -> Any? { textField?.stringValue }
-    override func isAccessibilityEnabled() -> Bool { true }
+    // VoiceOver reads whole rows (PaneRowElement); cells are not accessibility elements.
+    override func isAccessibilityElement() -> Bool { false }
     override func accessibilityChildren() -> [Any]? { [] }
-    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
 
     private func updateColors() {
         guard let textField else { return }
