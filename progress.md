@@ -44,6 +44,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-18 | Locations menu: Home, volumes, bookmarks; setting to go to the volume root instead of the last folder visited there |
 | 2026-11-18 | Size column: bytes / KB / MB / GB / dynamic (default dynamic), 1 KB = 1024 by default (setting: 1000) |
 | 2026-11-18 | Pane rows keep per-column cells for VoiceOver, but empty cells are not exposed (an empty cell made VoiceOver say "column 2, row 1") |
+| 2026-11-18 | After Tab, Up/Down reads the whole row (the cursor row takes VoiceOver focus from the first cursor move); Tab itself still reads the pane name. Rows read without a "table row" suffix |
 | 2026-11-18 | The operation queue does not survive app restarts |
 | 2026-11-18 | Queue panel: Cmd+J, floating window (panes stay usable); new operations start right away when the queue is idle |
 | 2026-11-18 | Queue list keys: Space pause/resume, Cmd+Up/Down move, Delete cancel and remove; same as buttons and VoiceOver actions |

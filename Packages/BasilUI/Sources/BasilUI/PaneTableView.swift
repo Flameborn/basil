@@ -25,7 +25,10 @@ final class PaneTableView: NSTableView {
 
     override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
-        if ok { keyDelegate?.paneTableDidBecomeFirstResponder(self) }
+        if ok {
+            rowHasFocus = false
+            keyDelegate?.paneTableDidBecomeFirstResponder(self)
+        }
         return ok
     }
 
@@ -93,6 +96,38 @@ final class PaneTableView: NSTableView {
         return rowElement(row).cell(column: column)
     }
 
+    // The cursor row is the focused element. Without this, VoiceOver put its cursor on the first
+    // cell of the row when the list got focus by Tab, and then read only that column on Up/Down.
+    // Focused on the row, it reads every cell of each row the cursor moves to.
+    override var accessibilityFocusedUIElement: Any? {
+        nonisolated(unsafe) var focused: Any? = self
+        MainActor.assumeIsolated {
+            if rowHasFocus, selectedRow >= 0, selectedRow < numberOfRows { focused = rowElement(selectedRow) }
+        }
+        return focused
+    }
+
+    /// False right after the list gets focus, so VoiceOver first reads the list ("Right pane, table,
+    /// row 1 of 3, ..."); the first cursor move hands focus to the row.
+    private var rowHasFocus = false
+    private var selectionObserver: NSObjectProtocol?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard selectionObserver == nil else { return }
+        selectionObserver = NotificationCenter.default.addObserver(
+            forName: NSTableView.selectionDidChangeNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.postCursorFocus() }
+        }
+    }
+
+    private func postCursorFocus() {
+        guard window?.firstResponder === self, selectedRow >= 0, selectedRow < numberOfRows else { return }
+        rowHasFocus = true
+        NSAccessibility.post(element: rowElement(selectedRow), notification: .focusedUIElementChanged)
+    }
+
     func refreshVisibleRows() {
         let range = rows(in: visibleRect)
         guard range.length > 0 else { return }
@@ -118,6 +153,7 @@ final class PaneRowElement: NSAccessibilityElement {
 
     override func accessibilityRole() -> NSAccessibility.Role? { .row }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { .tableRow }
+    override func accessibilityRoleDescription() -> String? { "" }
     override func accessibilityIndex() -> Int { row }
     override func isAccessibilityEnabled() -> Bool { true }
     override func accessibilityChildren() -> [Any]? {
@@ -133,6 +169,18 @@ final class PaneRowElement: NSAccessibilityElement {
         let cell = PaneCellElement(rowElement: self, column: column)
         cells[column] = cell
         return cell
+    }
+    /// The whole row, read when the row has focus: "song, mp3, 1.5 MB, ...".
+    override func accessibilityLabel() -> String? {
+        guard let table else { return nil }
+        return (0..<table.numberOfColumns)
+            .map { PaneCellElement.text(table: table, row: row, column: $0) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+    override func isAccessibilityFocused() -> Bool {
+        guard let table else { return false }
+        return table.selectedRow == row && table.window?.firstResponder === table
     }
     override func isAccessibilitySelected() -> Bool { table?.selectedRow == row }
     override func setAccessibilitySelected(_ selected: Bool) {

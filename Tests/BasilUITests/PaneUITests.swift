@@ -117,6 +117,9 @@ final class PaneUITests: XCTestCase {
         XCTAssertEqual(folder.count, 4, "\(folder)")
         XCTAssertEqual(folder.prefix(2), ["Alpha", "dir"])
         XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 4)).prefix(2), ["song", "mp3"])
+        // The row itself carries the whole row, read when the cursor row has VoiceOver focus.
+        XCTAssertTrue(leftTable.tableRows.element(boundBy: 4).label.hasPrefix("song, mp3, "),
+                      leftTable.tableRows.element(boundBy: 4).label)
     }
 
     func testBriefAndFullViews() {
