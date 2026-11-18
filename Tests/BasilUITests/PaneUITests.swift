@@ -188,6 +188,48 @@ final class PaneUITests: XCTestCase {
         }
     }
 
+    func testMultiRenameWithPreviewAndUndo() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("so")
+        leftTable.typeKey(.space, modifierFlags: [])
+        leftTable.typeKey(.downArrow, modifierFlags: [])   // track
+        leftTable.typeKey(.space, modifierFlags: [])
+        leftTable.typeKey("m", modifierFlags: .command)
+
+        // A modal window is a dialog to accessibility.
+        let window = app.dialogs["Multi-Rename"]
+        XCTAssertTrue(window.waitForExistence(timeout: 3), app.debugDescription)
+        let mask = window.textFields["Name mask"]
+        XCTAssertTrue(mask.exists, window.debugDescription)
+        mask.typeKey("a", modifierFlags: .command)
+        mask.typeText("[N] [C]")
+        let preview = window.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ OR value == %@", "song.mp3, to song 1.mp3", "song.mp3, to song 1.mp3")).firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 3), window.debugDescription)
+        mask.typeKey(.tab, modifierFlags: [])   // ends editing: an active field editor fails the audit's parent check
+        try app.performAccessibilityAudit { issue in
+            // SwiftUI Menu and Picker pop-up buttons report "Action is missing" although VoiceOver opens them;
+            // disabled controls have no action by design.
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || element.elementType == .menuButton || !element.isEnabled {
+                return true
+            }
+            print("AUDIT multi-rename: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        mask.click()
+        app.typeKey(.return, modifierFlags: [])   // Return in the mask field starts, as in TC
+        XCTAssertTrue(waitFor { !window.exists })
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["song 1", "track 2"]) },
+                      "\(names(in: leftTable))")
+
+        leftTable.typeKey("m", modifierFlags: .command)
+        XCTAssertTrue(window.waitForExistence(timeout: 3))
+        window.buttons["Undo Last Rename"].click()
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["song", "track"]) },
+                      "\(names(in: leftTable))")
+    }
+
     func testMainWindowPassesAccessibilityAudit() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         XCTAssertTrue(rightTable.exists)

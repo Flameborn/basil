@@ -67,7 +67,8 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
     @Test func pausingTheRunningItemHoldsTheQueue() async throws {
         let rec = Recorder()
         let queue = FileOperationQueue()
-        let a = queue.add(StepOperation(title: "A", steps: 6, stepTime: .milliseconds(30), recorder: rec))
+        // Long enough (60 x 30 ms) that A cannot finish before it is paused, even on a busy machine.
+        let a = queue.add(StepOperation(title: "A", steps: 60, stepTime: .milliseconds(30), recorder: rec))
         let b = queue.add(StepOperation(title: "B", steps: 1, recorder: rec))
         #expect(await waitUntil { rec.count("A") >= 1 })
         queue.pause(a.id)
@@ -80,8 +81,8 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         #expect(b.state == .waiting)
         queue.resume(a.id)
         #expect(a.state == .running)
-        #expect(await waitUntil { b.state == .finished })
-        #expect(rec.count("A") == 6)
+        #expect(await waitUntil(.seconds(10)) { b.state == .finished })
+        #expect(rec.count("A") == 60)
         #expect(a.log.contains("Paused") && a.log.contains("Resumed"))
     }
 
@@ -447,5 +448,84 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         #expect(failures.first?.question == "Cannot delete x")
         #expect(try box.names() == ["locked"])
         #expect(item.itemsDone == 1 && item.itemsTotal == 2)
+    }
+}
+
+@MainActor
+@Suite struct MultiRenameOperationTests {
+    let registry: ProviderRegistry = {
+        let r = ProviderRegistry()
+        r.register(LocalProvider())
+        return r
+    }()
+
+    func run(_ queue: FileOperationQueue, _ op: any QueueOperation) async -> QueueItem {
+        let item = queue.add(op)
+        _ = await waitUntil { item.state.isDone }
+        return item
+    }
+
+    func pairs(_ box: Sandbox, _ renames: [(String, String)]) -> [MultiRenameOperation.Pair] {
+        renames.map { .init(source: box.path($0.0), destination: box.path($0.1)) }
+    }
+
+    @Test func swapsChainsAndCaseChangesThenUndo() async throws {
+        let box = try Sandbox()
+        for name in ["a", "b", "c", "d"] { try box.write(name, Data(name.utf8)) }
+        let log = box.url.appendingPathComponent("undo/last.json")
+        let queue = FileOperationQueue()
+        // a <-> b swap, c -> C (case only), d -> e
+        let op = MultiRenameOperation(pairs: pairs(box, [("a", "b"), ("b", "a"), ("c", "C"), ("d", "e")]),
+                                      undoLog: log, registry: registry)
+        let item = await run(queue, op)
+        #expect(item.state == .finished)
+        #expect(item.itemsDone == 4)
+        #expect(try box.names().filter { $0 != "undo" } == ["C", "a", "b", "e"])
+        #expect(try contents(box.path("a")) == Data("b".utf8))
+        #expect(try contents(box.path("b")) == Data("a".utf8))
+        #expect(MultiRenameOperation.readLog(log)?.count == 4)
+
+        let undo = try #require(MultiRenameOperation.undo(log: log, registry: registry))
+        #expect(undo.title == "Undo rename of 4 items")
+        let undone = await run(queue, undo)
+        #expect(undone.state == .finished)
+        #expect(try box.names().filter { $0 != "undo" } == ["a", "b", "c", "d"])
+        #expect(try contents(box.path("a")) == Data("a".utf8))
+        #expect(!FileManager.default.fileExists(atPath: log.path))
+        #expect(MultiRenameOperation.undo(log: log, registry: registry) == nil)
+    }
+
+    @Test func clashWithItemOutsideTheBatchAsksAndSkipKeepsName() async throws {
+        let box = try Sandbox()
+        for name in ["a", "b", "taken"] { try box.write(name, Data(name.utf8)) }
+        let queue = FileOperationQueue()
+        var asked: [VFSPath] = []
+        queue.promptHandler = { _, prompt in
+            if case .itemFailed(let f) = prompt { asked.append(f.path) }
+            return .itemFailed(.skip)
+        }
+        let log = box.url.appendingPathComponent("log.json")
+        let item = await run(queue, MultiRenameOperation(pairs: pairs(box, [("a", "taken"), ("b", "b2")]),
+                                                         undoLog: log, registry: registry))
+        #expect(item.state == .finished)
+        #expect(asked == [box.path("a")])
+        #expect(try box.names() == ["a", "b2", "log.json", "taken"])
+        #expect(try contents(box.path("taken")) == Data("taken".utf8))
+        #expect(MultiRenameOperation.readLog(log) == pairs(box, [("b", "b2")]))
+    }
+
+    @Test func skippedSwapPartnerGoesBackToItsOldName() async throws {
+        let box = try Sandbox()
+        for name in ["a", "b"] { try box.write(name, Data(name.utf8)) }
+        let queue = FileOperationQueue()
+        queue.promptHandler = { _, _ in .itemFailed(.skip) }
+        // a -> c clashes with c, which is not in the batch.
+        try box.write("c", Data("c".utf8))
+        let item = await run(queue, MultiRenameOperation(pairs: pairs(box, [("a", "c"), ("b", "a")]),
+                                                         undoLog: nil, registry: registry))
+        #expect(item.state == .finished)
+        // a could not become c (exists), so b could not become a: both keep their names, no temp names left.
+        #expect(try box.names() == ["a", "b", "c"])
+        #expect(try contents(box.path("a")) == Data("a".utf8))
     }
 }

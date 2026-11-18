@@ -52,6 +52,38 @@ extension MainWindowController {
         }
     }
 
+    /// Cmd+M: the Multi-Rename tool for the selected items, or the cursor item.
+    func multiRename() {
+        let items = targetItems
+        guard !items.isEmpty else { return announce("No items") }
+        let pane = activePane
+        let log = dataDirectory.appendingPathComponent("LastMultiRename.json")
+        let model = MultiRenameModel(items: items, existingNames: pane.model.allItems.map(\.name), undoLog: log)
+        let controller = MultiRenameWindowController(model: model, settings: settings)
+        model.onStart = { [weak self, weak controller] entries in
+            guard let self else { return }
+            controller?.close()
+            let pairs = entries.filter { !$0.isUnchanged }.compactMap { entry in
+                entry.item.path.parent.map { MultiRenameOperation.Pair(source: entry.item.path, destination: $0.appending(entry.newName)) }
+            }
+            let cursor = pane.cursorItem?.path
+            let newCursor = pairs.first { $0.source == cursor }?.destination ?? cursor
+            let queued = queue.add(MultiRenameOperation(pairs: pairs, undoLog: log, registry: providers))
+            pane.model.deselectAll()
+            queued.whenDone = { _ in pane.model.reload(cursor: newCursor) }
+        }
+        model.onUndo = { [weak self, weak controller] in
+            guard let self else { return }
+            controller?.close()
+            guard let undo = MultiRenameOperation.undo(log: log, registry: providers) else { return announce("Nothing to undo") }
+            let cursor = pane.cursorItem?.path
+            let newCursor = undo.pairs.first { $0.source == cursor }?.destination ?? cursor
+            let queued = queue.add(undo)
+            queued.whenDone = { _ in pane.model.reload(cursor: newCursor) }
+        }
+        controller.runModal()
+    }
+
     func makeDirectory() {
         guard let window else { return }
         let pane = activePane

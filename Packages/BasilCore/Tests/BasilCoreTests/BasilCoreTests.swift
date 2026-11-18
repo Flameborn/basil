@@ -271,3 +271,115 @@ import Testing
         #expect(BasilSettings().secureCopy == false)
     }
 }
+
+@Suite struct MultiRenameTests {
+    func item(_ name: String, dir: Bool = false, modified: Date? = nil) -> FileItem {
+        FileItem(path: .local("/music/album/\(name)"), kind: dir ? .directory : .file, modified: modified)
+    }
+
+    func rename(_ name: String, _ configure: (inout RenameRule) -> Void, index: Int = 0) -> String? {
+        var rule = RenameRule()
+        configure(&rule)
+        return MultiRename.newName(for: RenameInput(item: item(name), index: index), rule: rule)
+    }
+
+    @Test func defaultRuleKeepsTheName() {
+        #expect(rename("song.mp3") { _ in } == "song.mp3")
+        #expect(rename("README") { _ in } == "README")
+        #expect(rename(".profile") { _ in } == ".profile")
+        #expect(rename("a.tar.gz") { _ in } == "a.tar.gz")
+    }
+
+    @Test func nameAndExtensionRanges() {
+        #expect(rename("abcdefgh.txt") { $0.nameMask = "[N3]" } == "c.txt")
+        #expect(rename("abcdefgh.txt") { $0.nameMask = "[N2-5]" } == "bcde.txt")
+        #expect(rename("abcdefgh.txt") { $0.nameMask = "[N6-]" } == "fgh.txt")
+        #expect(rename("abcdefgh.txt") { $0.nameMask = "[N2,3]" } == "bcd.txt")
+        #expect(rename("abcdefgh.txt") { $0.nameMask = "[N-3-]" } == "fgh.txt")
+        #expect(rename("abcdefgh.txt") { $0.nameMask = "[N2--2]" } == "bcdefg.txt")
+        #expect(rename("abc.txt") { $0.nameMask = "[N2-10]" } == "bc.txt")
+        #expect(MultiRename.newName(for: RenameInput(item: item("My.Folder", dir: true), index: 0), rule: RenameRule()) == "My.Folder")
+        #expect(rename("abc.txt") { $0.nameMask = "[N9]" } == ".txt")
+        #expect(rename("abc.jpeg") { $0.extensionMask = "[E1-3]" } == "abc.jpe")
+        #expect(rename("abc.txt") { $0.extensionMask = "" } == "abc")
+        #expect(rename("abc") { $0.extensionMask = "bak" } == "abc.bak")
+    }
+
+    @Test func folderNamesCounterLiteralsAndUnknown() {
+        #expect(rename("x.mp3") { $0.nameMask = "[G] - [P] - [N]" } == "music - album - x.mp3")
+        #expect(rename("x.mp3", { $0.nameMask = "[C] [N]"; $0.counterStart = 1; $0.counterDigits = 2 }, index: 4) == "05 x.mp3")
+        #expect(rename("x.mp3", { $0.nameMask = "[C10+5:3]" }, index: 2) == "020.mp3")
+        #expect(rename("x.mp3") { $0.nameMask = "[[N]] [Q] [N" } == "[N] [Q] [N.mp3")
+    }
+
+    @Test func datePlaceholders() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let date = Date(timeIntervalSince1970: 1_700_000_000) // 2023-11-14 22:13:20 UTC
+        var rule = RenameRule()
+        rule.nameMask = "[Y]-[M]-[D] [h].[m].[s] [y] [N]"
+        let name = MultiRename.newName(for: RenameInput(item: item("a.jpg", modified: date), index: 0), rule: rule, calendar: calendar)
+        #expect(name == "2023-11-14 22.13.20 23 a.jpg")
+    }
+
+    @Test func searchReplaceAndCase() {
+        #expect(rename("My Song.MP3") { $0.search = "song"; $0.replace = "Track" } == "My Track.MP3")
+        #expect(rename("My Song.MP3") { $0.search = "song"; $0.replace = "x"; $0.caseSensitive = true } == "My Song.MP3")
+        #expect(rename("track 07.mp3") { $0.search = " (\\d+)\\."; $0.replace = " #$1."; $0.regex = true } == "track #07.mp3")
+        #expect(rename("a.mp3") { $0.search = "("; $0.regex = true } == nil)
+        #expect(rename("My Song.MP3") { $0.nameCase = .lower } == "my song.mp3")
+        #expect(rename("my song.mp3") { $0.nameCase = .upper } == "MY SONG.MP3")
+        #expect(rename("mY sONG.mp3") { $0.nameCase = .firstUpper } == "My song.mp3")
+        #expect(rename("the beatles - let it be.mp3") { $0.nameCase = .wordsUpper } == "The Beatles - Let It Be.Mp3")
+    }
+
+    @Test func pluginPlaceholder() {
+        MultiRenamePlaceholders.register(.init(name: "test.len", title: "Name length") { "\($0.item.name.count)" })
+        #expect(rename("abc.txt") { $0.nameMask = "[N]-[=test.len]" } == "abc-7.txt")
+        #expect(rename("abc.txt") { $0.nameMask = "[=missing]" } == "[=missing].txt")
+    }
+
+    @Test func previewFindsProblems() {
+        let items = ["a.txt", "b.txt", "c.txt"].map { item($0) }
+        var rule = RenameRule()
+        rule.nameMask = "x"
+        let dup = MultiRenamePreview.make(items: items, rule: rule, existingNames: ["a.txt", "b.txt", "c.txt"])
+        #expect(dup.allSatisfy { $0.problem == .duplicate })
+
+        rule.nameMask = "[N]2"
+        let exists = MultiRenamePreview.make(items: [items[0]], rule: rule, existingNames: ["a.txt", "A2.TXT"])
+        #expect(exists[0].problem == .exists)
+
+        // A swap inside the batch is fine (the operation goes through temporary names).
+        rule.nameMask = "[N]"
+        rule.search = "a"; rule.replace = "b"
+        let ok = MultiRenamePreview.make(items: [item("a.txt")], rule: rule, existingNames: ["a.txt", "b.txt"])
+        #expect(ok[0].problem == .exists) // b.txt is not part of the batch
+        let alone = MultiRenamePreview.make(items: [item("a.txt")], rule: rule, existingNames: ["a.txt"])
+        #expect(alone[0].problem == nil && alone[0].newName == "b.txt")
+        // A swap inside the batch is fine (the operation goes through temporary names).
+        rule.search = "^(a|b)"; rule.replace = "x"; rule.regex = true
+        var swap = RenameRule()
+        swap.nameMask = "[N]"
+        let pair = MultiRenamePreview.make(items: [item("a.txt"), item("b.txt")], rule: swap, existingNames: ["a.txt", "b.txt"])
+        #expect(pair.allSatisfy { $0.problem == nil })
+
+        rule = RenameRule()
+        rule.nameMask = "a/b"
+        #expect(MultiRenamePreview.make(items: [items[0]], rule: rule, existingNames: [])[0].problem == .invalidCharacter)
+        rule.nameMask = ""; rule.extensionMask = ""
+        #expect(MultiRenamePreview.make(items: [items[0]], rule: rule, existingNames: [])[0].problem == .empty)
+    }
+
+    @Test func caseOnlyRenameIsNotAConflict() {
+        var rule = RenameRule()
+        rule.nameCase = .upper
+        let entries = MultiRenamePreview.make(items: [item("a.txt")], rule: rule, existingNames: ["a.txt"])
+        #expect(entries[0].problem == nil && entries[0].newName == "A.TXT")
+    }
+
+    @Test func rulesDecodeWithMissingKeys() throws {
+        let rule = try JSONDecoder().decode(RenameRule.self, from: Data(#"{"nameMask":"[C]"}"#.utf8))
+        #expect(rule.nameMask == "[C]" && rule.extensionMask == "[E]" && rule.counterDigits == 1)
+    }
+}

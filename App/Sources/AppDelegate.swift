@@ -20,10 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         providers.register(LocalProvider())
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
+        var dataDirectory = MainWindowController.defaultDataDirectory
         #if DEBUG
         start = UITestFixture.makeIfRequested()
         if let isolated = UITestFixture.isolatedDefaults() {
             defaults = isolated
+            dataDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-data", isDirectory: true)
+            try? FileManager.default.removeItem(at: dataDirectory)
             settings = SettingsStore(defaults: isolated)
             // UI tests run silently (no sounds, no system voice).
             for outcome in QueueOutcome.allCases {
@@ -32,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
-                                              queue: queue, defaults: defaults, startDirectories: start)
+                                              queue: queue, defaults: defaults, startDirectories: start,
+                                              dataDirectory: dataDirectory)
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()
@@ -79,7 +83,8 @@ enum MainMenu {
 
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        // No Cmd+M: that key opens the Multi-Rename tool (Total Commander's Ctrl+M).
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "")
         windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)

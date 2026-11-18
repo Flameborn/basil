@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel. Next: multi-rename (core placeholders first), and the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Next: the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -66,6 +66,9 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-18 | Multi-rename starts with the core placeholders ([N], [E], ranges, [C] counter, date/time), search and replace, case; EXIF/ID3 fields later |
 | 2026-11-18 | Item errors in copy, move and delete ask Retry / Skip / Skip All / Cancel (TC); the operation still ends "finished" when items were skipped, the log lists them. New folder and rename just fail (one item) |
 | 2026-11-18 | Question sheets (conflict, changing source, item error) open with the first button focused, like TC (Retry / Overwrite / Keep Retrying) |
+| 2026-11-18 | Multi-rename: own modal window (like TC), Undo button only inside the tool, works on the selected items or the cursor item |
+| 2026-11-18 | Cmd+M is Multi-Rename; the Window menu's Minimize has no shortcut (registry chords beat menu items) |
+| 2026-11-18 | Multi-rename details (decided by Claude, change if wrong): "Insert" menus append the placeholder at the end of the mask; names are compared without case for conflicts; a colon is allowed in new names; Start is disabled while any row has a problem; "First letter uppercase" lowercases the rest |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
@@ -81,7 +84,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [ ] Themes: should users be able to edit/create colour themes (and import/export them)?
 
 - [x] Fixed 2026-11-18: panes never watched their start folder, and watcher changes never removed deleted or renamed-away items from a pane.
-- [ ] UI tests are timing-flaky in the full suite (`testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
+- [ ] UI tests are timing-flaky in the full suite (`testQuickFilterAndHiddenToggle` failed once in a full run on 2026-11-18 and passes alone; `testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
 
 - [ ] Git scope for the first version: status/commit/pull/push/checkout/branch. Also diff, stash, log, blame?
 
@@ -117,7 +120,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [x] Sounds and speech for operation events (Settings, Sounds and Speech tab)
 - [x] Retry / Skip / Skip All / Cancel prompt when an item of a copy, move or delete fails
 - [ ] Verified by the user with VoiceOver: dialogs, speech wording
-- [ ] Multi-rename tool (masks, counter, search/replace + regex, case, preview grid, presets, undo, cycle-safe batch op)
+- [x] Multi-rename tool (masks, counter, search/replace + regex, case, preview, presets, undo, cycle-safe batch op); core placeholders, EXIF/ID3 later
 
 ### M3 - View/Edit/Terminal
 - [ ] F3 Quick Look

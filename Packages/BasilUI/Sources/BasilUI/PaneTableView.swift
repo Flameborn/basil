@@ -32,6 +32,17 @@ final class PaneTableView: NSTableView {
         return ok
     }
 
+    /// Command-key chords bound in the CommandRegistry win over menu items, including the ones
+    /// AppKit adds by itself (the standard Window menu's Minimize takes Cmd+M, which is Multi-Rename).
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, event.type == .keyDown,
+           event.modifierFlags.contains(.command),
+           let chord = KeyChord(event: event), keyDelegate?.paneTable(self, perform: chord) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if let chord = KeyChord(event: event), keyDelegate?.paneTable(self, perform: chord) == true { return }
 

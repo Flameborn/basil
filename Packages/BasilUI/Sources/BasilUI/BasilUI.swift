@@ -27,12 +27,22 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     private(set) var activeSide: PaneSide = .left
     /// False when start folders were forced (UI tests), so test folders never become the user's saved start folders.
     private let persistsDirectories: Bool
+    /// Basil's own files (for example the Multi-Rename undo log). UI tests pass a temporary folder.
+    let dataDirectory: URL
+
+    /// ~/Library/Application Support/Basil
+    public static var defaultDataDirectory: URL {
+        URL.applicationSupportDirectory.appendingPathComponent("Basil", isDirectory: true)
+    }
 
     /// - Parameter startDirectories: overrides the restored start folders (left, right).
+    /// - Parameter dataDirectory: where Basil keeps its own files.
     /// - Parameter defaults: where pane state (folders, views) is remembered; UI tests pass an isolated domain.
     public init(providers: ProviderRegistry, commands: CommandRegistry, settings: SettingsStore,
                 queue: FileOperationQueue, defaults: UserDefaults = .standard,
-                startDirectories: (left: VFSPath, right: VFSPath)? = nil) {
+                startDirectories: (left: VFSPath, right: VFSPath)? = nil,
+                dataDirectory: URL = MainWindowController.defaultDataDirectory) {
+        self.dataDirectory = dataDirectory
         self.commands = commands
         self.settings = settings
         self.providers = providers

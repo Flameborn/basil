@@ -30,6 +30,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var secureCopy = false
     /// Sound and speech for queue events.
     public var feedback = FeedbackSettings()
+    /// Saved Multi-Rename settings.
+    public var renamePresets: [RenamePreset] = []
 
     public init() {}
 
@@ -45,6 +47,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         unstableSourceRetries = try c.decodeIfPresent(Int.self, forKey: .unstableSourceRetries) ?? d.unstableSourceRetries
         secureCopy = try c.decodeIfPresent(Bool.self, forKey: .secureCopy) ?? d.secureCopy
         feedback = try c.decodeIfPresent(FeedbackSettings.self, forKey: .feedback) ?? d.feedback
+        renamePresets = try c.decodeIfPresent([RenamePreset].self, forKey: .renamePresets) ?? d.renamePresets
         // Built-in views must always exist.
         for builtin in ListView.defaults where !views.contains(where: { $0.id == builtin.id }) {
             views.append(builtin)

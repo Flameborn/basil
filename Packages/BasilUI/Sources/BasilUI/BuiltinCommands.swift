@@ -88,7 +88,9 @@ enum BuiltinCommands {
             // Implemented in later milestones (M2/M3).
             C(id: "file.view", title: "View", defaultKeys: [K(.function(3))], isEnabled: { _ in false }) { _ in },
             C(id: "file.edit", title: "Edit", defaultKeys: [K(.function(4))], isEnabled: { _ in false }) { _ in },
-            C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)], isEnabled: { _ in false }) { _ in },
+            C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)]) { _ in
+                w?.multiRename()
+            },
         ]
 
         // Custom views 1-9 on Ctrl+F3 ... Ctrl+F11, in the order they appear in settings.

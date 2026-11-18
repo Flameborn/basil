@@ -356,3 +356,139 @@ public struct RenameOperation: QueueOperation {
         context.log("Renamed \(source.path) to \(destination.name)")
     }
 }
+
+/// Cmd+M: renames many items in one go (the Multi-Rename tool). Items whose new name is the
+/// current name of another item in the batch (a swap such as a -> b, b -> a, or a change of case
+/// only) first get a temporary name, so nothing is overwritten. The renames that were done are
+/// written to an undo log; undoing runs the reverse batch and removes the log.
+public struct MultiRenameOperation: QueueOperation {
+    public struct Pair: Codable, Sendable, Equatable {
+        public let source: VFSPath
+        public let destination: VFSPath
+
+        public init(source: VFSPath, destination: VFSPath) {
+            self.source = source
+            self.destination = destination
+        }
+    }
+
+    public let pairs: [Pair]
+    /// Where the renames done are recorded for undo (nil: no log). For an undo batch, the log
+    /// it undoes, which is removed once it has run.
+    public let undoLog: URL?
+    public let isUndo: Bool
+    let registry: ProviderRegistry
+
+    public init(pairs: [Pair], undoLog: URL?, registry: ProviderRegistry) {
+        self.pairs = pairs.filter { $0.source != $0.destination }
+        self.undoLog = undoLog
+        self.isUndo = false
+        self.registry = registry
+    }
+
+    /// The batch that reverses the one recorded in `log`; nil when there is no log to undo.
+    public static func undo(log: URL, registry: ProviderRegistry) -> MultiRenameOperation? {
+        guard let done = readLog(log), !done.isEmpty else { return nil }
+        return MultiRenameOperation(undoing: done.reversed().map { Pair(source: $0.destination, destination: $0.source) },
+                                    log: log, registry: registry)
+    }
+
+    private init(undoing pairs: [Pair], log: URL, registry: ProviderRegistry) {
+        self.pairs = pairs
+        self.undoLog = log
+        self.isUndo = true
+        self.registry = registry
+    }
+
+    public static func readLog(_ url: URL) -> [Pair]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode([Pair].self, from: data)
+    }
+
+    public var kind: OperationKind { .rename }
+    public var title: String {
+        isUndo ? "Undo rename of \(itemsText(pairs.count))" : "Rename \(itemsText(pairs.count))"
+    }
+
+    public func run(_ context: OperationContext) async throws {
+        let errors = ItemErrorPolicy(context: context, action: "rename")
+        let total = pairs.count
+        context.items(done: 0, total: total)
+        let sources = Set(pairs.map { $0.source.path.lowercased() })
+        var done: [Pair] = []
+        // Pairs still to finish: where the item is now, and where it goes.
+        var pending: [(current: VFSPath, pair: Pair)] = []
+        do {
+            // Phase 1: items whose target is taken by an item of the batch move to a temporary name.
+            for pair in pairs {
+                try await context.checkpoint()
+                let provider = try registry.writableProvider(for: pair.source.location)
+                guard sources.contains(pair.destination.path.lowercased()), let parent = pair.source.parent else {
+                    pending.append((pair.source, pair))
+                    continue
+                }
+                let temp = parent.appending(".basil-rename-\(UUID().uuidString)")
+                if try await errors.run(pair.source, { try await provider.rename(pair.source, to: temp, replacing: false) }) {
+                    pending.append((temp, pair))
+                }
+            }
+            // Phase 2: everything to its new name.
+            for (index, entry) in pending.enumerated() {
+                try await context.checkpoint()
+                context.progress(Double(index) / Double(max(1, pending.count)),
+                                 "\(index + 1) of \(pending.count), \(entry.pair.source.name)")
+                let provider = try registry.writableProvider(for: entry.current.location)
+                let renamed = try await errors.run(entry.pair.source) {
+                    try await provider.rename(entry.current, to: entry.pair.destination, replacing: false)
+                }
+                if renamed {
+                    done.append(entry.pair)
+                    context.log("Renamed \(entry.pair.source.path) to \(entry.pair.destination.name)")
+                    context.items(done: done.count, total: total)
+                } else if entry.current != entry.pair.source {
+                    try await restore(entry.current, to: entry.pair.source, provider, context)
+                }
+            }
+        } catch {
+            // Cancelled or failed half way: items left under a temporary name go back to their old name.
+            for entry in pending where entry.current != entry.pair.source && !done.contains(entry.pair) {
+                if let provider = try? registry.writableProvider(for: entry.current.location) {
+                    try? await restore(entry.current, to: entry.pair.source, provider, context)
+                }
+            }
+            writeLog(done)
+            throw error
+        }
+        writeLog(done)
+        context.progress(1, "\(itemsText(done.count)) renamed")
+    }
+
+    private func restore(_ temp: VFSPath, to original: VFSPath, _ provider: any WritableProvider,
+                         _ context: OperationContext) async throws {
+        do {
+            try await provider.rename(temp, to: original, replacing: false)
+            context.log("Kept the old name of \(original.path)")
+        } catch {
+            context.log("Could not give \(temp.path) its old name \(original.name) back: \(error.localizedDescription)")
+        }
+    }
+
+    /// A normal batch records what it renamed; an undo removes the log it has undone (a partial
+    /// undo keeps the part that is still to undo).
+    private func writeLog(_ done: [Pair]) {
+        guard let undoLog else { return }
+        if isUndo {
+            let undone = Set(done.map { $0.destination.path })
+            let remaining = (Self.readLog(undoLog) ?? []).filter { !undone.contains($0.source.path) }
+            if remaining.isEmpty {
+                try? FileManager.default.removeItem(at: undoLog)
+            } else if let data = try? JSONEncoder().encode(remaining) {
+                try? data.write(to: undoLog, options: .atomic)
+            }
+            return
+        }
+        guard !done.isEmpty, let data = try? JSONEncoder().encode(done) else { return }
+        try? FileManager.default.createDirectory(at: undoLog.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: undoLog, options: .atomic)
+    }
+}
