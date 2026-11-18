@@ -1,10 +1,8 @@
 # Progress
 
-Status legend: ☐ not started · ◐ in progress · ☑ done
-
 ## Current state (2026-11-18)
 
-M0 skeleton done: git repo, XcodeGen project, 11 module packages, app showing an empty dual-pane window, UI accessibility-audit test passing. Next: M1 (core browsing). `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard commands, marking, sorting, type-ahead, quick filter, live updates and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -31,10 +29,13 @@ M0 skeleton done: git repo, XcodeGen project, 11 module packages, app showing an
 | 2026-11-18 | New feature: multi-rename like Total Commander's Multi-Rename Tool |
 | 2026-11-18 | Modules are local packages named `Basil<Module>`; package tests use Swift Testing, UI tests use XCUITest; signing identity `dev` |
 | 2026-11-18 | Visual style: Total Commander-like (flat dense grid, custom colour scheme, drive/button bar, function-key bar at bottom) |
-| 2026-11-18 | Keybindings: TC defaults, Mac-adapted (F-keys as TC; Ctrl/Alt → Cmd/Option where natural; Space selects; all remappable) |
+| 2026-11-18 | Keybindings: TC defaults, Mac-adapted (F-keys as TC; Ctrl/Alt -> Cmd/Option where natural; Space selects; all remappable) |
 | 2026-11-18 | Quick filter: Cmd+S pops up an edit field for the filter (live filtering); typing directly in the pane jumps to matching names instead, `;`-separated patterns + `\|` exclusions, optional regex mode, cleared on directory change |
 | 2026-11-18 | TC-style colour scheme with light and dark variants (follows system appearance) |
 | 2026-11-18 | Commit to git whenever a feature is done |
+| 2026-11-18 | No emojis, symbol glyphs or decorative Unicode anywhere (UI, VoiceOver text, docs, comments) |
+| 2026-11-18 | No ".." row in panes; Backspace / Cmd+Up go to the parent |
+| 2026-11-18 | Pane lists are announced only as "Left pane" / "Right pane" (no folder name in the label) |
 
 ## Open questions (ask before implementing the related part)
 
@@ -57,21 +58,23 @@ M0 skeleton done: git repo, XcodeGen project, 11 module packages, app showing an
 
 ## Milestones
 
-### M0 — Foundation
+### M0 - Foundation
 - [x] `git init`, `.gitignore`, `project.yml`, app target, package skeletons (Basil* packages)
 - [ ] `scripts/bootstrap.sh` for vendored deps (blocked: libssh2 crypto, 7-Zip, UnRAR, LuaJIT build questions)
 - [x] Signing with stable local identity `dev` (Config/Base.xcconfig)
 - [ ] Document / prompt for the Full Disk Access flow in-app
 - [x] Local build + test commands working (in CLAUDE.md)
 
-### M1 — Core browsing
+### M1 - Core browsing
 - [x] BasilCore models (VFSPath, FileItem, capabilities), ProviderRegistry, LocalProvider (getattrlistbulk streaming), FSEvents DirectoryWatcher
-- [ ] Dual-pane AppKit UI, streamed listing, sorting, FSEvents diffs (benchmark with 200k+ entries)
-- [ ] Full VoiceOver support for panes + accessibility audit UI test
-- [ ] Keyboard model, CommandRegistry, keybindings
-- [ ] Quick filter for the current pane (wildcard / substring, announced match count)
+- [x] Dual-pane AppKit UI (TC-style theme, drive bar, path header, status line, function-key bar), sorting, FSEvents diffs; 200k items: load+sort 0.87 s, filter 0.04 s
+- [x] VoiceOver basics for panes (labelled lists, spoken cell labels, announcements) + accessibility audit UI test
+- [ ] VoiceOver verified by the user with real VoiceOver (speech wording, row reading, focus)
+- [x] Keyboard model, CommandRegistry, keybindings, type-ahead
+- [x] Quick filter (Cmd+S): wildcards, substring, `;` patterns, `|` exclusions, regex, cleared on directory change
+- [ ] Explain the Full Disk Access permission in the app (currently only an error message in the status line)
 
-### M2 — Operations
+### M2 - Operations
 - [ ] Operation queue (serial, pause/reorder/cancel, per-item log) + queue window
 - [ ] SecureCopyEngine: rename / clonefile / single-pass chunked copy + delta re-copy; tests for appended, truncated and rewritten sources in each strategy
 - [ ] Optional destination read-back verification setting
@@ -79,37 +82,37 @@ M0 skeleton done: git repo, XcodeGen project, 11 module packages, app showing an
 - [ ] Sound effects for operation events
 - [ ] Multi-rename tool (masks, counter, search/replace + regex, case, preview grid, presets, undo, cycle-safe batch op)
 
-### M3 — View/Edit/Terminal
+### M3 - View/Edit/Terminal
 - [ ] F3 Quick Look
 - [ ] F4 editor associations (global / per-extension / popup)
 - [ ] Open terminal here (configurable terminals)
 
-### M4 — Archives
+### M4 - Archives
 - [ ] ArchiveBackend protocol + libarchive backend; browse archives as directories
 - [ ] 7-Zip backend (create with options: solid, level, AES, header encryption)
 - [ ] UnRAR backend; password prompts + Keychain
-- [ ] Test archive; edit-in-archive → repack prompt
+- [ ] Test archive; edit-in-archive -> repack prompt
 
-### M5 — Remote
-- [ ] SFTP (libssh2) — password, keys, agent, known_hosts
+### M5 - Remote
+- [ ] SFTP (libssh2) - password, keys, agent, known_hosts
 - [ ] FTP/FTPS
 - [ ] Dropbox
 - [ ] WebDAV, SMB, S3-compatible, Google Drive, OneDrive
 
-### M6 — Git
+### M6 - Git
 - [ ] GitService (CLI), status column/badges, commit/pull/push/checkout/branch UI
 
-### M7 — Plugins
+### M7 - Plugins
 - [ ] LuaJIT bridge, plugin manifest + loader, API for commands/columns/providers
 - [ ] Example plugins
 
-### M8 — Search
+### M8 - Search
 - [ ] Search protocol + live directory-walk engine
 - [ ] Spotlight engine (NSMetadataQuery)
 - [ ] Own index: initial scan (searchfs/getattrlistbulk), custom binary store, FSEvents event-ID replay, instant matcher
 - [ ] Search UI (results as a virtual pane, fully accessible)
 
-### M9 — Sync (later)
+### M9 - Sync (later)
 - [ ] Directory compare (date with tolerance / size / BLAKE3 content, optional subdirs)
 - [ ] Results view: per-file arrows you can change, category filters, asymmetric mode
 - [ ] Run as queue operations through the secure copy engine

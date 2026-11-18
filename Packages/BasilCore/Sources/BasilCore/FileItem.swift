@@ -26,13 +26,16 @@ public struct FileItem: Hashable, Sendable, Identifiable {
     /// Provider-specific stable identity (inode/file ID locally), if any.
     public let fileID: UInt64?
 
+    /// The entry name (last path component), stored because sorting and filtering read it constantly.
+    public let name: String
+
     public var id: VFSPath { path }
-    public var name: String { path.name }
 
     public init(path: VFSPath, kind: Kind, size: Int64? = nil, modified: Date? = nil,
                 created: Date? = nil, permissions: UInt16? = nil, isHidden: Bool = false,
                 fileID: UInt64? = nil) {
         self.path = path
+        self.name = path.name
         self.kind = kind
         self.size = size
         self.modified = modified

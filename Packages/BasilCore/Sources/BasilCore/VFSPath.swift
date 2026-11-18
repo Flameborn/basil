@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identifies a kind of provider ("local", "sftp", "archive", …).
+/// Identifies a kind of provider ("local", "sftp", "archive", ...).
 public struct ProviderID: RawRepresentable, Hashable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String
     public init(rawValue: String) { self.rawValue = rawValue }
@@ -58,19 +58,31 @@ public struct VFSPath: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     /// Last path component; for a provider root this is "/".
-    public var name: String { components.last ?? "/" }
+    public var name: String {
+        guard !isRoot, let slash = path.lastIndex(of: "/") else { return "/" }
+        return String(path[path.index(after: slash)...])
+    }
 
     /// The parent inside the same provider, or `nil` at the provider root.
     /// (Leaving a nested provider's root is a navigation decision: see `container`.)
     public var parent: VFSPath? {
-        guard !isRoot else { return nil }
-        var parts = components
-        parts.removeLast()
-        return VFSPath(location: location, path: "/" + parts.joined(separator: "/"))
+        guard !isRoot, let slash = path.lastIndex(of: "/") else { return nil }
+        let parentPath = slash == path.startIndex ? "/" : String(path[..<slash])
+        return VFSPath(location: location, normalisedPath: parentPath)
     }
 
+    /// Appends one component. `name` must not contain "/" (it is a single directory entry name).
     public func appending(_ name: String) -> VFSPath {
-        VFSPath(location: location, path: path == "/" ? "/" + name : path + "/" + name)
+        if name.isEmpty || name == "." || name == ".." || name.contains("/") {
+            return VFSPath(location: location, path: path + "/" + name)
+        }
+        return VFSPath(location: location, normalisedPath: path == "/" ? "/" + name : path + "/" + name)
+    }
+
+    /// Skips normalisation for paths built from already-normalised parts (hot path for listings).
+    private init(location: ProviderLocation, normalisedPath: String) {
+        self.location = location
+        self.path = normalisedPath
     }
 
     /// Whether `self` is `other` or lies below it in the same provider location.

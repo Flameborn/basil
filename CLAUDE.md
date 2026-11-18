@@ -12,6 +12,7 @@ Progress, completed milestones and open questions are tracked in **`progress.md`
 
 - **Never guess. If something is unclear, ask** (use AskUserQuestion). This applies to library choices, UX behaviour, defaults, naming and anything not settled below or in `progress.md`. Write every new decision in the "Decisions" section of `progress.md`.
 - Everything is modular. New features must plug in through the existing registries (providers, operations, archive backends, commands, plugins) instead of being wired directly into the UI.
+- **No emojis, symbol glyphs or decorative Unicode anywhere**: UI text, VoiceOver strings, docs, comments. Use plain words ("Cmd+Shift+F6", "Up", "->"). Symbols are read out badly by VoiceOver. No SF Symbol decoration either; real file-type icons are fine.
 - **Commit when a feature is done** (no need to ask). Keep `progress.md` updated in the same commit.
 - Copy and move integrity is the most important correctness property in the app (see "Secure copy/move").
 
@@ -23,7 +24,7 @@ Progress, completed milestones and open questions are tracked in **`progress.md`
 | UI | **AppKit** for the main window, panes (view-based `NSTableView`), keyboard handling and command line. **SwiftUI** only for settings, dialogs and the queue window, hosted in `NSHostingView`/`NSHostingController`. Reason: panes must handle hundreds of thousands of rows and need fine-grained VoiceOver and focus control. |
 | Project | **XcodeGen** (`project.yml`, the generated `.xcodeproj` is not committed) plus **local SwiftPM packages**, one per module |
 | Distribution | Not sandboxed and not notarized. Signed with a **stable local identity** (Apple Development cert from a personal team, or a self-signed code-signing cert), **not ad hoc**. Ad-hoc signatures change on every build, which resets the Full Disk Access (TCC) grant. Users grant Full Disk Access manually. |
-| Archives | **libarchive** (zip/tar/gz/bz2/xz/zstd/cpio/iso…) + **7-Zip `7zz`** (7z incl. solid, AES, header encryption, and encrypted zip writing) + **UnRAR** (RAR extraction incl. passwords), all behind one `ArchiveBackend` protocol |
+| Archives | **libarchive** (zip/tar/gz/bz2/xz/zstd/cpio/iso...) + **7-Zip `7zz`** (7z incl. solid, AES, header encryption, and encrypted zip writing) + **UnRAR** (RAR extraction incl. passwords), all behind one `ArchiveBackend` protocol |
 | SSH/SFTP | **libssh2**: password, key files (incl. encrypted, ed25519), ssh-agent, known_hosts verification |
 | Git | **System `git` CLI**, parsing porcelain v2 / `-z` output. Do not use libgit2. |
 | Plugins | **LuaJIT** (Lua 5.1 semantics + LuaJIT extensions; write plugin APIs against 5.1) |
@@ -34,14 +35,14 @@ Progress, completed milestones and open questions are tracked in **`progress.md`
 | Chunk hash | **BLAKE3** (official C implementation with NEON). It is cryptographic, so it has no known collisions, unlike XXH3. Hashing runs in a pipeline alongside the reads and writes, so it never adds wait time. |
 | Search index | Covers the **local boot volume by default**. Other volumes, including network ones, can be added later. It stores **name, size, dates and attributes** so results can be filtered. |
 | Sync | Works like **Total Commander's "Synchronize directories"** and is stateless. See the Sync section below. It does not use librsync; files are transferred by the secure copy engine. Planned for later. |
-| Quick filter | **Cmd+S** pops up an edit field (anchored to the pane) where the filter is typed; the pane filters live as you type. Typing letters directly in a pane does NOT filter — it jumps to the first matching name (type-ahead). Wildcards (`*.mp3`), substring (`apple`), `;`-separated patterns, `\|` exclusions, optional regex mode. Cleared on directory change. |
+| Quick filter | **Cmd+S** pops up an edit field (anchored to the pane) where the filter is typed; the pane filters live as you type. Typing letters directly in a pane does NOT filter - it jumps to the first matching name (type-ahead). Wildcards (`*.mp3`), substring (`apple`), `;`-separated patterns, `\|` exclusions, optional regex mode. Cleared on directory change. |
 | Look | **Total Commander-like**: flat dense grid, custom colour scheme, drive/button bar, function-key bar at the bottom. Colours come from theme tokens, never hard-coded, and must meet WCAG contrast. **Light and dark variants** that follow the system appearance. |
 | Keybindings | **Total Commander defaults, Mac-adapted**: F3 view, F4 edit, F5 copy, F6 move, Shift+F6 rename, F7 mkdir, F8 delete, Tab switch pane, Space select; Ctrl/Alt combos become Cmd/Option where natural (Cmd+R reread, Cmd+M multi-rename). Everything remappable through CommandRegistry. |
 | Multi-rename | Works like **Total Commander's Multi-Rename Tool**. See below. |
 
 ## Architecture (target design)
 
-Big picture: **UI → Commands → Operations Queue → VFS Providers**. Plugins and integrations hook in through registries at each layer.
+Big picture: **UI -> Commands -> Operations Queue -> VFS Providers**. Plugins and integrations hook in through registries at each layer.
 
 ```
 project.yml             XcodeGen spec (app target "Basil" + BasilUITests); Basil.xcodeproj is generated, gitignored
@@ -51,25 +52,25 @@ App/Sources/            thin app target: main.swift, AppDelegate, main menu, wir
 Tests/BasilUITests/     XCUITests incl. performAccessibilityAudit()
 Packages/               one local SwiftPM package per module, each with a <Name>Tests target
   BasilCore/            shared models (VFSPath, FileItem, capabilities), settings store, logging, Keychain wrapper
-  BasilVFS/             FileSystemProvider protocol + ProviderRegistry; LocalProvider            (→ Core)
-  BasilOperations/      Operation protocol, serial queue (actor), SecureCopyEngine, conflicts   (→ Core, VFS)
-  BasilArchives/        ArchiveBackend protocol; libarchive/7-Zip/UnRAR backends; ArchiveProvider (→ Core, VFS)
-  BasilRemote/          one provider per service (SFTP, FTP, Dropbox, WebDAV, S3, GDrive, OneDrive, SMB) (→ Core, VFS)
-  BasilGit/             GitService wrapping the git CLI                                          (→ Core)
-  BasilSearch/          Spotlight engine + own filename index (scanner, FSEvents, binary store)  (→ Core, VFS)
-  BasilSync/            directory compare + sync planning, executed as queue operations          (→ Core, VFS, Operations)
-  BasilPlugins/         LuaJIT bridge, plugin manifest/loader, Lua API surface                   (→ Core, VFS)
-  BasilIntegrations/    terminal launcher, viewer/editor associations (F3/F4), sound effects     (→ Core)
-  BasilUI/              AppKit panes/main window, SwiftUI dialogs and settings                   (→ Core, VFS, Operations)
-Vendor/                 third-party sources + build scripts (libarchive, 7-Zip, UnRAR, libssh2, LuaJIT, BLAKE3, …)
+  BasilVFS/             FileSystemProvider protocol + ProviderRegistry; LocalProvider            (-> Core)
+  BasilOperations/      Operation protocol, serial queue (actor), SecureCopyEngine, conflicts   (-> Core, VFS)
+  BasilArchives/        ArchiveBackend protocol; libarchive/7-Zip/UnRAR backends; ArchiveProvider (-> Core, VFS)
+  BasilRemote/          one provider per service (SFTP, FTP, Dropbox, WebDAV, S3, GDrive, OneDrive, SMB) (-> Core, VFS)
+  BasilGit/             GitService wrapping the git CLI                                          (-> Core)
+  BasilSearch/          Spotlight engine + own filename index (scanner, FSEvents, binary store)  (-> Core, VFS)
+  BasilSync/            directory compare + sync planning, executed as queue operations          (-> Core, VFS, Operations)
+  BasilPlugins/         LuaJIT bridge, plugin manifest/loader, Lua API surface                   (-> Core, VFS)
+  BasilIntegrations/    terminal launcher, viewer/editor associations (F3/F4), sound effects     (-> Core)
+  BasilUI/              AppKit panes/main window, SwiftUI dialogs and settings                   (-> Core, VFS, Operations)
+Vendor/                 third-party sources + build scripts (libarchive, 7-Zip, UnRAR, libssh2, LuaJIT, BLAKE3, ...)
 ```
 
-Package dependencies flow strictly downward: Core ← VFS ← everything else, and only the app target depends on all packages. Feature packages do not depend on each other except as shown. To add a dependency between packages, edit that package's `Package.swift`. To add a new package, also add it under `packages:` and the app's `dependencies:` in `project.yml`, then run `xcodegen generate`.
+Package dependencies flow strictly downward: Core <- VFS <- everything else, and only the app target depends on all packages. Feature packages do not depend on each other except as shown. To add a dependency between packages, edit that package's `Package.swift`. To add a new package, also add it under `packages:` and the app's `dependencies:` in `project.yml`, then run `xcodegen generate`.
 
 Key concepts:
 
 - **VFSPath** names a location as provider + path, and paths can nest. Example: a file inside a zip on an SFTP server. Browsing an archive means pushing an `ArchiveProvider` on top of the parent provider. All pane and operation code works with `VFSPath` and providers, and never with raw `URL`/`FileManager`, except inside `LocalProvider`.
-- **Providers declare capabilities** (rename, atomic rename, set permissions, server-side copy, random-access read, checksums, …). Operations choose a strategy from those capabilities.
+- **Providers declare capabilities** (rename, atomic rename, set permissions, server-side copy, random-access read, checksums, ...). Operations choose a strategy from those capabilities.
 - **All mutating actions are Operations** that go through the single queue. This covers copy, move, delete, mkdir, rename, pack, unpack, test archive and repack after edit. The queue runs one item at a time. Items can be paused, reordered and cancelled, and each item has its own progress and log. UI code never performs file I/O directly.
 - **Commands** (F-keys, menu items, command palette, Lua plugins) are registered by ID in a `CommandRegistry`, and keybindings map to command IDs. Built-in features use the same registry as plugins.
 - **Built-in providers, archive backends and commands register through the same registries Lua plugins use.** New features should be addable without changing the UI module.
@@ -124,13 +125,13 @@ This is a dialog for the selected files. It offers:
 - A **live preview grid** showing old name and new name, with conflicts highlighted.
 - **Saved presets** and **undo** of the last batch.
 
-The batch runs as a single queue operation. It detects target collisions, resolves cycles (for example a→b, b→a) through temporary names, and writes an undo log. Lua plugins can add placeholder fields. The preview grid must be fully accessible.
+The batch runs as a single queue operation. It detects target collisions, resolves cycles (for example a->b, b->a) through temporary names, and writes an undo log. Lua plugins can add placeholder fields. The preview grid must be fully accessible.
 
 ### Sync (Total Commander style)
 
 Sync compares two directories (left and right panes), optionally including subdirectories. Files are compared by date and size, optionally by content (BLAKE3), with a configurable timestamp tolerance.
 
-- **Results:** each file is marked `→`, `←`, `=` or `≠`, or as existing on one side only. Filters show or hide each category, and you can flip or exclude the direction of any file.
+- **Results:** each file is marked copy-right, copy-left, equal or different, or as existing on one side only. Filters show or hide each category, and you can flip or exclude the direction of any file.
 - **Asymmetric mode:** files that exist only on the target side are deleted.
 - **Stateless:** like Total Commander, sync keeps no history database, so a file that exists on one side only is offered as a copy, not detected as a deletion.
 - **Execution:** sync turns into queue operations that use the secure copy engine.
@@ -142,6 +143,19 @@ Sync compares two directories (left and right panes), optionally including subdi
 - Never convey information only through colour, icons or sound effects.
 - Everything is reachable and operable by keyboard alone.
 - UI tests run `XCUIApplication.performAccessibilityAudit()`.
+
+### Panes (implemented in BasilUI)
+
+- `PaneModel` (one per pane) owns directory, sorted `allItems`, visible `rows` (hidden/filter applied), marks and sort order. All listing, sorting and filtering runs in detached tasks. Every async result is checked against a generation counter, so stale results (older keystroke, older sort, older load) are dropped. Keep this pattern for anything async that writes model state.
+- **There is no ".." row.** Backspace or Cmd+Up goes to the parent folder, and the cursor lands on the folder you came from.
+- The cursor is the table's single selection. Marks (Total Commander "selection") are separate: `model.marked`, drawn in the marked colour.
+- Keys: `PaneTableView.keyDown` translates the event to a `KeyChord` and goes through `CommandRegistry` first. Plain printable characters are type-ahead (jump to the first name with that prefix). Built-in commands and their default keys live in `BuiltinCommands.swift`. Shifted keys bind on the unshifted character (Cmd+Shift+. is `.character(".")` with `.shift`).
+- Default keys: Tab switches pane. Enter or Cmd+Down opens. Backspace or Cmd+Up goes to the parent. Cmd+R rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Home and End jump to the first or last item. Space toggles a mark, and Shift+Up/Down marks while moving. Cmd+A marks all files, and Cmd+Shift+A unmarks all. Cmd+F3, F4, F5 and F6 sort by name, extension, date and size. F3-F8, Shift+F6 and Cmd+M are registered but disabled until their milestones.
+- VoiceOver:
+  - The lists are labelled only "Left pane" / "Right pane". The pane container is not an accessibility element.
+  - Each `PaneCellView` is the accessibility element (static text), with `spokenLabel`, e.g. "song.mp3, file, marked". The inner text field is hidden. Empty cells, or cells with `spokenLabel == ""`, are skipped; for example a folder's "<DIR>" size is silent.
+  - State changes are spoken through `WorkspaceContext.announce`: directory loaded, pane switched, mark counts, sort, filter results, errors.
+- Colours are drawn in views (`ThemedBox`, row views), not set as layer `cgColor`, so light/dark switches apply immediately.
 
 ### Large directories
 
@@ -157,7 +171,7 @@ Panes use view-based `NSTableView` with cell reuse. Listing is streamed off the 
 
 - F3 is Quick Look (`QLPreviewPanel`). F4 edits with a global editor, or with a per-extension list of apps: one app opens directly, several apps show a popup menu.
 - For files inside archives or on remotes, F4 edits a local temp copy. When the editor saves or closes, the app offers to repack or upload the file, which runs as a queue operation.
-- "Open terminal here" uses a configurable terminal (Terminal, iTerm2, WezTerm, Ghostty, …) through per-terminal launch templates.
+- "Open terminal here" uses a configurable terminal (Terminal, iTerm2, WezTerm, Ghostty, ...) through per-terminal launch templates.
 
 ## Commands
 
@@ -171,6 +185,8 @@ swift test --package-path Packages/BasilOperations --filter SecureCopyTests/sour
 for p in Packages/*/; do swift test --package-path "$p"; done   # all package tests
 ```
 
+- UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`) and start both panes in it. Forced start folders are never saved as the user's start folders.
+- 200k-item benchmark (skipped unless `BASIL_PERF_DIR` is set): `BASIL_PERF_DIR=/path/to/big swift test -c release --package-path Packages/BasilUI --filter largeDirectory`. Last result: load and sort 0.87 s, re-sort 0.10 s, filter 0.04 s.
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.
 - `xcodebuild` prints `DVTCoreDeviceCore` / "CoreSimulator is out of date" plug-in errors on this machine. They are Xcode environment noise and do not affect macOS builds.
 - `scripts/bootstrap.sh` (building vendored C deps into `Vendor/`) does not exist yet. It is blocked on open questions in `progress.md`.

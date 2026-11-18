@@ -1,16 +1,31 @@
 import AppKit
+import BasilCore
 import BasilUI
+import BasilVFS
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindowController: MainWindowController?
+    private let providers = ProviderRegistry()
+    private let commands = CommandRegistry()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
-        let controller = MainWindowController()
+        providers.register(LocalProvider())
+        var start: (left: VFSPath, right: VFSPath)?
+        #if DEBUG
+        start = UITestFixture.makeIfRequested()
+        #endif
+        let controller = MainWindowController(providers: providers, commands: commands, startDirectories: start)
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        #if DEBUG
+        UITestFixture.cleanup()
+        #endif
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

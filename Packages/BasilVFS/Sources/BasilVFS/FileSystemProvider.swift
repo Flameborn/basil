@@ -18,7 +18,7 @@ public enum VFSChange: Sendable, Equatable {
     case reloadAll
 }
 
-/// The interface every location type (local, SFTP, archive, …) implements.
+/// The interface every location type (local, SFTP, archive, ...) implements.
 /// Mutating calls are added with the Operations milestone (M2).
 public protocol FileSystemProvider: Sendable {
     var location: ProviderLocation { get }
