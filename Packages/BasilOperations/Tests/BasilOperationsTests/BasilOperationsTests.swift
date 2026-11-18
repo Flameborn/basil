@@ -301,6 +301,14 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         try box.write("other", Data())
         let clash = await run(queue, RenameOperation(source: box.path("Made"), destination: box.path("other"), registry: registry))
         if case .failed = clash.state {} else { Issue.record("rename onto an existing item should fail") }
+
+        let made = await run(queue, NewFileOperation(path: box.path("new.txt"), registry: registry))
+        #expect(made.state == .finished)
+        let attributes = try FileManager.default.attributesOfItem(atPath: box.path("new.txt").path)
+        #expect(attributes[.size] as? Int == 0)
+        #expect((attributes[.posixPermissions] as? Int) == 0o644)
+        let twice = await run(queue, NewFileOperation(path: box.path("new.txt"), registry: registry))
+        if case .failed = twice.state {} else { Issue.record("a new file over an existing one should fail") }
     }
 }
 

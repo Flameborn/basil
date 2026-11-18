@@ -36,6 +36,12 @@ final class PaneUITests: XCTestCase {
         }
     }
 
+    /// Sheets open animated: typing before their text field has focus loses keys or lands elsewhere.
+    func waitForFieldFocus(in sheet: XCUIElement) {
+        let field = sheet.textFields.firstMatch
+        XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true }, sheet.debugDescription)
+    }
+
     func cellLabels(_ row: XCUIElement) -> [String] {
         row.cells.allElementsBoundByIndex.map(\.label)
     }
@@ -99,6 +105,76 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { (status.value as? String)?.contains("1 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
         // The selected file's name is read with ", selected".
         XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 5)).prefix(2), ["track, selected", "flac"])
+        leftTable.typeKey("-", modifierFlags: [.command, .shift])   // Deselect All (also Numpad Minus)
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("0 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
+    }
+
+    func testCalculateFolderSize() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 0)).prefix(2), ["Alpha", "dir"])
+        leftTable.typeKey("s", modifierFlags: [.command, .shift])
+        // Once calculated, the Size cell shows the folder's size and reads "dir, <size>".
+        XCTAssertTrue(waitFor { self.cellLabels(self.leftTable.tableRows.element(boundBy: 0)).dropFirst().first?.hasPrefix("dir, ") == true },
+                      "\(cellLabels(leftTable.tableRows.element(boundBy: 0)))")
+    }
+
+    func testGoToPathWithSuggestions() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("g", modifierFlags: .command)
+        let field = app.textFields["goto.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("al")   // relative to the pane's folder; matches without case
+        let suggestions = app.tables["goto.suggestions"]
+        XCTAssertTrue(waitFor { suggestions.staticTexts["Alpha"].exists }, suggestions.debugDescription)
+        app.typeKey(.tab, modifierFlags: [])   // completes to "Alpha/"
+        XCTAssertTrue(waitFor { (field.value as? String) == "Alpha/" }, "\(field.value ?? "")")
+        XCTAssertTrue(waitFor { suggestions.staticTexts["Inner"].exists }, suggestions.debugDescription)
+        try app.performAccessibilityAudit { issue in
+            // The field being edited makes the audit report a parent/child mismatch (AppKit field editor).
+            if issue.auditType == .parentChild { return true }
+            print("AUDIT go to: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
+
+        // A file: its folder opens with the cursor on it.
+        leftTable.typeKey("g", modifierFlags: .command)
+        XCTAssertTrue(field.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("../track.flac\r")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 5).isSelected })
+    }
+
+    func testFinderGoKeys() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("c", modifierFlags: [.command, .shift])
+        let path = app.staticTexts["pane.left.path"]
+        XCTAssertTrue(waitFor { (path.value as? String) == "/Volumes" }, "\(path.value ?? "")")
+    }
+
+    func testInfoSheet() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("so")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 4).isSelected })
+        leftTable.typeKey("i", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(sheet.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'song.mp3' OR value CONTAINS 'song.mp3'")).firstMatch.exists,
+                      sheet.debugDescription)
+        XCTAssertTrue(sheet.popUpButtons["Open with"].exists, sheet.debugDescription)
+        try app.performAccessibilityAudit { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            print("AUDIT info: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !sheet.exists })
     }
 
     func testHomeAndEndKeys() {
@@ -194,7 +270,7 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(.space, modifierFlags: [])
         leftTable.typeKey(.downArrow, modifierFlags: [])   // track
         leftTable.typeKey(.space, modifierFlags: [])
-        leftTable.typeKey("m", modifierFlags: .command)
+        leftTable.typeKey(.F6, modifierFlags: .shift)   // several items selected: Shift+F6 opens Multi-Rename
 
         // A modal window is a dialog to accessibility.
         let window = app.dialogs["Multi-Rename"]
@@ -203,9 +279,11 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(mask.exists, window.debugDescription)
         mask.typeKey("a", modifierFlags: .command)
         mask.typeText("[N] [C]")
-        let preview = window.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@ OR value == %@", "song.mp3, to song 1.mp3", "song.mp3, to song 1.mp3")).firstMatch
-        XCTAssertTrue(preview.waitForExistence(timeout: 3), window.debugDescription)
+        // The preview is a table: Old name, New name, Status, Modified.
+        let newName = window.tables["multiRename.preview"].staticTexts.matching(
+            NSPredicate(format: "label == %@ OR value == %@", "song 1.mp3", "song 1.mp3")).firstMatch
+        XCTAssertTrue(newName.waitForExistence(timeout: 5), window.debugDescription)
+        XCTAssertEqual(window.tables["multiRename.preview"].tableColumns.count, 4, window.debugDescription)
         mask.typeKey(.tab, modifierFlags: [])   // ends editing: an active field editor fails the audit's parent check
         try app.performAccessibilityAudit { issue in
             // SwiftUI Menu and Picker pop-up buttons report "Action is missing" although VoiceOver opens them;
@@ -276,6 +354,7 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(.F7, modifierFlags: [])
         let sheet = app.sheets.firstMatch
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
         app.typeText("Gamma\r")
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("Gamma") }, "\(names(in: leftTable))")
 
@@ -296,6 +375,7 @@ final class PaneUITests: XCTestCase {
 
         leftTable.typeKey(.F6, modifierFlags: .shift)
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
         app.typeText("tune\r")   // the name without its extension is selected, so this keeps ".mp3"
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("tune") }, "\(names(in: leftTable))")
         XCTAssertFalse(names(in: leftTable).contains("song"))

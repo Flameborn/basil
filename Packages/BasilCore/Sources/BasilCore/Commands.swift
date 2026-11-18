@@ -15,6 +15,8 @@ public struct KeyChord: Hashable, Sendable, Codable, CustomStringConvertible {
         /// A printable character, stored lowercased.
         case character(String)
         case function(Int)
+        /// A key on the numeric keypad ("-", "+", "*", "/", "0"..."9", "."), kept apart from the main keys.
+        case numpad(String)
         case tab, enter, backspace, forwardDelete, space, escape
         case up, down, left, right, home, end, pageUp, pageDown
     }
@@ -51,6 +53,7 @@ public struct KeyChord: Hashable, Sendable, Codable, CustomStringConvertible {
         switch key {
         case .character(let c): s += c.uppercased()
         case .function(let n): s += "F\(n)"
+        case .numpad(let c): s += "Numpad " + (Self.numpadNames[c] ?? c)
         case .tab: s += "Tab"
         case .enter: s += "Return"
         case .backspace: s += "Backspace"
@@ -68,6 +71,9 @@ public struct KeyChord: Hashable, Sendable, Codable, CustomStringConvertible {
         }
         return s
     }
+
+    private static let numpadNames = ["-": "Minus", "+": "Plus", "*": "Multiply", "/": "Divide",
+                                      ".": "Decimal", "=": "Equals", ",": "Comma"]
 }
 
 /// What commands can see and do in the file manager window.

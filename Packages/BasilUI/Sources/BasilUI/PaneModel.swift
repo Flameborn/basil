@@ -26,10 +26,15 @@ final class PaneModel {
     private(set) var sortOrder = ListSortOrder.default
     private(set) var showHidden = false
     private(set) var filter: NameFilter?
+    /// Calculated folder sizes (Cmd+Shift+S), kept until the pane shows another folder.
+    private var folderSizes: [VFSPath: Int64] = [:]
 
     private var generation = 0
     /// Incremented per rows rebuild; only the newest rebuild is applied (filter keystrokes race otherwise).
     private var rowsGeneration = 0
+    /// The cursor a load asked for, until its rows are shown. A rebuild that starts meanwhile (a watcher
+    /// refresh, a sort) only knows the cursor in the old rows, so it lands on this one instead.
+    private var pendingLoadCursor: VFSPath??
     private var loadTask: Task<Void, Never>?
     private var watchTask: Task<Void, Never>?
     private var pendingChanges: Set<VFSPath> = []
@@ -69,6 +74,7 @@ final class PaneModel {
                     try Task.checkCancellation()
                     items += batch
                 }
+                if let self, target == self.directory { items = self.withFolderSizes(items) }
                 let sorted = await Task.detached(priority: .userInitiated) { ItemSorter.sorted(items, by: order) }.value
                 guard let self, gen == self.generation else { return }
                 let changedDirectory = target != self.directory
@@ -76,12 +82,14 @@ final class PaneModel {
                 self.allItems = sorted
                 if changedDirectory {
                     self.selected = []
+                    self.folderSizes = [:]
                     self.filter = nil // Quick filter is cleared on directory change.
                 } else if !keepState {
                     self.selected = self.selected.intersection(sorted.map(\.path))
                 }
                 // The start folder is never a "change", so it is also watched when nothing is yet.
                 if changedDirectory || self.watchTask == nil { self.startWatching(provider) }
+                self.pendingLoadCursor = .some(cursor)
                 await self.rebuildRows(cursor: cursor)
                 self.isLoading = false
                 self.onEvent?(.loadingChanged)
@@ -129,12 +137,45 @@ final class PaneModel {
         let gen = generation
         rowsGeneration += 1
         let rowsGen = rowsGeneration
+        let cursor = pendingLoadCursor ?? cursor
         let rows = await Task.detached(priority: .userInitiated) { () -> [FileItem] in
             items.filter { (showHidden || !$0.isHidden) && (filter?.matches($0.name) ?? true) }
         }.value
         guard gen == generation, rowsGen == rowsGeneration else { return }
+        pendingLoadCursor = nil
         self.rows = rows
         onEvent?(.reloaded(cursor: cursor))
+    }
+
+    // MARK: Folder sizes
+
+    private func withFolderSizes(_ items: [FileItem]) -> [FileItem] {
+        guard !folderSizes.isEmpty else { return items }
+        return items.map { item in folderSizes[item.path].map(item.withSize) ?? item }
+    }
+
+    /// Calculates the recursive size of each folder (one after another), then shows the sizes in
+    /// the Size column. Cancelling the calling task stops the walk. Results for a folder the pane
+    /// has left meanwhile are dropped (the returned totals are still correct).
+    func calculateSizes(of folders: [VFSPath]) async throws -> [VFSPath: DirectoryTotals] {
+        let provider = try registry.provider(for: directory.location)
+        let start = directory
+        var results: [VFSPath: DirectoryTotals] = [:]
+        for folder in folders {
+            // Detached so the walk never runs on the main actor; cancellation is passed on by hand.
+            let walk = Task.detached(priority: .userInitiated) { try await provider.totals(of: folder) }
+            results[folder] = try await withTaskCancellationHandler { try await walk.value } onCancel: { walk.cancel() }
+        }
+        guard start == directory else { return results }
+        for (path, totals) in results { folderSizes[path] = totals.bytes }
+        let items = withFolderSizes(allItems)
+        let order = sortOrder
+        let gen = generation
+        let sorted = await Task.detached(priority: .userInitiated) { ItemSorter.sorted(items, by: order) }.value
+        guard gen == generation, order == sortOrder else { return results }
+        allItems = sorted
+        await rebuildRows(cursor: currentCursorProvider?())
+        return results
     }
 
     // MARK: Marks
@@ -203,6 +244,9 @@ final class PaneModel {
             // removed item must stay in the map as "gone" (.some(nil)).
             let item = try? await provider.item(at: path)
             updated.updateValue(item, forKey: path)
+        }
+        for (path, item) in updated {
+            if let item { updated[path] = withFolderSizes([item]).first } else { folderSizes[path] = nil }
         }
         let order = sortOrder
         let items = allItems

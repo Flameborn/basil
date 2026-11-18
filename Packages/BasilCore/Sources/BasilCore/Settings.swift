@@ -32,6 +32,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var feedback = FeedbackSettings()
     /// Saved Multi-Rename settings.
     public var renamePresets: [RenamePreset] = []
+    /// The app that edits files (Shift+F4 new file), as a path to an .app bundle. Nil = the system default app.
+    public var editorAppPath: String?
 
     public init() {}
 
@@ -48,6 +50,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         secureCopy = try c.decodeIfPresent(Bool.self, forKey: .secureCopy) ?? d.secureCopy
         feedback = try c.decodeIfPresent(FeedbackSettings.self, forKey: .feedback) ?? d.feedback
         renamePresets = try c.decodeIfPresent([RenamePreset].self, forKey: .renamePresets) ?? d.renamePresets
+        editorAppPath = try c.decodeIfPresent(String.self, forKey: .editorAppPath) ?? d.editorAppPath
         // Built-in views must always exist.
         for builtin in ListView.defaults where !views.contains(where: { $0.id == builtin.id }) {
             views.append(builtin)

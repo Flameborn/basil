@@ -36,6 +36,7 @@ final class PaneViewController: NSViewController {
     private var columnContext: ColumnDefinition.Context
     private var isApplyingColumns = false
     private var widthSaveTask: Task<Void, Never>?
+    private var sizeTask: Task<Void, Never>?
 
     /// Last folder visited per volume (volume root path -> folder), for the drive menu.
     private var lastDirectoryByVolume: [String: String]
@@ -308,6 +309,48 @@ final class PaneViewController: NSViewController {
         if advance != 0 { moveCursor(to: row + advance) }
     }
 
+    // MARK: Folder sizes (Total Commander: calculate occupied space)
+
+    /// Cmd+Shift+S: calculates the size of the folders among `items` and speaks the result.
+    /// "Calculating" is only said when it takes more than a second.
+    func calculateSizes(of items: [FileItem]) {
+        let folders = items.filter(\.isDirectoryLike)
+        guard !folders.isEmpty else {
+            delegate?.pane(self, announce: "No folders")
+            return
+        }
+        sizeTask?.cancel()
+        sizeTask = Task { [weak self] in
+            let notice = Task { [weak self] in
+                try await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                self.delegate?.pane(self, announce: "Calculating")
+            }
+            defer { notice.cancel() }
+            guard let self else { return }
+            do {
+                let results = try await self.model.calculateSizes(of: folders.map(\.path))
+                notice.cancel()
+                self.delegate?.pane(self, announce: self.describeTotals(results, folders: folders))
+                self.updateStatus()
+            } catch is CancellationError {
+            } catch {
+                self.delegate?.pane(self, announce: Self.describe(error))
+            }
+        }
+    }
+
+    /// "Alpha, 1.5 MB, 120 files, 8 folders" or "3 folders, 4.2 GB, 1,200 files, 30 folders".
+    private func describeTotals(_ results: [VFSPath: DirectoryTotals], folders: [FileItem]) -> String {
+        let total = results.values.reduce(DirectoryTotals(), +)
+        let size = settings.formatters.size.string(total.bytes)
+        func count(_ n: Int, _ word: String) -> String { "\(n.formatted()) \(word)\(n == 1 ? "" : "s")" }
+        var text = folders.count == 1 ? "\(folders[0].name), \(size)" : "\(count(folders.count, "folder")), \(size)"
+        text += ", \(count(total.files, "file")), \(count(total.folders, "folder"))"
+        if total.unreadable > 0 { text += ", \(count(total.unreadable, "folder")) could not be read" }
+        return text
+    }
+
     func setSort(_ key: SortKey) {
         let current = model.sortOrder
         let ascending = current.key == key ? !current.ascending : true
@@ -434,6 +477,7 @@ final class PaneViewController: NSViewController {
             updateStatus()
             if shownDirectory != model.directory {
                 shownDirectory = model.directory
+                sizeTask?.cancel()
                 rememberVolumeDirectory()
                 delegate?.paneDidChangeDirectory(self)
             }
@@ -487,7 +531,7 @@ final class PaneViewController: NSViewController {
         header.textColor = isActive ? Theme.headerActiveText : Theme.headerInactiveText
     }
 
-    /// The status line text; also what Cmd+I reads.
+    /// The status line text; also what Option+I reads.
     var statusText: String {
         if model.isLoading { return "Loading..." }
         let size = settings.formatters.size
@@ -497,7 +541,9 @@ final class PaneViewController: NSViewController {
             let isSel = model.selected.contains(item.path)
             if item.isDirectoryLike {
                 dirs += 1
-                if isSel { selDirs += 1 }
+                // Folder sizes count once calculated (Cmd+Shift+S), as in Total Commander.
+                totalBytes += item.size ?? 0
+                if isSel { selDirs += 1; selBytes += item.size ?? 0 }
             } else {
                 files += 1
                 totalBytes += item.size ?? 0

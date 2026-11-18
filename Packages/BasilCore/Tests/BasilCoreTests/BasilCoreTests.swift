@@ -139,6 +139,8 @@ import Testing
         #expect(registry.perform(KeyChord(.function(5)), in: ctx))
         #expect(registry.perform(KeyChord(.character("s"), .command), in: ctx))
         #expect(!registry.perform(KeyChord(.function(6)), in: ctx))
+        #expect(KeyChord(.numpad("-")) != KeyChord(.character("-")))
+        #expect(KeyChord(.numpad("-")).description == "Numpad Minus")
 
         registry.bind(KeyChord(.function(6)), to: "copy")
         registry.bind(KeyChord(.function(5)), to: nil)

@@ -325,6 +325,31 @@ public struct MakeDirectoryOperation: QueueOperation {
     }
 }
 
+/// Shift+F4: creates an empty file (fails if anything exists at the path).
+public struct NewFileOperation: QueueOperation {
+    public let path: VFSPath
+    let registry: ProviderRegistry
+
+    public init(path: VFSPath, registry: ProviderRegistry) {
+        self.path = path
+        self.registry = registry
+    }
+
+    public var kind: OperationKind { .newFile }
+    public var title: String { "New file \(path.name)" }
+
+    public func run(_ context: OperationContext) async throws {
+        context.items(done: 0, total: 1)
+        let file = try await registry.writableProvider(for: path.location).createFile(path)
+        // createFile makes owner-only files (it is meant for partial copies); a new file gets the usual rw-r--r--.
+        let warnings = (try? await file.apply(FileMetadata(permissions: 0o644))) ?? []
+        await file.close()
+        warnings.forEach(context.log)
+        context.items(done: 1, total: 1)
+        context.log("Created \(path.path)")
+    }
+}
+
 /// Shift+F6: renames one item in place.
 public struct RenameOperation: QueueOperation {
     public let source: VFSPath

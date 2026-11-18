@@ -360,7 +360,8 @@ extension KeyChord {
         default:
             if CharacterSet.controlCharacters.contains(scalar) { return nil }
             // Arrow/function keys carry .function/.numericPad flags; they don't count as modifiers.
-            key = .character(chars)
+            // Keypad keys (Numpad Minus deselects all, as in Total Commander) bind apart from the main keys.
+            key = event.modifierFlags.contains(.numericPad) ? .numpad(chars) : .character(chars)
         }
         self.init(key, mods)
     }

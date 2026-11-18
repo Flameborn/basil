@@ -12,6 +12,7 @@ public struct OperationKind: RawRepresentable, Hashable, Sendable, Codable, Expr
     public static let delete: OperationKind = "delete"
     public static let trash: OperationKind = "trash"
     public static let makeDirectory: OperationKind = "mkdir"
+    public static let newFile: OperationKind = "newfile"
     public static let rename: OperationKind = "rename"
     /// Operations without a kind of their own (for example the debug test operation).
     public static let other: OperationKind = "other"
@@ -42,6 +43,7 @@ public enum OperationKindCatalog {
         OperationKindInfo(kind: .delete, name: "Delete", pastTense: "deleted"),
         OperationKindInfo(kind: .trash, name: "Move to Trash", pastTense: "moved to the Trash"),
         OperationKindInfo(kind: .makeDirectory, name: "New Folder", pastTense: "created"),
+        OperationKindInfo(kind: .newFile, name: "New File", pastTense: "created"),
         OperationKindInfo(kind: .rename, name: "Rename", pastTense: "renamed"),
         OperationKindInfo(kind: .other, name: "Other", pastTense: "done"),
     ]

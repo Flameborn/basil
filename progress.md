@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Next: the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Added on 2026-11-19: Cmd+G go to folder or file with suggestions, Finder Go keys, Cmd+Shift+S folder sizes, Cmd+I Info sheet with default-app change, Shift+F4 new file in the editor of choice, Shift+F6 opens Multi-Rename for several selected items, and a column grid in the Multi-Rename preview. Next: the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -36,7 +36,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-18 | No emojis, symbol glyphs or decorative Unicode anywhere (UI, VoiceOver text, docs, comments) |
 | 2026-11-18 | No ".." row in panes; Backspace / Cmd+Up go to the parent |
 | 2026-11-18 | Pane lists are announced only as "Left pane" / "Right pane" (no folder name in the label) |
-| 2026-11-18 | Minimal speech: nothing announced on Tab or folder change; Cmd+I reads the status bar |
+| 2026-11-18 | Minimal speech: nothing announced on Tab or folder change; Cmd+I reads the status bar (moved to Option+I on 2026-11-19) |
 | 2026-11-18 | "Selected" replaces "marked" everywhere; Space says "Selected, 2 items" / "Deselected, 1 item" / "Deselected" |
 | 2026-11-18 | Rows read like TC columns ("test, dir, ..."); no "file"/"folder" word added to names |
 | 2026-11-18 | Customisable columns: views (Brief, Full, custom) as ordered checkable column lists in Settings, columns can be added; Brief = single Name column |
@@ -70,6 +70,14 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-18 | Cmd+M is Multi-Rename; the Window menu's Minimize has no shortcut (registry chords beat menu items) |
 | 2026-11-18 | Multi-rename details (decided by Claude, change if wrong): "Insert" menus append the placeholder at the end of the mask; names are compared without case for conflicts; a colon is allowed in new names; Start is disabled while any row has a problem; "First letter uppercase" lowercases the rest |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
+| 2026-11-19 | Cmd+G (and Finder's Cmd+Shift+G) goes to a folder or file: path field with a suggestion list, Tab completes, a file opens its folder with the cursor on it |
+| 2026-11-19 | Finder Go keys in the current pane: Cmd+Shift+H/D/O/A/U/I/C, Cmd+Option+L; Cmd+Shift+A is Applications (Finder wins), Deselect All moves to Numpad Minus and Cmd+Shift+Minus |
+| 2026-11-19 | Cmd+I is Basil's own Info sheet (with Open with and "Use for All .ext Files" to change the system default app); the status bar is read with Option+I |
+| 2026-11-19 | Folder size: Cmd+Shift+S calculates the selected or cursor folders (Space keeps only selecting); the size shows in the Size column until the pane changes folder |
+| 2026-11-19 | Shift+F4 new file like TC: name prefilled with the cursor file, existing files just open, editor = chosen app or system default (Settings, Editing tab); F4 waits for M3 |
+| 2026-11-19 | Shift+F6 with more than one selected item opens Multi-Rename; Cmd+M stays |
+| 2026-11-19 | Multi-Rename preview is a grid with columns Old name, New name, Status, Modified |
+| 2026-11-19 | Decided by Claude, change if wrong: Go-to suggestions list prefix matches then substring matches (max 200), hidden items only once something is typed, dot files only after a dot; the count is announced after a 0.7 s pause and only when it changed. Folder size result is spoken as "Alpha, 1.5 MB, 120 files, 8 folders", "Calculating" only after 1 s; symlinks are not followed. New files get rw-r--r--. Files no app opens go to TextEdit. Info shows the cursor item only (not every selected item). Finder's Cmd+Shift+C (Computer) goes to /Volumes |
 
 ## Open questions (ask before implementing the related part)
 
@@ -83,8 +91,9 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [ ] Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
 - [ ] Themes: should users be able to edit/create colour themes (and import/export them)?
 
+- [x] Fixed 2026-11-19: a watcher refresh right after a navigation could replace the load's rows with the old cursor, so the cursor landed on the first row instead of the requested item (`PaneModel.pendingLoadCursor`).
 - [x] Fixed 2026-11-18: panes never watched their start folder, and watcher changes never removed deleted or renamed-away items from a pane.
-- [ ] UI tests are timing-flaky in the full suite (`testQuickFilterAndHiddenToggle` failed once in a full run on 2026-11-18 and passes alone; `testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
+- [ ] UI tests are timing-flaky in the full suite (2026-11-19: tests now wait for sheet field focus before typing; a full run still shows about one different flake per run, `testQuickFilterAndHiddenToggle` or `testSoundsAndSpeechTab`, each passing alone; typing in other apps during a run also injects keys) (`testQuickFilterAndHiddenToggle` failed once in a full run on 2026-11-18 and passes alone; `testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
 
 - [ ] Git scope for the first version: status/commit/pull/push/checkout/branch. Also diff, stash, log, blame?
 
@@ -107,7 +116,9 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [x] Settings window (Cmd+,): views and columns, size and date formats, navigation, bookmarks
 - [x] Brief / Full / custom views with configurable columns (incl. Created, Kind)
 - [x] Locations menu (Cmd+D, Cmd+F1, Cmd+F2) with volumes and bookmarks; per-volume last folder
-- [x] Read status bar (Cmd+I)
+- [x] Read status bar (Option+I)
+- [x] Go to folder or file (Cmd+G) with suggestions; Finder Go keys
+- [x] Folder sizes (Cmd+Shift+S); Info sheet (Cmd+I) with default-app change
 - [ ] Explain the Full Disk Access permission in the app (currently only an error message in the status line)
 
 ### M2 - Operations
@@ -123,6 +134,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [x] Multi-rename tool (masks, counter, search/replace + regex, case, preview, presets, undo, cycle-safe batch op); core placeholders, EXIF/ID3 later
 
 ### M3 - View/Edit/Terminal
+- [x] Shift+F4 new file in the editor (chosen app or system default)
 - [ ] F3 Quick Look
 - [ ] F4 editor associations (global / per-extension / popup)
 - [ ] Open terminal here (configurable terminals)

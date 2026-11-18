@@ -201,37 +201,18 @@ struct MultiRenameView: View {
         }
     }
 
+    /// A real table (Old name, New name, Status, Modified), so VoiceOver can move by row and by
+    /// column. AppKit's NSTableView: SwiftUI's Table puts an unlabelled group in every cell.
     private var preview: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Old name").frame(width: 300, alignment: .leading)
-                Text("New name").frame(width: 300, alignment: .leading)
-                Text("Problem")
-            }
-            .font(.headline)
-            .accessibilityHidden(true)
-            List(model.entries) { entry in
-                HStack {
-                    Text(entry.item.name).frame(width: 300, alignment: .leading)
-                    Text(entry.newName).frame(width: 300, alignment: .leading)
-                    if let problem = entry.problem {
-                        Text(problem.text).foregroundStyle(.red)
-                    }
-                }
-                .lineLimit(1)
-                .accessibilityElement(children: .ignore)
-                .accessibilityAddTraits(.isStaticText)
-                .accessibilityLabel(spoken(entry))
-            }
-            .accessibilityLabel("Preview")
-        }
+        RenamePreviewTable(rows: model.entries.map { entry in
+            [entry.item.name, entry.newName, status(entry), settings.formatters.date(entry.item.modified)]
+        }, problemRows: Set(model.entries.indices.filter { model.entries[$0].problem != nil }))
     }
 
-    /// "song.mp3, to 01 song.mp3" or "song.mp3, unchanged", plus the problem.
-    private func spoken(_ entry: RenamePreviewEntry) -> String {
-        var text = entry.isUnchanged ? "\(entry.item.name), unchanged" : "\(entry.item.name), to \(entry.newName)"
-        if let problem = entry.problem { text += ", problem: \(problem.text)" }
-        return text
+    /// "Unchanged", "Will be renamed" or "Problem: ...". The word carries the meaning, not only the colour.
+    private func status(_ entry: RenamePreviewEntry) -> String {
+        if let problem = entry.problem { return "Problem: \(problem.text)" }
+        return entry.isUnchanged ? "Unchanged" : "Will be renamed"
     }
 }
 
@@ -268,5 +249,79 @@ final class MultiRenameWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         NSApp.stopModal()
+    }
+}
+
+/// The preview grid of the Multi-Rename tool: a plain NSTableView with one text per cell.
+struct RenamePreviewTable: NSViewRepresentable {
+    static let titles = ["Old name", "New name", "Status", "Modified"]
+    static let widths: [CGFloat] = [250, 250, 200, 140]
+    let rows: [[String]]
+    /// Rows whose status is a problem; drawn in red (the status text says so too).
+    let problemRows: Set<Int>
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let table = NSTableView()
+        for (title, width) in zip(Self.titles, Self.widths) {
+            // Accessibility derives the cell's label from the column identifier, so it must be words.
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(title))
+            column.title = title
+            column.width = width
+            table.addTableColumn(column)
+        }
+        table.style = .plain
+        table.usesAlternatingRowBackgroundColors = true
+        table.allowsEmptySelection = true
+        table.setAccessibilityLabel("Preview")
+        table.setAccessibilityIdentifier("multiRename.preview")
+        table.dataSource = context.coordinator
+        table.delegate = context.coordinator
+        let scroll = NSScrollView()
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.rows = rows
+        context.coordinator.problemRows = problemRows
+        (scroll.documentView as? NSTableView)?.reloadData()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+        var rows: [[String]] = []
+        var problemRows: Set<Int> = []
+
+        func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            guard let tableColumn, let column = RenamePreviewTable.titles.firstIndex(of: tableColumn.identifier.rawValue),
+                  rows.indices.contains(row)
+            else { return nil }
+            let id = NSUserInterfaceItemIdentifier("cell")
+            let cell = tableView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView ?? {
+                let cell = NSTableCellView()
+                cell.identifier = id
+                let text = NSTextField(labelWithString: "")
+                text.lineBreakMode = .byTruncatingMiddle
+                text.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(text)
+                cell.textField = text
+                NSLayoutConstraint.activate([
+                    text.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                    text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+                    text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                ])
+                return cell
+            }()
+            cell.textField?.stringValue = rows[row][column]
+            cell.setAccessibilityLabel(rows[row][column])
+            cell.textField?.textColor = column == 2 && problemRows.contains(row) ? .systemRed : .labelColor
+            return cell
+        }
     }
 }

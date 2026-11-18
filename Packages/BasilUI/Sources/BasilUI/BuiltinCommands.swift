@@ -1,4 +1,5 @@
 import BasilCore
+import Foundation
 
 /// Built-in pane and navigation commands with their default (Total Commander, Mac-adapted) keys.
 /// F3 and F4 are registered but disabled until their milestone implements them.
@@ -13,6 +14,7 @@ enum BuiltinCommands {
         typealias K = KeyChord
         weak let w = window
         func pane() -> PaneViewController? { w?.activePane }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
 
         var commands: [C] = [
             C(id: "pane.switch", title: "Switch Pane", defaultKeys: [K(.tab), K(.tab, .shift)]) { _ in w?.switchPane() },
@@ -29,7 +31,7 @@ enum BuiltinCommands {
                 ctx.announce(p.model.showHidden ? "Showing hidden files" : "Hiding hidden files")
             },
             C(id: "pane.quickFilter", title: "Quick Filter", defaultKeys: [K(.character("s"), .command)]) { _ in pane()?.showQuickFilter() },
-            C(id: "pane.readStatus", title: "Read Status Bar", defaultKeys: [K(.character("i"), .command)]) { ctx in
+            C(id: "pane.readStatus", title: "Read Status Bar", defaultKeys: [K(.character("i"), .option)]) { ctx in
                 guard let p = pane() else { return }
                 ctx.announce(p.statusText)
             },
@@ -41,6 +43,33 @@ enum BuiltinCommands {
             },
             C(id: "pane.locationsRight", title: "Right Pane Locations", defaultKeys: [K(.function(2), .command)]) { _ in
                 w?.showLocationsMenu(for: .right)
+            },
+            // Go (Finder's Go menu keys). Cmd+G asks for a path, with suggestions.
+            C(id: "go.path", title: "Go to Folder or File",
+              defaultKeys: [K(.character("g"), .command), K(.character("g"), [.command, .shift])]) { _ in w?.goToPath() },
+            C(id: "go.home", title: "Go to Home", defaultKeys: [K(.character("h"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local(home))
+            },
+            C(id: "go.desktop", title: "Go to Desktop", defaultKeys: [K(.character("d"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local(home + "/Desktop"))
+            },
+            C(id: "go.documents", title: "Go to Documents", defaultKeys: [K(.character("o"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local(home + "/Documents"))
+            },
+            C(id: "go.downloads", title: "Go to Downloads", defaultKeys: [K(.character("l"), [.command, .option])]) { _ in
+                pane()?.navigate(to: .local(home + "/Downloads"))
+            },
+            C(id: "go.applications", title: "Go to Applications", defaultKeys: [K(.character("a"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local("/Applications"))
+            },
+            C(id: "go.utilities", title: "Go to Utilities", defaultKeys: [K(.character("u"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local("/Applications/Utilities"))
+            },
+            C(id: "go.iCloud", title: "Go to iCloud Drive", defaultKeys: [K(.character("i"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local(home + "/Library/Mobile Documents/com~apple~CloudDocs"))
+            },
+            C(id: "go.computer", title: "Go to Volumes", defaultKeys: [K(.character("c"), [.command, .shift])]) { _ in
+                pane()?.navigate(to: .local("/Volumes"))
             },
             C(id: "cursor.first", title: "First Item", defaultKeys: [K(.home)]) { _ in pane()?.moveCursor(to: 0) },
             C(id: "cursor.last", title: "Last Item", defaultKeys: [K(.end)]) { _ in pane()?.moveCursor(to: .max) },
@@ -54,7 +83,8 @@ enum BuiltinCommands {
                 p.model.selectAllFiles()
                 ctx.announce("Selected, \(itemCount(p.model.selected.count))")
             },
-            C(id: "select.none", title: "Deselect All", defaultKeys: [K(.character("a"), [.command, .shift])]) { ctx in
+            C(id: "select.none", title: "Deselect All",
+              defaultKeys: [K(.numpad("-")), K(.character("-"), [.command, .shift])]) { ctx in
                 pane()?.model.deselectAll()
                 ctx.announce("Deselected")
             },
@@ -75,7 +105,16 @@ enum BuiltinCommands {
             // File operations. All of them go through the queue.
             C(id: "file.copy", title: "Copy", defaultKeys: [K(.function(5))]) { _ in w?.copyOrMove(.copy) },
             C(id: "file.move", title: "Move", defaultKeys: [K(.function(6))]) { _ in w?.copyOrMove(.move) },
-            C(id: "file.rename", title: "Rename", defaultKeys: [K(.function(6), .shift)]) { _ in w?.renameCursorItem() },
+            // Shift+F6 with several items selected opens the Multi-Rename tool.
+            C(id: "file.rename", title: "Rename", defaultKeys: [K(.function(6), .shift)]) { _ in
+                if (pane()?.model.selected.count ?? 0) > 1 { w?.multiRename() } else { w?.renameCursorItem() }
+            },
+            C(id: "file.newFile", title: "New File", defaultKeys: [K(.function(4), .shift)]) { _ in w?.newFile() },
+            C(id: "file.info", title: "Get Info", defaultKeys: [K(.character("i"), .command)]) { _ in w?.showInfo() },
+            C(id: "file.calculateSize", title: "Calculate Folder Size", defaultKeys: [K(.character("s"), [.command, .shift])]) { _ in
+                guard let w else { return }
+                w.activePane.calculateSizes(of: w.targetItems)
+            },
             C(id: "file.mkdir", title: "New Folder", defaultKeys: [K(.function(7))]) { _ in w?.makeDirectory() },
             C(id: "file.delete", title: "Delete", defaultKeys: [K(.function(8)), K(.forwardDelete)]) { _ in
                 w?.delete(permanently: false)

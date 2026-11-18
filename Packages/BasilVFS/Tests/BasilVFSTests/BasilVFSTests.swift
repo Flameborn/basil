@@ -76,6 +76,40 @@ func collect(_ stream: AsyncThrowingStream<[FileItem], Error>) async throws -> [
     }
 }
 
+@Suite struct DirectoryTotalsTests {
+    let provider = LocalProvider()
+
+    @Test func addsUpNestedFilesWithoutFollowingLinks() async throws {
+        let tmp = try TempDir()
+        try tmp.file("a.txt", "hello")
+        try FileManager.default.createDirectory(at: tmp.url.appendingPathComponent("sub/deep"), withIntermediateDirectories: true)
+        try tmp.file("sub/b", "abc")
+        try tmp.file("sub/deep/c", "xy")
+        try FileManager.default.createSymbolicLink(atPath: tmp.url.appendingPathComponent("link").path, withDestinationPath: "sub")
+        let linkSize = try await provider.item(at: tmp.vfs.appending("link")).size ?? 0
+
+        let totals = try await provider.totals(of: tmp.vfs)
+        #expect(totals.files == 4)
+        #expect(totals.folders == 2)
+        #expect(totals.bytes == 10 + linkSize)
+        #expect(totals.unreadable == 0)
+    }
+
+    @Test func skipsUnreadableSubfoldersButFailsForTheFolderItself() async throws {
+        let tmp = try TempDir()
+        let locked = tmp.url.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: false)
+        try tmp.file("locked/x", "1234")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+
+        let totals = try await provider.totals(of: tmp.vfs)
+        #expect(totals.folders == 1)
+        #expect(totals.unreadable == 1)
+        await #expect(throws: (any Error).self) { try await provider.totals(of: tmp.vfs.appending("locked")) }
+    }
+}
+
 @Suite struct DirectoryWatcherTests {
     @Test func reportsCreatedChild() async throws {
         let tmp = try TempDir()

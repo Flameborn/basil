@@ -100,6 +100,43 @@ extension MainWindowController {
         }
     }
 
+    /// Shift+F4 (Total Commander): asks for a name (prefilled with the cursor file's name), creates
+    /// an empty file through the queue unless it exists, then opens it in the editor from Settings.
+    func newFile() {
+        guard let window else { return }
+        let pane = activePane
+        let directory = pane.model.directory
+        let initial = pane.cursorItem.flatMap { $0.isDirectoryLike ? nil : $0.name } ?? ""
+        Task {
+            guard let name = await askText(in: window, message: "New file:", initial: initial,
+                                           confirm: "Create", fieldLabel: "File name"),
+                  let path = resolve(name, relativeTo: directory) else { return }
+            if let existing = try? await providers.provider(for: path.location).item(at: path) {
+                if existing.isDirectoryLike { return announce("\(path.name) is a folder") }
+                return openInEditor(path)
+            }
+            let queued = queue.add(NewFileOperation(path: path, registry: providers))
+            queued.whenDone = { state in
+                guard state == .finished else { return }
+                if pane.model.directory == path.parent { pane.model.reload(cursor: path) }
+                self.openInEditor(path)
+            }
+        }
+    }
+
+    /// Opens a local file in the editor chosen in Settings (or the system default app).
+    func openInEditor(_ path: VFSPath) {
+        guard path.location == .local else { return announce("Only local files can be edited for now") }
+        let editor = settings.settings.editorAppPath
+        Task {
+            do {
+                try await EditorLauncher.open(URL(fileURLWithPath: path.path), editorAppPath: editor)
+            } catch {
+                announce("Could not open the editor: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func delete(permanently: Bool) {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
@@ -122,7 +159,7 @@ extension MainWindowController {
     }
 
     /// A typed path: absolute, "~/..." or relative to `directory`.
-    private func resolve(_ text: String, relativeTo directory: VFSPath) -> VFSPath? {
+    func resolve(_ text: String, relativeTo directory: VFSPath) -> VFSPath? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let expanded = (trimmed as NSString).expandingTildeInPath
@@ -207,7 +244,7 @@ extension MainWindowController {
 
     /// Shows an alert as a sheet and returns the index of the button pressed. The first button
     /// has keyboard focus (as in Total Commander), so Space and VoiceOver start on it.
-    private func present(_ alert: NSAlert, in window: NSWindow) async -> Int {
+    func present(_ alert: NSAlert, in window: NSWindow) async -> Int {
         let first = alert.buttons.first
         alert.window.initialFirstResponder = first
         return await withCheckedContinuation { continuation in

@@ -39,7 +39,7 @@ Progress, completed milestones and open questions are tracked in **`progress.md`
 | Sync | Works like **Total Commander's "Synchronize directories"** and is stateless. See the Sync section below. It does not use librsync; files are transferred by the secure copy engine. Planned for later. |
 | Quick filter | **Cmd+S** pops up an edit field (anchored to the pane) where the filter is typed; the pane filters live as you type. Typing letters directly in a pane does NOT filter - it jumps to the first matching name (type-ahead). Wildcards (`*.mp3`), substring (`apple`), `;`-separated patterns, `\|` exclusions, optional regex mode. Cleared on directory change. |
 | Look | **Total Commander-like**: flat dense grid, custom colour scheme, drive/button bar, function-key bar at the bottom. Colours come from theme tokens, never hard-coded, and must meet WCAG contrast. **Light and dark variants** that follow the system appearance. |
-| Keybindings | **Total Commander defaults, Mac-adapted**: F3 view, F4 edit, F5 copy, F6 move, Shift+F6 rename, F7 mkdir, F8 delete, Tab switch pane, Space select; Ctrl/Alt combos become Cmd/Option where natural (Cmd+R reread, Cmd+M multi-rename). Everything remappable through CommandRegistry. |
+| Keybindings | **Total Commander defaults, Mac-adapted**: F3 view, F4 edit, F5 copy, F6 move, Shift+F6 rename, F7 mkdir, F8 delete, Tab switch pane, Space select; Ctrl/Alt combos become Cmd/Option where natural (Cmd+M multi-rename), plus Finder's Go keys (Cmd+Shift+H, Cmd+Shift+O, Cmd+Option+L, ...). Everything remappable through CommandRegistry. |
 | Multi-rename | Works like **Total Commander's Multi-Rename Tool**. See below. |
 
 ## Architecture (target design)
@@ -165,14 +165,18 @@ Sync compares two directories (left and right panes), optionally including subdi
 - **Default keys:**
   - Tab switches pane. Enter or Cmd+Down opens. Backspace or Cmd+Up goes to the parent folder.
   - Home and End (Fn+Left/Right on Mac keyboards) jump to the first or last item.
-  - F2 rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Cmd+I reads the status bar.
+  - F2 rereads. Cmd+Shift+. toggles hidden files. Cmd+S opens the quick filter. Option+I reads the status bar. Cmd+I opens the Info sheet.
+  - Cmd+G (or Cmd+Shift+G) goes to a folder or file (`GoToSheet.swift`): a sheet with a path field and a suggestion list for the last path part (prefix matches first, then names containing the text, no case; hidden items such as /Volumes once something is typed, dot files only after a dot). Up/Down pick, Tab completes (folders get a slash), Return goes; a file opens its folder with the cursor on it. The number of suggestions is announced once typing pauses, and only when it changes.
+  - Finder Go keys in the current pane: Cmd+Shift+H Home, Cmd+Shift+D Desktop, Cmd+Shift+O Documents, Cmd+Option+L Downloads, Cmd+Shift+A Applications, Cmd+Shift+U Utilities, Cmd+Shift+I iCloud Drive, Cmd+Shift+C /Volumes.
+  - Cmd+Shift+S calculates the size of the folders among the selected (or cursor) items, like TC; the Size column then shows it (spoken "dir, 1.5 MB"), the status bar counts it, and the result is spoken ("Alpha, 1.5 MB, 120 files, 8 folders"; "Calculating" only after a second). Sizes stay until the pane shows another folder (`PaneModel.folderSizes`). The walk is `FileSystemProvider.totals(of:)` (BasilVFS, `DirectorySize.swift`): symlinks not followed, unreadable subfolders counted and skipped.
   - Cmd+D opens the locations menu for the current pane, Cmd+F1 for the left pane, Cmd+F2 for the right.
-  - Space selects or deselects. Shift+Up/Down selects while moving. Cmd+A selects all files. Cmd+Shift+A deselects all.
+  - Space selects or deselects. Shift+Up/Down selects while moving. Cmd+A selects all files. Numpad Minus or Cmd+Shift+Minus deselects all (`KeyChord.Key.numpad` keeps keypad keys apart from the main keys).
   - Cmd+F3, F4, F5 and F6 sort by name, extension, date and size.
   - Ctrl+F1 is Brief view, Ctrl+F2 Full view, and Ctrl+F3-F11 custom views 1-9.
   - Cmd+, opens Settings, Cmd+W closes it (only the settings window: the main menu has no Close item, so Cmd+W never closes the main window). Cmd+J opens or closes the operation queue panel.
-  - F5 copy and F6 move (sheet with the target path, prefilled with the other pane; relative paths and ~ work), Shift+F6 rename (sheet, name without extension preselected), F7 new folder, F8 or Forward Delete moves to the Trash, Shift+F8 or Shift+Forward Delete deletes permanently. Each confirms in a sheet and runs in the queue. Without items they say "No items".
+  - F5 copy and F6 move (sheet with the target path, prefilled with the other pane; relative paths and ~ work), Shift+F6 rename (sheet, name without extension preselected; with more than one item selected it opens Multi-Rename), Shift+F4 new file (sheet prefilled with the cursor file's name; an existing file is just opened; otherwise `NewFileOperation` creates it, rw-r--r--, then it opens in the editor), F7 new folder, F8 or Forward Delete moves to the Trash, Shift+F8 or Shift+Forward Delete deletes permanently. Each confirms in a sheet and runs in the queue. Without items they say "No items".
   - Cmd+M opens the Multi-Rename tool. F3 and F4 are registered but disabled until their milestones.
+  - Cmd+I opens the Info sheet for the cursor item (`InfoSheet.swift`, SwiftUI in a sheet; Escape or Return closes): name, kind, size (folders calculated), where, dates, permissions, owner, and for files an Open with picker plus "Use for All .ext Files", which sets the system default app for that type (`FileAssociations`, BasilIntegrations).
 - **Views and columns:** a view (`ListView`) is an ordered list of `ColumnSpec` (id, visible, width). Brief and Full are built in; users add custom views in Settings. Columns come from `ColumnCatalog` (BasilCore), which plugins can extend. Each `ColumnDefinition` gives the display text and optionally different spoken text.
   - The Name column shows the full name when the view has no Ext column; otherwise it omits the extension.
   - Resizing or dragging columns in the table header writes back to the view, debounced.
@@ -202,7 +206,7 @@ Sync compares two directories (left and right panes), optionally including subdi
 
 - Rules live in BasilCore (`MultiRename.swift`): `RenameRule` (name and extension masks, search and replace with optional regex and case sensitivity, case conversion, counter start/step/digits), `MultiRename.newName`, and `MultiRenamePreview.make`, which flags empty names, slashes, duplicates within the batch and clashes with items outside the batch (names compared without case). Placeholders: `[N]`, `[E]` with ranges (`[N3]`, `[N2-5]`, `[N2-]`, `[N2,3]`, `[N-3-]`, `[N2--2]`), `[P]`, `[G]`, `[C]` and `[C10+5:3]`, `[Y] [y] [M] [D] [h] [m] [s]` (modification date), and `[=name]` for placeholders registered in `MultiRenamePlaceholders` (plugins). `[[` and `]]` are literal brackets; unknown placeholders stay as typed. Names split into name and extension like the Ext column (`FileItem.nameAndExtension`: folders have no extension). Order: masks, then search and replace, then case.
 - `MultiRenameOperation` (BasilOperations) runs the batch in the queue. Items whose target is the current name of a batch item (swaps, case-only changes) first get a temporary `.basil-rename-*` name; a failure asks Retry / Skip / Skip All / Cancel, and a skipped or cancelled item goes back to its old name. The renames done are written to the undo log (`LastMultiRename.json` in `MainWindowController.dataDirectory`, Application Support/Basil; UI tests use a temp folder). `MultiRenameOperation.undo(log:)` builds the reverse batch and removes the log when it has run.
-- The window (`MultiRenameWindow.swift`, SwiftUI) is modal (`NSApp.runModal`), so accessibility sees it as a dialog (`app.dialogs` in UI tests). Focus starts in the name mask; Return starts, Escape closes. The Undo button is only in the tool. Presets are saved in `BasilSettings.renamePresets`. Preview rows read "song.mp3, to 01 song.mp3", "..., unchanged" or "..., problem: ...". Start is disabled while there are problems.
+- The window (`MultiRenameWindow.swift`, SwiftUI) is modal (`NSApp.runModal`), so accessibility sees it as a dialog (`app.dialogs` in UI tests). Focus starts in the name mask; Return starts, Escape closes. The Undo button is only in the tool. Presets are saved in `BasilSettings.renamePresets`. The preview is an AppKit `NSTableView` (`RenamePreviewTable`) with Old name, New name, Status ("Will be renamed", "Unchanged", "Problem: ...") and Modified columns; SwiftUI's `Table` put unlabelled groups in its cells that failed the audit. Start is disabled while there are problems.
 
 ### Large directories
 
@@ -216,6 +220,7 @@ Panes use view-based `NSTableView` with cell reuse. Listing is streamed off the 
 
 ### F3 / F4 / terminal
 
+- Editor (Settings, Editing tab, `BasilSettings.editorAppPath`): a chosen app, or the system default app for each file (files no app opens go to TextEdit). `EditorLauncher` in BasilIntegrations. Shift+F4 uses it now; F4 waits for M3.
 - F3 is Quick Look (`QLPreviewPanel`). F4 edits with a global editor, or with a per-extension list of apps: one app opens directly, several apps show a popup menu.
 - For files inside archives or on remotes, F4 edits a local temp copy. When the editor saves or closes, the app offers to repack or upload the file, which runs as a queue operation.
 - "Open terminal here" uses a configurable terminal (Terminal, iTerm2, WezTerm, Ghostty, ...) through per-terminal launch templates.
@@ -238,4 +243,6 @@ for p in Packages/*/; do swift test --package-path "$p"; done   # all package te
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.
 - `xcodebuild` prints `DVTCoreDeviceCore` / "CoreSimulator is out of date" plug-in errors on this machine. They are Xcode environment noise and do not affect macOS builds.
 - `scripts/bootstrap.sh` (building vendored C deps into `Vendor/`) does not exist yet. It is blocked on open questions in `progress.md`. BLAKE3 does not need it: `Vendor/BLAKE3` is a SwiftPM package of C sources (`swift test --package-path Vendor/BLAKE3`).
+- AppKit `NSTableView` cells: accessibility names a cell after its column identifier, so identifiers must be words, and each cell view gets `setAccessibilityLabel` with its text, or the audit fails ("Label not human-readable").
+- Sheets open animated: UI tests wait for the field's `hasKeyboardFocus` before typing, or keys get lost.
 - SwiftUI `Toggle` and `Stepper` inside a grouped `Form` expose no label on the switch/stepper itself (the text is a separate static text). Always add `.accessibilityLabel` with the same text.

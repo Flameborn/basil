@@ -16,7 +16,7 @@ public struct FileItem: Hashable, Sendable, Identifiable {
 
     public let path: VFSPath
     public let kind: Kind
-    /// Logical size in bytes for files; `nil` for directories or when unknown.
+    /// Logical size in bytes for files; `nil` for directories (until their size is calculated) or when unknown.
     public let size: Int64?
     public let modified: Date?
     public let created: Date?
@@ -43,6 +43,12 @@ public struct FileItem: Hashable, Sendable, Identifiable {
         self.permissions = permissions
         self.isHidden = isHidden
         self.fileID = fileID
+    }
+
+    /// The same item with another size (a folder's calculated total).
+    public func withSize(_ size: Int64?) -> FileItem {
+        FileItem(path: path, kind: kind, size: size, modified: modified, created: created,
+                 permissions: permissions, isHidden: isHidden, fileID: fileID)
     }
 
     /// True for directories and symlinks that point to directories.

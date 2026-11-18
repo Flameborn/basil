@@ -4,7 +4,7 @@ import BasilIntegrations
 import SwiftUI
 
 public enum SettingsTab: String, Hashable, Sendable {
-    case views, display, navigation, bookmarks, copying, sounds
+    case views, display, navigation, bookmarks, copying, editing, sounds
 }
 
 @MainActor
@@ -88,12 +88,15 @@ struct SettingsView: View {
             CopySettings(store: store)
                 .tabItem { Text("Copying") }
                 .tag(SettingsTab.copying)
+            EditorSettings(store: store)
+                .tabItem { Text("Editing") }
+                .tag(SettingsTab.editing)
             FeedbackSettingsView(store: store)
                 .tabItem { Text("Sounds and Speech") }
                 .tag(SettingsTab.sounds)
         }
         .padding()
-        .frame(minWidth: 980, minHeight: 520)
+        .frame(minWidth: 1120, minHeight: 520)
     }
 }
 
@@ -335,6 +338,45 @@ struct CopySettings: View {
                 .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
+    }
+}
+
+// MARK: - Editing
+
+struct EditorSettings: View {
+    @Bindable var store: SettingsStore
+
+    private var editorName: String {
+        store.settings.editorAppPath.map(EditorLauncher.displayName(ofApp:)) ?? "System default"
+    }
+
+    var body: some View {
+        Form {
+            LabeledContent("Editor") {
+                Text(editorName)
+            }
+            .accessibilityElement(children: .combine)
+            HStack {
+                Button("Choose Editor...", action: chooseEditor)
+                Button("Use System Default") { store.settings.editorAppPath = nil }
+                    .disabled(store.settings.editorAppPath == nil)
+            }
+            Text("Shift+F4 creates a file and opens it in this editor. System default opens each file in the app macOS uses for its type, and files no app opens in TextEdit.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+    }
+
+    private func chooseEditor() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Editor"
+        panel.prompt = "Choose"
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        store.settings.editorAppPath = url.path
     }
 }
 

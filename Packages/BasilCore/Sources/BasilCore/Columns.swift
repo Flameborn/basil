@@ -134,9 +134,13 @@ private final class ColumnStorage: @unchecked Sendable {
             item.isDirectoryLike ? "" : item.nameAndExtension.ext
         },
         ColumnDefinition(id: .size, title: "Size", defaultWidth: 96, alignment: .trailing, sortKey: .size, text: { item, ctx in
-            if item.isDirectoryLike { return "<DIR>" }
+            // A folder shows its size once it has been calculated (Cmd+Shift+S), like Total Commander.
+            if item.isDirectoryLike, item.size == nil { return "<DIR>" }
             return item.size.map(ctx.formatters.size.string) ?? ""
-        }, spoken: { item, _ in item.isDirectoryLike ? "dir" : nil }),
+        }, spoken: { item, ctx in
+            guard item.isDirectoryLike else { return nil }
+            return item.size.map { "dir, \(ctx.formatters.size.string($0))" } ?? "dir"
+        }),
         ColumnDefinition(id: .modified, title: "Date", defaultWidth: 128, sortKey: .modified) { item, ctx in
             ctx.formatters.date(item.modified)
         },
