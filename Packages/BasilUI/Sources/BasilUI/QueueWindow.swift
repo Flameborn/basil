@@ -49,6 +49,8 @@ final class QueueWindowController: NSWindowController {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         focus.listFocusRequests += 1
+        // On first open the SwiftUI view appears before the panel is key; ask again once it is.
+        DispatchQueue.main.async { [focus] in focus.listFocusRequests += 1 }
     }
 }
 

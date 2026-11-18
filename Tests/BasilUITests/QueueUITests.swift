@@ -58,7 +58,8 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(rowLabels()[0].hasPrefix("Test operation 1, running"), rowLabels()[0])
         XCTAssertTrue(rowLabels()[1].hasPrefix("Test operation 2, waiting"), rowLabels()[1])
 
-        // The cursor starts on the running item. Space pauses it.
+        // The cursor starts on the running item, in the focused list. Space pauses it.
+        XCTAssertTrue(waitFor { (self.list.value(forKey: "hasKeyboardFocus") as? Bool) == true })
         panel.typeKey(" ", modifierFlags: [])
         XCTAssertTrue(waitFor { self.rowLabels().first?.hasPrefix("Test operation 1, paused") == true }, "\(rowLabels())")
         panel.typeKey(" ", modifierFlags: [])
@@ -95,7 +96,7 @@ final class QueueUITests: XCTestCase {
         addTestOperation()
         leftTable.typeKey("j", modifierFlags: .command)
         XCTAssertTrue(panel.waitForExistence(timeout: 3))
-        XCTAssertTrue(waitFor({ self.rowLabels().first?.hasPrefix("Test operation 1, finished") == true }, timeout: 20), "\(rowLabels())")
+        XCTAssertTrue(waitFor({ self.rowLabels().first?.hasPrefix("Test operation 1, finished") == true }, timeout: 20), "rows=\(rowLabels()) panelExists=\(panel.exists)")
         panel.buttons["Remove Finished"].click()
         XCTAssertTrue(waitFor { self.rowLabels().isEmpty })
     }

@@ -21,12 +21,15 @@ final class PaneUITests: XCTestCase {
     var leftTable: XCUIElement { app.tables["pane.left.table"] }
     var rightTable: XCUIElement { app.tables["pane.right.table"] }
 
-    /// Each row is one accessibility element read like the columns ("song, mp3, 1.5 MB, ...");
-    /// the name is the first part (fixture names contain no commas).
+    /// The first cell of each row is the name ("track, selected" when selected; fixture names have no commas).
     func names(in table: XCUIElement) -> [String] {
         table.tableRows.allElementsBoundByIndex.compactMap { row in
-            row.label.components(separatedBy: ", ").first
+            row.cells.element(boundBy: 0).label.components(separatedBy: ", ").first
         }
+    }
+
+    func cellLabels(_ row: XCUIElement) -> [String] {
+        row.cells.allElementsBoundByIndex.map(\.label)
     }
 
     func waitFor(_ predicate: () -> Bool, timeout: TimeInterval = 5) -> Bool {
@@ -87,8 +90,7 @@ final class PaneUITests: XCTestCase {
         let status = app.staticTexts["pane.left.status"]
         XCTAssertTrue(waitFor { (status.value as? String)?.contains("1 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
         // The selected file's name is read with ", selected".
-        XCTAssertTrue(leftTable.tableRows.element(boundBy: 5).label.hasPrefix("track, selected, flac, "),
-                      leftTable.tableRows.element(boundBy: 5).label)
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 5)).prefix(2), ["track, selected", "flac"])
     }
 
     func testHomeAndEndKeys() {
@@ -101,12 +103,12 @@ final class PaneUITests: XCTestCase {
 
     func testRowsReadLikeTotalCommanderColumns() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
-        // One element per row, no cells (no "column 2, row 1" from VoiceOver); a folder's empty
-        // extension is skipped and its size reads "dir".
-        let folderRow = leftTable.tableRows.element(boundBy: 0)
-        XCTAssertTrue(folderRow.label.hasPrefix("Alpha, dir, "), folderRow.label)
-        XCTAssertEqual(folderRow.cells.count, 0)
-        XCTAssertTrue(leftTable.tableRows.element(boundBy: 4).label.hasPrefix("song, mp3, "))
+        // A folder's empty extension cell is left out (VoiceOver would say "column 2, row 1" for it)
+        // and its size reads "dir".
+        let folder = cellLabels(leftTable.tableRows.element(boundBy: 0))
+        XCTAssertEqual(folder.count, 4, "\(folder)")
+        XCTAssertEqual(folder.prefix(2), ["Alpha", "dir"])
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 4)).prefix(2), ["song", "mp3"])
     }
 
     func testBriefAndFullViews() {

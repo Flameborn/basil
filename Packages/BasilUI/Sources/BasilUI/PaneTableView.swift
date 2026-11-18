@@ -7,8 +7,8 @@ protocol PaneTableViewKeyDelegate: AnyObject {
     func paneTable(_ table: PaneTableView, perform chord: KeyChord) -> Bool
     func paneTable(_ table: PaneTableView, typeAhead text: String)
     func paneTableDidBecomeFirstResponder(_ table: PaneTableView)
-    /// What VoiceOver reads for a row: the visible columns' spoken text joined in column order.
-    func paneTable(_ table: PaneTableView, spokenTextForRow row: Int) -> String
+    /// What VoiceOver reads for one cell (table column index); "" means the cell is not exposed.
+    func paneTable(_ table: PaneTableView, spokenTextForRow row: Int, column: Int) -> String
 }
 
 /// The file list. Routes key presses to the command registry first, then to
@@ -49,9 +49,9 @@ final class PaneTableView: NSTableView {
 
     // MARK: Accessibility
     //
-    // NSTableView normally exposes each row as an AXRow holding one AXCell per column, and VoiceOver
-    // then adds the cell position ("column 2, row 1") while reading a row. Basil exposes its own row
-    // elements instead: one per row, labelled with the whole row ("song, mp3, 1.5 MB, ..."), no cells.
+    // NSTableView exposes one AXCell per column in every row. A cell with no text (a folder's empty
+    // extension) makes VoiceOver say its position instead ("column 2, row 1"). Basil exposes its own
+    // rows and cells instead, built from the model, and leaves out cells with nothing to say.
     // Only the visible rows and the cursor row are exposed, so 100k-row folders cost nothing here.
 
     private var rowElements: [Int: PaneRowElement] = [:]
@@ -88,6 +88,10 @@ final class PaneTableView: NSTableView {
     @objc func accessibilitySelectedRows() -> [Any]? {
         selectedRow >= 0 && selectedRow < numberOfRows ? [rowElement(selectedRow)] : []
     }
+    override func accessibilityCell(forColumn column: Int, row: Int) -> Any? {
+        guard row >= 0, row < numberOfRows else { return nil }
+        return rowElement(row).cell(column: column)
+    }
 
     func refreshVisibleRows() {
         let range = rows(in: visibleRect)
@@ -98,11 +102,12 @@ final class PaneTableView: NSTableView {
     }
 }
 
-/// One row as VoiceOver sees it. The text comes from the pane model, not from the cell views,
-/// so it is correct even for rows whose views are not loaded.
+/// One row as VoiceOver sees it. Its cells' text comes from the pane model, not from the cell
+/// views, so it is correct even for rows whose views are not loaded.
 final class PaneRowElement: NSAccessibilityElement {
-    private weak var table: PaneTableView?
+    fileprivate weak var table: PaneTableView?
     let row: Int
+    private var cells: [Int: PaneCellElement] = [:]
 
     init(table: PaneTableView, row: Int) {
         self.table = table
@@ -113,16 +118,22 @@ final class PaneRowElement: NSAccessibilityElement {
 
     override func accessibilityRole() -> NSAccessibility.Role? { .row }
     override func accessibilitySubrole() -> NSAccessibility.Subrole? { .tableRow }
-    override func accessibilityLabel() -> String? {
-        let table = table, row = row
-        return MainActor.assumeIsolated {
-            guard let table, row < table.numberOfRows else { return nil }
-            return table.keyDelegate?.paneTable(table, spokenTextForRow: row)
-        }
-    }
     override func accessibilityIndex() -> Int { row }
     override func isAccessibilityEnabled() -> Bool { true }
-    override func accessibilityChildren() -> [Any]? { [] }
+    override func accessibilityChildren() -> [Any]? {
+        guard let table else { return [] }
+        return (0..<table.numberOfColumns).compactMap { cell(column: $0) }
+    }
+
+    /// The cell for a table column, or nil when it has nothing to say.
+    func cell(column: Int) -> PaneCellElement? {
+        guard let table, column >= 0, column < table.numberOfColumns,
+              !PaneCellElement.text(table: table, row: row, column: column).isEmpty else { return nil }
+        if let cell = cells[column] { return cell }
+        let cell = PaneCellElement(rowElement: self, column: column)
+        cells[column] = cell
+        return cell
+    }
     override func isAccessibilitySelected() -> Bool { table?.selectedRow == row }
     override func setAccessibilitySelected(_ selected: Bool) {
         guard selected, let table, row < table.numberOfRows else { return }
@@ -132,6 +143,41 @@ final class PaneRowElement: NSAccessibilityElement {
     override func accessibilityFrame() -> NSRect {
         guard let table, row < table.numberOfRows else { return .zero }
         return NSAccessibility.screenRect(fromView: table, rect: table.rect(ofRow: row))
+    }
+}
+
+/// One non-empty cell of a PaneRowElement, e.g. "song, selected" or "1.5 MB".
+final class PaneCellElement: NSAccessibilityElement {
+    private weak var rowElement: PaneRowElement?
+    let column: Int
+
+    init(rowElement: PaneRowElement, column: Int) {
+        self.rowElement = rowElement
+        self.column = column
+        super.init()
+        setAccessibilityParent(rowElement)
+    }
+
+    static func text(table: PaneTableView, row: Int, column: Int) -> String {
+        MainActor.assumeIsolated {
+            guard row < table.numberOfRows else { return "" }
+            return table.keyDelegate?.paneTable(table, spokenTextForRow: row, column: column) ?? ""
+        }
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .cell }
+    override func accessibilityLabel() -> String? {
+        guard let rowElement, let table = rowElement.table else { return nil }
+        return Self.text(table: table, row: rowElement.row, column: column)
+    }
+    override func isAccessibilityEnabled() -> Bool { true }
+    override func accessibilityChildren() -> [Any]? { [] }
+    override func accessibilityRowIndexRange() -> NSRange { NSRange(location: rowElement?.row ?? 0, length: 1) }
+    override func accessibilityColumnIndexRange() -> NSRange { NSRange(location: column, length: 1) }
+    override func accessibilityFrame() -> NSRect {
+        guard let rowElement, let table = rowElement.table, rowElement.row < table.numberOfRows,
+              column < table.numberOfColumns else { return .zero }
+        return NSAccessibility.screenRect(fromView: table, rect: table.frameOfCell(atColumn: column, row: rowElement.row))
     }
 }
 

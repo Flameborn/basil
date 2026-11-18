@@ -43,7 +43,7 @@ M0 done. M2 started: the operation queue and its panel are done; real operations
 | 2026-11-18 | Keys: Cmd+F1/F2 locations menu for left/right pane, Cmd+D for current pane, Cmd+I status, Ctrl+F1 Brief, Ctrl+F2 Full, Ctrl+F3+ custom views |
 | 2026-11-18 | Locations menu: Home, volumes, bookmarks; setting to go to the volume root instead of the last folder visited there |
 | 2026-11-18 | Size column: bytes / KB / MB / GB / dynamic (default dynamic), 1 KB = 1024 by default (setting: 1000) |
-| 2026-11-18 | Pane rows are read as one element ("name, ext, size, date, attributes"); no cell position ("column 2, row 1") is spoken |
+| 2026-11-18 | Pane rows keep per-column cells for VoiceOver, but empty cells are not exposed (an empty cell made VoiceOver say "column 2, row 1") |
 | 2026-11-18 | The operation queue does not survive app restarts |
 | 2026-11-18 | Queue panel: Cmd+J, floating window (panes stay usable); new operations start right away when the queue is idle |
 | 2026-11-18 | Queue list keys: Space pause/resume, Cmd+Up/Down move, Delete cancel and remove; same as buttons and VoiceOver actions |

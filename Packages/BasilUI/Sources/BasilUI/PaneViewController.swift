@@ -612,19 +612,16 @@ extension PaneViewController: PaneTableViewKeyDelegate {
         }
     }
 
-    /// Reads like the visible columns: "song, selected, mp3, 1.5 MB, ...". A column's spoken text
-    /// replaces its visible text when given ("" silences it, e.g. a folder's empty extension).
-    func paneTable(_ table: PaneTableView, spokenTextForRow row: Int) -> String {
-        guard row < model.rows.count else { return "" }
+    /// A cell's spoken text: the column's spoken text when given, otherwise its visible text
+    /// ("" leaves the cell out, e.g. a folder's empty extension). The name adds ", selected".
+    func paneTable(_ table: PaneTableView, spokenTextForRow row: Int, column: Int) -> String {
+        guard row < model.rows.count, column < table.tableColumns.count,
+              let def = ColumnCatalog.definition(ColumnID(rawValue: table.tableColumns[column].identifier.rawValue))
+        else { return "" }
         let item = model.rows[row]
-        var parts: [String] = []
-        for column in table.tableColumns {
-            guard let def = ColumnCatalog.definition(ColumnID(rawValue: column.identifier.rawValue)) else { continue }
-            let text = def.spoken(item, columnContext) ?? def.text(item, columnContext)
-            if !text.isEmpty { parts.append(text) }
-            if def.id == .name, model.selected.contains(item.path) { parts.append("selected") }
-        }
-        return parts.joined(separator: ", ")
+        let text = def.spoken(item, columnContext) ?? def.text(item, columnContext)
+        if def.id == .name, model.selected.contains(item.path) { return "\(text), selected" }
+        return text
     }
 
     func paneTableDidBecomeFirstResponder(_ table: PaneTableView) {

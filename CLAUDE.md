@@ -169,7 +169,7 @@ Sync compares two directories (left and right panes), optionally including subdi
   - The lists are labelled only "Left pane" / "Right pane". Nothing is announced on Tab or on a folder change; VoiceOver reads the item under the cursor.
   - Rows read like Total Commander columns: "test, dir, date, ..." or "song, mp3, 1.5 MB, ...". No "file" or "folder" word is added. A selected item's name reads "song, selected".
   - Space says "Selected, 2 items", "Deselected, 1 item", or just "Deselected" when nothing is left selected.
-  - Each row is one accessibility element (`PaneRowElement`, created by `PaneTableView`), labelled with the whole row ("song, mp3, 1.5 MB, ..."), built from the model by `PaneViewController.paneTable(_:spokenTextForRow:)` using each column's spoken text. Cells are not exposed: NSTableView's own AXCell proxies make VoiceOver add "column 2, row 1". Only the visible rows and the cursor row are exposed. Empty column texts are skipped.
+  - `PaneTableView` exposes its own accessibility rows and cells (`PaneRowElement`, `PaneCellElement`) instead of NSTableView's, built from the model through `PaneViewController.paneTable(_:spokenTextForRow:column:)`. Cells with no text (a folder's empty extension) are left out: NSTableView's own empty AXCell made VoiceOver say "column 2, row 1". Rows have no label of their own; VoiceOver reads their cells, and VO+arrows moves between them. Only the visible rows and the cursor row are exposed.
   - The path header is an accessible static text labelled "Path".
 - **Colours** are drawn in views (`ThemedBox`, row views), not set as layer `cgColor`, so light/dark switches apply immediately.
 
