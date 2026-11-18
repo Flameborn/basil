@@ -173,12 +173,16 @@ extension MainWindowController {
 
     // MARK: Alert helpers
 
-    /// Shows an alert as a sheet and returns the index of the button pressed.
+    /// Shows an alert as a sheet and returns the index of the button pressed. The first button
+    /// has keyboard focus (as in Total Commander), so Space and VoiceOver start on it.
     private func present(_ alert: NSAlert, in window: NSWindow) async -> Int {
-        await withCheckedContinuation { continuation in
+        let first = alert.buttons.first
+        alert.window.initialFirstResponder = first
+        return await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: window) { response in
                 continuation.resume(returning: response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue)
             }
+            if let first { alert.window.makeFirstResponder(first) }
         }
     }
 

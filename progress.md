@@ -65,6 +65,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-18 | Speech counts top-level items ("2 items copied"), not every file inside folders |
 | 2026-11-18 | Multi-rename starts with the core placeholders ([N], [E], ranges, [C] counter, date/time), search and replace, case; EXIF/ID3 fields later |
 | 2026-11-18 | Item errors in copy, move and delete ask Retry / Skip / Skip All / Cancel (TC); the operation still ends "finished" when items were skipped, the log lists them. New folder and rename just fail (one item) |
+| 2026-11-18 | Question sheets (conflict, changing source, item error) open with the first button focused, like TC (Retry / Overwrite / Keep Retrying) |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
