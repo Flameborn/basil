@@ -69,6 +69,7 @@ enum BuiltinCommands {
             C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), .control)]) { _ in pane()?.setView(ListView.brief.id) },
             C(id: "view.full", title: "Full View", defaultKeys: [K(.function(2), .control)]) { _ in pane()?.setView(ListView.full.id) },
 
+            C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
 
             // File operations: implemented in later milestones (M2/M3).

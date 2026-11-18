@@ -158,7 +158,7 @@ Sync compares two directories (left and right panes), optionally including subdi
   - Space selects or deselects. Shift+Up/Down selects while moving. Cmd+A selects all files. Cmd+Shift+A deselects all.
   - Cmd+F3, F4, F5 and F6 sort by name, extension, date and size.
   - Ctrl+F1 is Brief view, Ctrl+F2 Full view, and Ctrl+F3-F11 custom views 1-9.
-  - Cmd+, opens Settings.
+  - Cmd+, opens Settings. Cmd+J opens or closes the operation queue panel.
   - F3-F8, Shift+F6 and Cmd+M are registered but disabled until their milestones.
 - **Views and columns:** a view (`ListView`) is an ordered list of `ColumnSpec` (id, visible, width). Brief and Full are built in; users add custom views in Settings. Columns come from `ColumnCatalog` (BasilCore), which plugins can extend. Each `ColumnDefinition` gives the display text and optionally different spoken text.
   - The Name column shows the full name when the view has no Ext column; otherwise it omits the extension.
@@ -172,6 +172,14 @@ Sync compares two directories (left and right panes), optionally including subdi
   - Each row is one accessibility element (`PaneRowElement`, created by `PaneTableView`), labelled with the whole row ("song, mp3, 1.5 MB, ..."), built from the model by `PaneViewController.paneTable(_:spokenTextForRow:)` using each column's spoken text. Cells are not exposed: NSTableView's own AXCell proxies make VoiceOver add "column 2, row 1". Only the visible rows and the cursor row are exposed. Empty column texts are skipped.
   - The path header is an accessible static text labelled "Path".
 - **Colours** are drawn in views (`ThemedBox`, row views), not set as layer `cgColor`, so light/dark switches apply immediately.
+
+### Operation queue (implemented)
+
+- `FileOperationQueue` (BasilOperations, `@MainActor @Observable`) is the single global queue, created in `AppDelegate` and owned by `MainWindowController`. It lives in memory only and does not survive restarts. Operations conform to `QueueOperation` (`title`, `run(_ context:) async throws`). `run` executes off the main actor and must call `context.checkpoint()` often: it waits while the item is paused and throws `CancellationError` once it is cancelled. `context.progress(fraction, detail)` is throttled to about 10 updates a second; `context.log` appends to the item's log.
+- Items run one at a time and a new item starts right away when the queue is idle. Pausing the running item holds the queue; a paused waiting item is skipped until resumed. Removing the running item cancels it and drops it once it has stopped. Finished, failed and cancelled items stay in the list (with their log) until "Remove Finished".
+- Queue events (finished, failed, cancelled) are announced through `MainWindowController.announce`, which posts on `NSApp` so they are heard while the queue panel is key.
+- The queue panel (`QueueWindow.swift`) is a floating `NSPanel` hosting SwiftUI. In its list: Space pauses or resumes, Cmd+Up/Down move, Delete cancels and removes. Escape or Cmd+J (whatever is bound to `queue.show`) closes it. Each row is one static-text element ("Copy ..., running, 45 percent, 12 of 40 files") with VoiceOver actions for the same commands.
+- Debug builds have a "Debug" menu with "Add Test Operation" (a 10-second fake operation in `App/Sources/DebugMenu.swift`), used by `QueueUITests`.
 
 ### Large directories
 

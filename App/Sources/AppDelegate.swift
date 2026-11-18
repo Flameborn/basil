@@ -1,5 +1,6 @@
 import AppKit
 import BasilCore
+import BasilOperations
 import BasilUI
 import BasilVFS
 
@@ -9,9 +10,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let providers = ProviderRegistry()
     private let commands = CommandRegistry()
     private var settings = SettingsStore()
+    private let queue = FileOperationQueue()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build(settingsTarget: self)
+        #if DEBUG
+        DebugMenu.install(queue: queue)
+        #endif
         providers.register(LocalProvider())
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
@@ -23,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
-                                              defaults: defaults, startDirectories: start)
+                                              queue: queue, defaults: defaults, startDirectories: start)
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()

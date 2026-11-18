@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 started: the operation queue and its panel are done; real operations (copy engine etc.) are next. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -45,6 +45,8 @@ M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard c
 | 2026-11-18 | Size column: bytes / KB / MB / GB / dynamic (default dynamic), 1 KB = 1024 by default (setting: 1000) |
 | 2026-11-18 | Pane rows are read as one element ("name, ext, size, date, attributes"); no cell position ("column 2, row 1") is spoken |
 | 2026-11-18 | The operation queue does not survive app restarts |
+| 2026-11-18 | Queue panel: Cmd+J, floating window (panes stay usable); new operations start right away when the queue is idle |
+| 2026-11-18 | Queue list keys: Space pause/resume, Cmd+Up/Down move, Delete cancel and remove; same as buttons and VoiceOver actions |
 | 2026-11-18 | Date column: pattern presets (yyyy-MM-dd, dd.MM.yyyy, MM-dd-yyyy, ...) or custom pattern; time: system / 24-hour / 12-hour / none |
 
 ## Open questions (ask before implementing the related part)
@@ -88,7 +90,7 @@ M0 done. M1 mostly done: working dual-pane browser (local files) with keyboard c
 - [ ] Explain the Full Disk Access permission in the app (currently only an error message in the status line)
 
 ### M2 - Operations
-- [ ] Operation queue (serial, pause/reorder/cancel, per-item log) + queue window
+- [x] Operation queue (serial, pause/reorder/cancel, per-item log) + queue window (Cmd+J); tested with a Debug-menu test operation until real operations exist
 - [ ] SecureCopyEngine: rename / clonefile / single-pass chunked copy + delta re-copy; tests for appended, truncated and rewritten sources in each strategy
 - [ ] Optional destination read-back verification setting
 - [ ] Copy, move, delete, mkdir, rename; conflict dialogs

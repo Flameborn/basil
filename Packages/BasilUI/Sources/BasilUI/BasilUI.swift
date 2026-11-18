@@ -5,6 +5,7 @@
 
 import AppKit
 import BasilCore
+import BasilOperations
 import BasilVFS
 
 /// The main dual-pane window. Owns both panes, tracks the active one, and is the
@@ -14,6 +15,9 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     private let commands: CommandRegistry
     private let settings: SettingsStore
     private let defaults: UserDefaults
+    /// The single global operation queue (in memory only; it does not survive restarts).
+    public let queue: FileOperationQueue
+    private var queueWindow: QueueWindowController?
     private let left: PaneViewController
     private let right: PaneViewController
     private var functionBar: FunctionKeyBar!
@@ -24,11 +28,12 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// - Parameter startDirectories: overrides the restored start folders (left, right).
     /// - Parameter defaults: where pane state (folders, views) is remembered; UI tests pass an isolated domain.
     public init(providers: ProviderRegistry, commands: CommandRegistry, settings: SettingsStore,
-                defaults: UserDefaults = .standard,
+                queue: FileOperationQueue, defaults: UserDefaults = .standard,
                 startDirectories: (left: VFSPath, right: VFSPath)? = nil) {
         self.commands = commands
         self.settings = settings
         self.defaults = defaults
+        self.queue = queue
         self.persistsDirectories = startDirectories == nil
         let home = VFSPath.local(FileManager.default.homeDirectoryForCurrentUser.path)
         func restored(_ side: PaneSide) -> VFSPath {
@@ -64,6 +69,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         }
         setActive(.left)
         window.makeFirstResponder(left.tableView)
+        queue.onEvent = { [weak self] event in self?.announce(event.spokenText) }
     }
 
     @available(*, unavailable)
@@ -98,6 +104,21 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         return custom.indices.contains(n - 1) ? custom[n - 1].id : nil
     }
 
+    /// Cmd+J: opens the queue panel, or closes it when it is open.
+    func toggleQueue() {
+        let controller = queueWindow ?? QueueWindowController(
+            queue: queue,
+            isToggleChord: { [weak self] chord in self?.commands.commandID(for: chord) == "queue.show" },
+            announce: { [weak self] message in self?.announce(message) }
+        )
+        queueWindow = controller
+        if controller.isOpen, controller.window?.isKeyWindow == true {
+            controller.close()
+        } else {
+            controller.show()
+        }
+    }
+
     func showSettings(tab: SettingsTab = .views) {
         SettingsWindowController.show(settings: settings, tab: tab)
     }
@@ -119,9 +140,9 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     }
 
     public func announce(_ message: String) {
-        guard let window else { return }
+        // The app, not the main window: announcements must also be heard while the queue panel is key.
         NSAccessibility.post(
-            element: window,
+            element: NSApp as Any,
             notification: .announcementRequested,
             userInfo: [
                 .announcement: message,
@@ -154,6 +175,16 @@ extension MainWindowController: PaneViewControllerDelegate {
 
     func paneRequestsSettings(_ pane: PaneViewController) {
         showSettings(tab: .bookmarks)
+    }
+}
+
+extension QueueEvent {
+    var spokenText: String {
+        switch self {
+        case .finished(let title): "\(title) finished"
+        case .failed(let title, let reason): "\(title) failed, \(reason)"
+        case .cancelled(let title): "\(title) cancelled"
+        }
     }
 }
 
