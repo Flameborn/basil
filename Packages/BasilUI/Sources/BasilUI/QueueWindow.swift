@@ -107,7 +107,7 @@ struct QueueView: View {
             .overlay {
                 if queue.items.isEmpty {
                     Text("The queue is empty")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.secondaryTextColor)
                 }
             }
             .onKeyPress(.space) {
@@ -193,24 +193,28 @@ struct QueueRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(item.title).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                Text(statusText).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(item.title).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(statusText).foregroundStyle(Theme.secondaryTextColor)
+                }
+                if !item.detail.isEmpty, !item.state.isDone {
+                    Text(item.detail).font(.callout).foregroundStyle(Theme.secondaryTextColor).lineLimit(1)
+                }
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isStaticText)
+            .accessibilityLabel(spokenText)
+            .accessibilityIdentifier("queue.row")
+            // Outside the text element: the contrast audit treats the whole element as text, and the
+            // percentage is already part of the spoken text.
             if item.state == .running || item.state == .paused {
-                ProgressView(value: item.fraction ?? 0)
-                    .progressViewStyle(.linear)
-            }
-            if !item.detail.isEmpty, !item.state.isDone {
-                Text(item.detail).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                ProgressBar(fraction: item.fraction ?? 0)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.vertical, 2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isStaticText)
-        .accessibilityLabel(spokenText)
-        .accessibilityIdentifier("queue.row")
     }
 
     private var percent: String? {
@@ -231,6 +235,26 @@ struct QueueRow: View {
         if let percent { parts.append(percent) }
         if !item.detail.isEmpty, !item.state.isDone { parts.append(item.detail) }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// A thin progress bar drawn from theme tokens. The system bar's track is too faint in dark mode
+/// (about 1.4:1 against the panel), so this one has an outline and a fill that both reach 3:1.
+struct ProgressBar: View {
+    let fraction: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width * min(max(fraction, 0), 1)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(Color(nsColor: Theme.progressOutline), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color(nsColor: Theme.progressFill))
+                    .frame(width: width)
+            }
+        }
+        .frame(height: 6)
     }
 }
 

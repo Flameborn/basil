@@ -75,7 +75,7 @@ final class GoToSheetController: NSViewController, NSTextFieldDelegate, NSTableV
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
 
-        countLabel.textColor = .secondaryLabelColor
+        countLabel.textColor = Theme.secondaryText
         countLabel.setAccessibilityElement(false) // spoken through announcements instead
 
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelClicked))

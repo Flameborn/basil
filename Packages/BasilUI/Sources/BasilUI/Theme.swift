@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// Theme tokens. Every colour used by the UI comes from here; nothing is hard-coded in views.
 /// Each token has a light and a dark variant that follows the system appearance.
@@ -36,6 +37,21 @@ public enum Theme {
     static let barText = dynamic(light: 0x1A1A1A, dark: 0xE4E4E4)
     static let separator = dynamic(light: 0xC3C9D3, dark: 0x45484E)
     static let errorText = dynamic(light: 0xB00020, dark: 0xFF8A80)
+
+    /// Secondary text (hints, counts, states) in dialogs, settings and the queue panel. The system's
+    /// secondary label colour renders at about 3.5:1 on light window backgrounds. This one is about 8:1
+    /// (light) and 5:1 (dark) as specified; small text renders lighter through antialiasing, so keep margin.
+    static let secondaryText = dynamic(light: 0x474747, dark: 0xB0B0B0)
+    /// The SwiftUI form of `secondaryText`: the primary label colour at 75 percent (about 7:1 light,
+    /// 6:1 dark). Not `Color(nsColor: secondaryText)`: the accessibility audit misreads SwiftUI text
+    /// drawn in a custom dynamic NSColor and reports a contrast failure for it in dark mode.
+    static var secondaryTextColor: Color { Color.primary.opacity(0.75) }
+    static var errorTextColor: Color { Color(nsColor: errorText) }
+
+    // Progress bars (queue panel). Outline and fill keep at least 3:1 against the window background
+    // (WCAG non-text contrast); the track itself is transparent.
+    static let progressOutline = dynamic(light: 0x767676, dark: 0x8E8E93)
+    static let progressFill = dynamic(light: 0x2B5797, dark: 0x6FA8FF)
 
     static let listFont = NSFont.systemFont(ofSize: 12)
     static let listBoldFont = NSFont.systemFont(ofSize: 12, weight: .semibold)

@@ -127,7 +127,7 @@ struct InfoView: View {
                     // One static text per row ("Size, 1.2 MB"); the visible label is not read separately.
                     HStack(alignment: .firstTextBaseline) {
                         Text(row.label)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.secondaryTextColor)
                             .frame(width: 96, alignment: .leading)
                             .accessibilityHidden(true)
                         Text(row.value)
@@ -148,7 +148,7 @@ struct InfoView: View {
                     Button(model.changeAllTitle) { model.changeAll() }
                         .disabled(!model.canChangeAll)
                     if !model.message.isEmpty {
-                        Text(model.message).foregroundStyle(.secondary)
+                        Text(model.message).foregroundStyle(Theme.secondaryTextColor)
                     }
                 }
             }

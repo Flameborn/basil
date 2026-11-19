@@ -86,7 +86,7 @@ struct MultiRenameView: View {
             preview
             HStack {
                 Text(model.status)
-                    .foregroundStyle(model.problems > 0 || model.searchError != nil ? Color.red : Color.secondary)
+                    .foregroundStyle(model.problems > 0 || model.searchError != nil ? Theme.errorTextColor : Theme.secondaryTextColor)
                     .accessibilityLabel("Status, \(model.status)")
                 Spacer()
                 Button("Undo Last Rename") { model.onUndo?() }
@@ -255,7 +255,7 @@ final class MultiRenameWindowController: NSWindowController, NSWindowDelegate {
 /// The preview grid of the Multi-Rename tool: a plain NSTableView with one text per cell.
 struct RenamePreviewTable: NSViewRepresentable {
     static let titles = ["Old name", "New name", "Status", "Modified"]
-    static let widths: [CGFloat] = [250, 250, 200, 140]
+    static let widths: [CGFloat] = [220, 220, 170, 140]
     let rows: [[String]]
     /// Rows whose status is a problem; drawn in red (the status text says so too).
     let problemRows: Set<Int>
@@ -269,8 +269,12 @@ struct RenamePreviewTable: NSViewRepresentable {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(title))
             column.title = title
             column.width = width
+            column.minWidth = 60
+            column.resizingMask = [.autoresizingMask, .userResizingMask]
             table.addTableColumn(column)
         }
+        // Columns share the visible width, so the last one never ends up past the window edge.
+        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.style = .plain
         table.usesAlternatingRowBackgroundColors = true
         table.allowsEmptySelection = true
@@ -281,6 +285,7 @@ struct RenamePreviewTable: NSViewRepresentable {
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
         return scroll
     }
@@ -288,7 +293,9 @@ struct RenamePreviewTable: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.rows = rows
         context.coordinator.problemRows = problemRows
-        (scroll.documentView as? NSTableView)?.reloadData()
+        guard let table = scroll.documentView as? NSTableView else { return }
+        table.reloadData()
+        table.sizeToFit()   // fit the columns to the visible width (uniform autoresizing)
     }
 
     @MainActor
@@ -320,7 +327,7 @@ struct RenamePreviewTable: NSViewRepresentable {
             }()
             cell.textField?.stringValue = rows[row][column]
             cell.setAccessibilityLabel(rows[row][column])
-            cell.textField?.textColor = column == 2 && problemRows.contains(row) ? .systemRed : .labelColor
+            cell.textField?.textColor = column == 2 && problemRows.contains(row) ? Theme.errorText : .labelColor
             return cell
         }
     }

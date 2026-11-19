@@ -113,10 +113,14 @@ struct ViewsSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                // A Picker's own label outside a Form fails the dark-mode contrast audit; the separate
+                // text is hidden from VoiceOver, which reads the picker's label instead.
+                Text("View").accessibilityHidden(true)
                 Picker("View", selection: $viewID) {
                     ForEach(store.settings.views) { view in Text(view.name).tag(view.id) }
                 }
-                .frame(maxWidth: 280)
+                .labelsHidden()
+                .frame(maxWidth: 240)
                 Button("New View", action: newView)
                 Button("Delete View", action: deleteView)
                     .disabled(currentView?.isBuiltin ?? true)
@@ -130,7 +134,7 @@ struct ViewsSettings: View {
                 .font(.headline)
             Text("Checked columns are shown, in this order. The Name column is always shown.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
 
             if let index = viewIndex {
                 List(selection: $selectedColumn) {
@@ -243,7 +247,7 @@ struct DisplaySettings: View {
                     Text("1000 bytes").tag(1000)
                 }
                 Text("Examples: \(examples)")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.secondaryTextColor)
             }
             Section("Date column") {
                 Picker("Date format", selection: datePresetBinding) {
@@ -257,13 +261,13 @@ struct DisplaySettings: View {
                     ))
                     Text("Letters: yyyy year, MM month, dd day, MMM month name, EEE weekday.")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.secondaryTextColor)
                 }
                 Picker("Time", selection: $store.settings.date.time) {
                     ForEach(TimeFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 Text("Example: \(store.formatters.date(Date()))")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.secondaryTextColor)
             }
         }
         .formStyle(.grouped)
@@ -305,7 +309,7 @@ struct NavigationSettings: View {
                 .accessibilityLabel("Go to the root when switching to a volume")
             Text("When off, switching to a volume from the drive menu returns to the last folder you visited on it.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
         }
         .formStyle(.grouped)
     }
@@ -322,12 +326,12 @@ struct CopySettings: View {
                 .accessibilityLabel("Secure copy and move")
             Text("On: Basil copies into a temporary file, checks afterwards whether the source changed during the copy and copies the changed parts again, flushes to disk, then renames the file into place. A move deletes the source only when its copy is complete. Off (default): copying works like Total Commander and writes straight to the target. A file that is still being written can then be copied incomplete.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
             Toggle("Verify copies by reading the destination back", isOn: $store.settings.verifyCopies)
                 .accessibilityLabel("Verify copies by reading the destination back")
             Text("Reads every copied file again and compares it with what was read from the source. Slower; off by default. Applies to copy and move.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
             Stepper(value: $store.settings.unstableSourceRetries, in: 0...10) {
                 Text("Retries when a file changes during copying: \(store.settings.unstableSourceRetries)")
             }
@@ -335,7 +339,7 @@ struct CopySettings: View {
             .accessibilityValue("\(store.settings.unstableSourceRetries)")
             Text("Secure mode only. A file that is still being written is read again this many times, waiting longer each time, before Basil asks what to do.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
         }
         .formStyle(.grouped)
     }
@@ -367,7 +371,7 @@ struct EditorSettings: View {
                     }
                     Text("F4 edits the file under the cursor and Shift+F4 creates a file and opens it. Files that match a rule open with that rule's apps, all others in this editor. System default opens each file in the app macOS uses for its type, and files no app opens in TextEdit.")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.secondaryTextColor)
                 }
                 Section("Terminal") {
                     Picker("Terminal", selection: $store.settings.terminalID) {
@@ -379,7 +383,7 @@ struct EditorSettings: View {
                     }
                     Text("Cmd+Shift+T opens the terminal in the current pane's folder. A custom command runs in the shell; {dir} is replaced by the folder path.")
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.secondaryTextColor)
                 }
             }
             .formStyle(.grouped)
@@ -399,7 +403,7 @@ struct EditorSettings: View {
                 if let i = ruleIndex { ruleEditor(i) }
                 Text("Patterns work like the quick filter: *.txt;*.md matches either, and names after | are left out. The first matching rule wins. A rule with one app opens it directly; with several apps F4 shows a menu.")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.secondaryTextColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 10)
@@ -519,14 +523,14 @@ struct BookmarkSettings: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Bookmarks appear in the locations menu (Cmd+D, Cmd+F1, Cmd+F2). Add one from that menu.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
             List(selection: $selection) {
                 ForEach($store.settings.bookmarks) { $bookmark in
                     HStack {
                         TextField("Name", text: $bookmark.name)
                             .frame(maxWidth: 200)
                         Text(bookmark.path.description)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Theme.secondaryTextColor)
                             .lineLimit(1)
                             .truncationMode(.head)
                     }
@@ -579,16 +583,21 @@ struct FeedbackSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Operation", selection: $kind) {
-                Text("Any operation").tag(OperationKind?.none)
-                ForEach(OperationKindCatalog.all, id: \.kind) { info in
-                    Text(info.name).tag(OperationKind?.some(info.kind))
+            HStack {
+                // See ViewsSettings: the separate text avoids the Picker label's audit failure.
+                Text("Operation").accessibilityHidden(true)
+                Picker("Operation", selection: $kind) {
+                    Text("Any operation").tag(OperationKind?.none)
+                    ForEach(OperationKindCatalog.all, id: \.kind) { info in
+                        Text(info.name).tag(OperationKind?.some(info.kind))
+                    }
                 }
+                .labelsHidden()
+                .frame(maxWidth: 280)
             }
-            .frame(maxWidth: 360)
             Text("Placeholders for the spoken text: \(FeedbackText.placeholderHelp). Speech goes to VoiceOver when it is running, otherwise the system voice speaks.")
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.secondaryTextColor)
             Form {
                 ForEach(QueueOutcome.allCases, id: \.self) { outcome in
                     Section(outcome.title) { editor(outcome) }

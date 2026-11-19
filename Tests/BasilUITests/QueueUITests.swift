@@ -78,6 +78,7 @@ final class QueueUITests: XCTestCase {
             if issue.auditType == .action, let element = issue.element, !element.isEnabled {
                 return true // disabled buttons (e.g. "Remove Finished" with nothing finished)
             }
+            if self.isCoveredElsewhere(issue, by: self.panel) { return true }
             print("AUDIT queue: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }
