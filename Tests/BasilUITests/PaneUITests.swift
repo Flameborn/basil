@@ -42,6 +42,18 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true }, sheet.debugDescription)
     }
 
+    /// Contrast issues outside `window`'s frame are on windows it covers (the audit samples pixels
+    /// on screen, so a covered main-window status line "fails"); they are checked by the main-window audit.
+    func isCoveredElsewhere(_ issue: XCUIAccessibilityAuditIssue, by window: XCUIElement) -> Bool {
+        guard issue.auditType == .contrast, let element = issue.element, let root = try? window.snapshot() else { return false }
+        let frame = element.frame, type = element.elementType, identifier = element.identifier
+        func contains(_ s: any XCUIElementSnapshot) -> Bool {
+            if s.elementType == type, s.frame == frame, s.identifier == identifier { return true }
+            return s.children.contains(where: contains)
+        }
+        return !contains(root)
+    }
+
     func cellLabels(_ row: XCUIElement) -> [String] {
         row.cells.allElementsBoundByIndex.map(\.label)
     }
@@ -259,6 +271,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertEqual(secure.value as? Int, 0, "secure mode is off by default")
         try app.performAccessibilityAudit { issue in
             if issue.auditType == .action, let element = issue.element, !element.isEnabled { return true }
+            if self.isCoveredElsewhere(issue, by: settings) { return true }
             print("AUDIT copy settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }
@@ -393,6 +406,53 @@ final class PaneUITests: XCTestCase {
             let query = app.descendants(matching: .any).matching(identifier: "queue.row")
             _ = waitFor { query.count > 0 }
             XCTFail("left=\(names(in: leftTable)) queue=\(query.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
+        }
+    }
+
+    func testF3QuickLookFollowsCursorAndCloses() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("no")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 3).isSelected })
+        let before = app.windows.count
+        leftTable.typeKey(.F3, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.app.windows.count > before }, app.debugDescription)
+        // Keys in the panel go to the pane: Down moves the cursor to song.mp3.
+        app.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 4).isSelected })
+        app.typeKey(.F3, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.app.windows.count == before }, app.debugDescription)
+    }
+
+    func testEditorAndTerminalSettingsTab() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Editor and Terminal'")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
+        tab.click()
+        let add = settings.buttons["Add Rule"]
+        XCTAssertTrue(add.waitForExistence(timeout: 2), settings.debugDescription)
+        add.click()
+        let patterns = settings.textFields["Patterns"]
+        XCTAssertTrue(patterns.waitForExistence(timeout: 2), settings.debugDescription)
+        patterns.click()
+        patterns.typeText("*.md")
+        let row = settings.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH '*.md: no apps' OR value BEGINSWITH '*.md: no apps'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 2), settings.debugDescription)
+        // A field being edited fails the audit (AppKit field editor), so move focus to the rule list.
+        row.click()
+        XCTAssertTrue(waitFor { (patterns.value(forKey: "hasKeyboardFocus") as? Bool) != true })
+        XCTAssertTrue(settings.popUpButtons["Terminal"].exists, settings.debugDescription)
+        try app.performAccessibilityAudit { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            if self.isCoveredElsewhere(issue, by: settings) { return true }
+            print("AUDIT editor settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
         }
     }
 

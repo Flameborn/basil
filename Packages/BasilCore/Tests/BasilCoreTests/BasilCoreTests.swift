@@ -385,3 +385,26 @@ import Testing
         #expect(rule.nameMask == "[C]" && rule.extensionMask == "[E]" && rule.counterDigits == 1)
     }
 }
+
+@Suite struct EditorRuleTests {
+    @Test func firstMatchingRuleWithAppsWins() {
+        let rules = [
+            EditorRule(patterns: "*.md", apps: []),
+            EditorRule(patterns: "*.txt;*.md", apps: ["/Applications/A.app", "/Applications/B.app"]),
+            EditorRule(patterns: "*.md", apps: ["/Applications/C.app"]),
+        ]
+        #expect(EditorRules.apps(for: "Notes.MD", in: rules) == ["/Applications/A.app", "/Applications/B.app"])
+        #expect(EditorRules.apps(for: "a.swift", in: rules) == nil)
+    }
+
+    @Test func exclusionsAndEmptyPatterns() {
+        #expect(EditorRule(patterns: "*.txt | secret*", apps: ["x"]).matches("secret.txt") == false)
+        #expect(EditorRule(patterns: "*.txt | secret*", apps: ["x"]).matches("open.txt"))
+        #expect(EditorRule(patterns: "  ", apps: ["x"]).matches("a.txt") == false)
+    }
+
+    @Test func settingsDecodeWithoutEditorRules() throws {
+        let s = try JSONDecoder().decode(BasilSettings.self, from: Data("{}".utf8))
+        #expect(s.editorRules.isEmpty && s.terminalID == "terminal" && s.terminalCommand.isEmpty)
+    }
+}

@@ -9,6 +9,7 @@ protocol PaneViewControllerDelegate: AnyObject {
     func pane(_ pane: PaneViewController, announce message: String)
     func paneDidChangeDirectory(_ pane: PaneViewController)
     func paneRequestsSettings(_ pane: PaneViewController)
+    func paneCursorDidChange(_ pane: PaneViewController)
 }
 
 /// One side of the window: drive bar, path header, file table, quick-filter bar and status line.
@@ -360,6 +361,13 @@ final class PaneViewController: NSViewController {
 
     // MARK: Drive / bookmark menu
 
+    /// Pops up `menu` under the cursor row (or at the top of the list when there is none).
+    func popUpMenuAtCursor(_ menu: NSMenu) {
+        let row = cursorRow ?? 0
+        let rect = model.rows.isEmpty ? .zero : table.rect(ofRow: row)
+        menu.popUp(positioning: menu.items.first, at: NSPoint(x: rect.minX + 24, y: rect.maxY), in: table)
+    }
+
     func showLocationsMenu() {
         let menu = NSMenu(title: "\(side.accessibilityLabel) locations")
         menu.autoenablesItems = false
@@ -640,6 +648,8 @@ extension PaneViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableViewColumnDidResize(_ notification: Notification) { saveColumnLayout() }
     func tableViewColumnDidMove(_ notification: Notification) { saveColumnLayout() }
+
+    func tableViewSelectionDidChange(_ notification: Notification) { delegate?.paneCursorDidChange(self) }
 }
 
 // MARK: - Keys

@@ -21,6 +21,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// The single global operation queue (in memory only; it does not survive restarts).
     public let queue: FileOperationQueue
     private var queueWindow: QueueWindowController?
+    let quickLook = QuickLookController()
     private let left: PaneViewController
     private let right: PaneViewController
     private var functionBar: FunctionKeyBar!
@@ -77,8 +78,10 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         window.contentViewController = WorkspaceViewController(left: left, right: right, functionBar: functionBar)
         if !window.setFrameUsingName("BasilMainWindow") { window.center() }
 
+        quickLook.announce = { [weak self] message in self?.announce(message) }
         for pane in [left, right] {
             pane.delegate = self
+            (pane.tableView as? PaneTableView)?.quickLook = quickLook
             pane.navigate(to: pane.model.directory)
         }
         setActive(.left)
@@ -173,11 +176,19 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
 extension MainWindowController: PaneViewControllerDelegate {
     func paneDidBecomeActive(_ pane: PaneViewController) {
         if pane.side != activeSide { setActive(pane.side) }
+        quickLook.paneChanged(pane)
     }
 
     func pane(_ pane: PaneViewController, perform chord: KeyChord) -> Bool {
         if pane.side != activeSide { setActive(pane.side) }
-        return commands.perform(chord, in: self)
+        let handled = commands.perform(chord, in: self)
+        // Space, Cmd+A and friends change what the Quick Look panel shows.
+        if handled { quickLook.paneChanged(activePane) }
+        return handled
+    }
+
+    func paneCursorDidChange(_ pane: PaneViewController) {
+        if pane.side == activeSide { quickLook.paneChanged(pane) }
     }
 
     func pane(_ pane: PaneViewController, announce message: String) {

@@ -175,7 +175,8 @@ Sync compares two directories (left and right panes), optionally including subdi
   - Ctrl+F1 is Brief view, Ctrl+F2 Full view, and Ctrl+F3-F11 custom views 1-9.
   - Cmd+, opens Settings, Cmd+W closes it (only the settings window: the main menu has no Close item, so Cmd+W never closes the main window). Cmd+J opens or closes the operation queue panel.
   - F5 copy and F6 move (sheet with the target path, prefilled with the other pane; relative paths and ~ work), Shift+F6 rename (sheet, name without extension preselected; with more than one item selected it opens Multi-Rename), Shift+F4 new file (sheet prefilled with the cursor file's name; an existing file is just opened; otherwise `NewFileOperation` creates it, rw-r--r--, then it opens in the editor), F7 new folder, F8 or Forward Delete moves to the Trash, Shift+F8 or Shift+Forward Delete deletes permanently. Each confirms in a sheet and runs in the queue. Without items they say "No items".
-  - Cmd+M opens the Multi-Rename tool. F3 and F4 are registered but disabled until their milestones.
+  - F3 Quick Look, F4 edit, Cmd+Shift+T opens a terminal in the current folder (see "F3 / F4 / terminal").
+  - Cmd+M opens the Multi-Rename tool.
   - Cmd+I opens the Info sheet for the cursor item (`InfoSheet.swift`, SwiftUI in a sheet; Escape or Return closes): name, kind, size (folders calculated), where, dates, permissions, owner, and for files an Open with picker plus "Use for All .ext Files", which sets the system default app for that type (`FileAssociations`, BasilIntegrations).
 - **Views and columns:** a view (`ListView`) is an ordered list of `ColumnSpec` (id, visible, width). Brief and Full are built in; users add custom views in Settings. Columns come from `ColumnCatalog` (BasilCore), which plugins can extend. Each `ColumnDefinition` gives the display text and optionally different spoken text.
   - The Name column shows the full name when the view has no Ext column; otherwise it omits the extension.
@@ -218,12 +219,12 @@ Panes use view-based `NSTableView` with cell reuse. Listing is streamed off the 
 - SFTP must check known_hosts and prompt on unknown or changed host keys.
 - LuaJIT on a hardened runtime needs the `com.apple.security.cs.allow-jit` entitlement.
 
-### F3 / F4 / terminal
+### F3 / F4 / terminal (implemented for local files)
 
-- Editor (Settings, Editing tab, `BasilSettings.editorAppPath`): a chosen app, or the system default app for each file (files no app opens go to TextEdit). `EditorLauncher` in BasilIntegrations. Shift+F4 uses it now; F4 waits for M3.
-- F3 is Quick Look (`QLPreviewPanel`). F4 edits with a global editor, or with a per-extension list of apps: one app opens directly, several apps show a popup menu.
-- For files inside archives or on remotes, F4 edits a local temp copy. When the editor saves or closes, the app offers to repack or upload the file, which runs as a queue operation.
-- "Open terminal here" uses a configurable terminal (Terminal, iTerm2, WezTerm, Ghostty, ...) through per-terminal launch templates.
+- F3 (`QuickLookController.swift`): Quick Look of the selected items, or the cursor item when nothing is selected. `PaneTableView` is the panel's responder-chain controller. The panel is key while open, and its key events go to the active pane's `keyDown` (Escape stays with the panel), so Up/Down move the cursor, Space selects and F3 closes. The preview follows the cursor; each newly previewed name is announced, because VoiceOver is in the panel.
+- F4 (`MainWindowController.editCursorItem`): edits the cursor file. `BasilSettings.editorRules` (`EditorRule`, BasilCore `EditorRules.swift`) are pattern lists in quick-filter syntax (`*.txt;*.md`, exclusions after `|`) plus apps; the first matching rule with apps wins, one app opens directly, several show a menu at the cursor row; no match uses the global editor (`editorAppPath` or the system default, TextEdit for unclaimed files). Settings tab "Editor and Terminal".
+- Cmd+Shift+T (`TerminalLauncher`, BasilIntegrations): `TerminalCatalog` lists terminals by bundle ID with a launch template: open the folder with the app (Terminal, iTerm2, Ghostty, Warp), run the bundle's executable with `{dir}` arguments (WezTerm, Kitty, Alacritty), or a custom shell command where `{dir}` is the single-quoted path. Plugins can `register` more. Default Terminal.
+- Still to do: for files inside archives or on remotes, F4 edits a local temp copy, and when the editor saves or closes, the app offers to repack or upload it as a queue operation.
 
 ## Commands
 
@@ -243,6 +244,7 @@ for p in Packages/*/; do swift test --package-path "$p"; done   # all package te
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.
 - `xcodebuild` prints `DVTCoreDeviceCore` / "CoreSimulator is out of date" plug-in errors on this machine. They are Xcode environment noise and do not affect macOS builds.
 - `scripts/bootstrap.sh` (building vendored C deps into `Vendor/`) does not exist yet. It is blocked on open questions in `progress.md`. BLAKE3 does not need it: `Vendor/BLAKE3` is a SwiftPM package of C sources (`swift test --package-path Vendor/BLAKE3`).
+- The audit samples screen pixels, so elements of a window covered by the Settings window fail "Contrast". Settings tests ignore contrast issues of elements outside the Settings window (`isCoveredElsewhere`). In dark mode, more contrast failures show up under sheets and in the queue panel (see progress.md).
 - AppKit `NSTableView` cells: accessibility names a cell after its column identifier, so identifiers must be words, and each cell view gets `setAccessibilityLabel` with its text, or the audit fails ("Label not human-readable").
 - Sheets open animated: UI tests wait for the field's `hasKeyboardFocus` before typing, or keys get lost.
 - SwiftUI `Toggle` and `Stepper` inside a grouped `Form` expose no label on the switch/stepper itself (the text is a separate static text). Always add `.accessibilityLabel` with the same text.

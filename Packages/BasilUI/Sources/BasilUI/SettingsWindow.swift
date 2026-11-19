@@ -89,7 +89,7 @@ struct SettingsView: View {
                 .tabItem { Text("Copying") }
                 .tag(SettingsTab.copying)
             EditorSettings(store: store)
-                .tabItem { Text("Editing") }
+                .tabItem { Text("Editor and Terminal") }
                 .tag(SettingsTab.editing)
             FeedbackSettingsView(store: store)
                 .tabItem { Text("Sounds and Speech") }
@@ -341,42 +341,171 @@ struct CopySettings: View {
     }
 }
 
-// MARK: - Editing
+// MARK: - Editor and terminal
 
 struct EditorSettings: View {
     @Bindable var store: SettingsStore
+    @State private var ruleID: UUID?
+    @State private var appIndex: Int?
 
     private var editorName: String {
         store.settings.editorAppPath.map(EditorLauncher.displayName(ofApp:)) ?? "System default"
     }
 
+    private var ruleIndex: Int? { ruleID.flatMap { id in store.settings.editorRules.firstIndex { $0.id == id } } }
+
     var body: some View {
-        Form {
-            LabeledContent("Editor") {
-                Text(editorName)
+        // The rule lists stay outside the grouped Form: a List inside a Form fails the accessibility audit.
+        HStack(alignment: .top, spacing: 16) {
+            Form {
+                Section("Editor") {
+                    Text("Editor: \(editorName)")
+                    HStack {
+                        Button("Choose Editor...") { if let path = chooseApp(title: "Choose Editor") { store.settings.editorAppPath = path } }
+                        Button("Use System Default") { store.settings.editorAppPath = nil }
+                            .disabled(store.settings.editorAppPath == nil)
+                    }
+                    Text("F4 edits the file under the cursor and Shift+F4 creates a file and opens it. Files that match a rule open with that rule's apps, all others in this editor. System default opens each file in the app macOS uses for its type, and files no app opens in TextEdit.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Terminal") {
+                    Picker("Terminal", selection: $store.settings.terminalID) {
+                        ForEach(terminals, id: \.id) { terminal in Text(terminal.name).tag(terminal.id) }
+                    }
+                    if store.settings.terminalID == TerminalCatalog.custom.id {
+                        TextField("Command", text: $store.settings.terminalCommand, prompt: Text("open -a Terminal {dir}"))
+                            .accessibilityLabel("Command")
+                    }
+                    Text("Cmd+Shift+T opens the terminal in the current pane's folder. A custom command runs in the shell; {dir} is replaced by the folder path.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
-            .accessibilityElement(children: .combine)
-            HStack {
-                Button("Choose Editor...", action: chooseEditor)
-                Button("Use System Default") { store.settings.editorAppPath = nil }
-                    .disabled(store.settings.editorAppPath == nil)
+            .formStyle(.grouped)
+            .frame(maxWidth: 480)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Editors by file pattern")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                rulesList
+                HStack {
+                    Button("Add Rule", action: addRule)
+                    Button("Move Up") { moveRule(by: -1) }.disabled(ruleIndex == nil)
+                    Button("Move Down") { moveRule(by: 1) }.disabled(ruleIndex == nil)
+                    Button("Remove Rule", action: removeRule).disabled(ruleIndex == nil)
+                }
+                if let i = ruleIndex { ruleEditor(i) }
+                Text("Patterns work like the quick filter: *.txt;*.md matches either, and names after | are left out. The first matching rule wins. A rule with one app opens it directly; with several apps F4 shows a menu.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Shift+F4 creates a file and opens it in this editor. System default opens each file in the app macOS uses for its type, and files no app opens in TextEdit.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            .padding(.top, 10)
         }
-        .formStyle(.grouped)
     }
 
-    private func chooseEditor() {
+    /// Installed terminals, plus the chosen one even when it is not installed (so the picker shows it).
+    private var terminals: [TerminalApp] {
+        var list = TerminalCatalog.available
+        if !list.contains(where: { $0.id == store.settings.terminalID }),
+           let chosen = TerminalCatalog.terminal(id: store.settings.terminalID) {
+            list.insert(chosen, at: 0)
+        }
+        return list
+    }
+
+    private func describe(_ rule: EditorRule) -> String {
+        let patterns = rule.patterns.trimmingCharacters(in: .whitespaces).isEmpty ? "No patterns" : rule.patterns
+        let apps = rule.apps.isEmpty ? "no apps" : rule.apps.map(EditorLauncher.displayName(ofApp:)).joined(separator: ", ")
+        return "\(patterns): \(apps)"
+    }
+
+    private var rulesList: some View {
+        List(selection: $ruleID) {
+            ForEach(store.settings.editorRules) { rule in
+                Text(describe(rule))
+                    .lineLimit(1)
+                    .tag(rule.id)
+                    .accessibilityAction(named: "Move Up") { ruleID = rule.id; moveRule(by: -1) }
+                    .accessibilityAction(named: "Move Down") { ruleID = rule.id; moveRule(by: 1) }
+                    .accessibilityAction(named: "Remove") { ruleID = rule.id; removeRule() }
+            }
+        }
+        .frame(minHeight: 90)
+        .accessibilityLabel("Editor rules")
+        .onChange(of: ruleID) { appIndex = nil }
+    }
+
+    @ViewBuilder
+    private func ruleEditor(_ i: Int) -> some View {
+        TextField("Patterns", text: $store.settings.editorRules[i].patterns, prompt: Text("*.txt;*.md"))
+            .accessibilityLabel("Patterns")
+        let apps = store.settings.editorRules[i].apps
+        List(selection: $appIndex) {
+            ForEach(Array(apps.enumerated()), id: \.offset) { index, app in
+                Text(EditorLauncher.displayName(ofApp: app))
+                    .tag(index)
+                    .accessibilityAction(named: "Move Up") { appIndex = index; moveApp(by: -1) }
+                    .accessibilityAction(named: "Move Down") { appIndex = index; moveApp(by: 1) }
+                    .accessibilityAction(named: "Remove") { appIndex = index; removeApp() }
+            }
+        }
+        .frame(minHeight: 70)
+        .accessibilityLabel("Apps for this rule")
+        HStack {
+            Button("Add App...") {
+                guard let path = chooseApp(title: "Choose an App for \(store.settings.editorRules[i].patterns)") else { return }
+                store.settings.editorRules[i].apps.append(path)
+            }
+            Button("Move App Up") { moveApp(by: -1) }.disabled(appIndex == nil)
+            Button("Move App Down") { moveApp(by: 1) }.disabled(appIndex == nil)
+            Button("Remove App", action: removeApp).disabled(appIndex == nil)
+        }
+    }
+
+    private func addRule() {
+        let rule = EditorRule(patterns: "")
+        store.settings.editorRules.append(rule)
+        ruleID = rule.id
+    }
+
+    private func moveRule(by offset: Int) {
+        guard let i = ruleIndex, store.settings.editorRules.indices.contains(i + offset) else { return }
+        store.settings.editorRules.swapAt(i, i + offset)
+    }
+
+    private func removeRule() {
+        guard let i = ruleIndex else { return }
+        store.settings.editorRules.remove(at: i)
+        ruleID = nil
+        announce("Rule removed")
+    }
+
+    private func moveApp(by offset: Int) {
+        guard let r = ruleIndex, let a = appIndex,
+              store.settings.editorRules[r].apps.indices.contains(a + offset) else { return }
+        store.settings.editorRules[r].apps.swapAt(a, a + offset)
+        appIndex = a + offset
+    }
+
+    private func removeApp() {
+        guard let r = ruleIndex, let a = appIndex, store.settings.editorRules[r].apps.indices.contains(a) else { return }
+        store.settings.editorRules[r].apps.remove(at: a)
+        appIndex = nil
+        announce("App removed")
+    }
+
+    private func chooseApp(title: String) -> String? {
         let panel = NSOpenPanel()
-        panel.title = "Choose Editor"
+        panel.title = title
         panel.prompt = "Choose"
         panel.allowedContentTypes = [.application]
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.canChooseDirectories = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.settings.editorAppPath = url.path
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.path
     }
 }
 

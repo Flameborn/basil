@@ -124,10 +124,47 @@ extension MainWindowController {
         }
     }
 
-    /// Opens a local file in the editor chosen in Settings (or the system default app).
-    func openInEditor(_ path: VFSPath) {
+    /// F4 (Total Commander): edits the cursor file. The first editor rule in Settings whose
+    /// patterns match the name decides: one app opens directly, several show a menu at the cursor
+    /// row. Without a matching rule the global editor is used.
+    func editCursorItem() {
+        guard let item = activePane.cursorItem else { return announce("No items") }
+        if item.isDirectoryLike { return announce("\(item.name) is a folder") }
+        guard item.path.location == .local else { return announce("Only local files can be edited for now") }
+        guard let apps = EditorRules.apps(for: item.name, in: settings.settings.editorRules) else {
+            return openInEditor(item.path)
+        }
+        if apps.count == 1 { return openInEditor(item.path, app: apps[0]) }
+        let menu = NSMenu(title: "Edit \(item.name) with")
+        menu.autoenablesItems = false
+        for app in apps {
+            menu.addItem(ClosureMenuItem(title: EditorLauncher.displayName(ofApp: app)) { [weak self] in
+                self?.openInEditor(item.path, app: app)
+            })
+        }
+        activePane.popUpMenuAtCursor(menu)
+    }
+
+    /// Cmd+Shift+T: opens the terminal from Settings in the current pane's folder.
+    func openTerminal() {
+        let directory = activePane.model.directory
+        guard directory.location == .local else { return announce("Only local folders can be opened in a terminal") }
+        let s = settings.settings
+        Task {
+            do {
+                try await TerminalLauncher.open(URL(fileURLWithPath: directory.path, isDirectory: true),
+                                                terminalID: s.terminalID, command: s.terminalCommand)
+            } catch {
+                announce("Could not open the terminal: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Opens a local file in `app` (a path to an .app bundle), or the editor chosen in Settings
+    /// (or the system default app) when `app` is nil.
+    func openInEditor(_ path: VFSPath, app: String? = nil) {
         guard path.location == .local else { return announce("Only local files can be edited for now") }
-        let editor = settings.settings.editorAppPath
+        let editor = app ?? settings.settings.editorAppPath
         Task {
             do {
                 try await EditorLauncher.open(URL(fileURLWithPath: path.path), editorAppPath: editor)

@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-18)
 
-M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Added on 2026-11-19: Cmd+G go to folder or file with suggestions, Finder Go keys, Cmd+Shift+S folder sizes, Cmd+I Info sheet with default-app change, Shift+F4 new file in the editor of choice, Shift+F6 opens Multi-Rename for several selected items, and a column grid in the Multi-Rename preview. Next: the user trying out the speech wording and dialogs with VoiceOver. M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Added on 2026-11-19: Cmd+G go to folder or file with suggestions, Finder Go keys, Cmd+Shift+S folder sizes, Cmd+I Info sheet with default-app change, Shift+F4 new file in the editor of choice, Shift+F6 opens Multi-Rename for several selected items, and a column grid in the Multi-Rename preview. M3 done for local files on 2026-11-19: F3 Quick Look (follows the cursor), F4 with per-pattern editor rules, Cmd+Shift+T open terminal here. Next: the user trying out the speech wording and dialogs with VoiceOver; the dark-mode contrast audit failures (open questions). M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -77,6 +77,10 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-19 | Shift+F4 new file like TC: name prefilled with the cursor file, existing files just open, editor = chosen app or system default (Settings, Editing tab); F4 waits for M3 |
 | 2026-11-19 | Shift+F6 with more than one selected item opens Multi-Rename; Cmd+M stays |
 | 2026-11-19 | Multi-Rename preview is a grid with columns Old name, New name, Status, Modified |
+| 2026-11-19 | F3 Quick Look shows the selected items (or the cursor item when none are selected) and follows the cursor while open, like Finder |
+| 2026-11-19 | Open terminal here: Cmd+Shift+T, Terminal.app by default; Settings picks Terminal, iTerm2, Ghostty, Warp, WezTerm, Kitty, Alacritty or a custom shell command with {dir} |
+| 2026-11-19 | F4 editor rules are TC-style pattern lists ("*.txt;*.md") with one or more apps; first match wins, several apps show a menu, no match uses the global editor |
+| 2026-11-19 | Decided by Claude, change if wrong: the Quick Look panel takes key focus and passes keys to the pane (Escape and F3 close it); the name of each newly previewed item is announced. F4 on a folder says "is a folder". The Editing settings tab is now "Editor and Terminal". Only installed terminals are offered |
 | 2026-11-19 | Decided by Claude, change if wrong: Go-to suggestions list prefix matches then substring matches (max 200), hidden items only once something is typed, dot files only after a dot; the count is announced after a 0.7 s pause and only when it changed. Folder size result is spoken as "Alpha, 1.5 MB, 120 files, 8 folders", "Calculating" only after 1 s; symlinks are not followed. New files get rw-r--r--. Files no app opens go to TextEdit. Info shows the cursor item only (not every selected item). Finder's Cmd+Shift+C (Computer) goes to /Volumes |
 
 ## Open questions (ask before implementing the related part)
@@ -91,6 +95,7 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [ ] Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
 - [ ] Themes: should users be able to edit/create colour themes (and import/export them)?
 
+- [ ] Dark mode: the UI-test accessibility audits fail "Contrast" in many tests (also at commit a1850d4, so not new): the path header under a sheet (covered, likely a false positive), queue panel rows, the Multi-Rename Modified column, and SwiftUI picker labels in Settings. Needs a look at which are real (WCAG is a requirement) and which are covered elements. Light mode passed before.
 - [x] Fixed 2026-11-19: a watcher refresh right after a navigation could replace the load's rows with the old cursor, so the cursor landed on the first row instead of the requested item (`PaneModel.pendingLoadCursor`).
 - [x] Fixed 2026-11-18: panes never watched their start folder, and watcher changes never removed deleted or renamed-away items from a pane.
 - [ ] UI tests are timing-flaky in the full suite (2026-11-19: tests now wait for sheet field focus before typing; a full run still shows about one different flake per run, `testQuickFilterAndHiddenToggle` or `testSoundsAndSpeechTab`, each passing alone; typing in other apps during a run also injects keys) (`testQuickFilterAndHiddenToggle` failed once in a full run on 2026-11-18 and passes alone; `testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
@@ -135,9 +140,10 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 
 ### M3 - View/Edit/Terminal
 - [x] Shift+F4 new file in the editor (chosen app or system default)
-- [ ] F3 Quick Look
-- [ ] F4 editor associations (global / per-extension / popup)
-- [ ] Open terminal here (configurable terminals)
+- [x] F3 Quick Look (selected or cursor items, follows the cursor)
+- [x] F4 editor associations (global / per-pattern rules / popup menu)
+- [x] Open terminal here (Cmd+Shift+T, configurable terminals and custom command)
+- [ ] F4 for files in archives or on remotes (temp copy, repack/upload prompt; needs M4/M5)
 
 ### M4 - Archives
 - [ ] ArchiveBackend protocol + libarchive backend; browse archives as directories

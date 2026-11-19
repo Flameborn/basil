@@ -2,7 +2,6 @@ import BasilCore
 import Foundation
 
 /// Built-in pane and navigation commands with their default (Total Commander, Mac-adapted) keys.
-/// F3 and F4 are registered but disabled until their milestone implements them.
 @MainActor
 enum BuiltinCommands {
     static let functionBarIDs: [CommandID] = [
@@ -124,9 +123,15 @@ enum BuiltinCommands {
                 w?.delete(permanently: true)
             },
 
-            // Implemented in later milestones (M2/M3).
-            C(id: "file.view", title: "View", defaultKeys: [K(.function(3))], isEnabled: { _ in false }) { _ in },
-            C(id: "file.edit", title: "Edit", defaultKeys: [K(.function(4))], isEnabled: { _ in false }) { _ in },
+            // F3 Quick Look (F3 again or Escape closes it), F4 edit with the editor rules from Settings.
+            C(id: "file.view", title: "View", defaultKeys: [K(.function(3))]) { _ in
+                guard let w else { return }
+                w.quickLook.toggle(for: w.activePane)
+            },
+            C(id: "file.edit", title: "Edit", defaultKeys: [K(.function(4))]) { _ in w?.editCursorItem() },
+            C(id: "tools.terminal", title: "Open Terminal Here", defaultKeys: [K(.character("t"), [.command, .shift])]) { _ in
+                w?.openTerminal()
+            },
             C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)]) { _ in
                 w?.multiRename()
             },

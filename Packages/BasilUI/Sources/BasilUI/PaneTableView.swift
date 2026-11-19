@@ -1,5 +1,6 @@
 import AppKit
 import BasilCore
+import Quartz
 
 @MainActor
 protocol PaneTableViewKeyDelegate: AnyObject {
@@ -15,6 +16,12 @@ protocol PaneTableViewKeyDelegate: AnyObject {
 /// type-ahead (plain printable characters jump to matching names), then to NSTableView.
 final class PaneTableView: NSTableView {
     weak var keyDelegate: PaneTableViewKeyDelegate?
+    /// F3: the Quick Look panel finds its controller through the responder chain, starting here.
+    weak var quickLook: QuickLookController?
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { quickLook != nil }
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) { quickLook?.begin(panel) }
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) { quickLook?.end(panel) }
     /// Drawn with the full cursor colour only in the active pane.
     var isActivePane = false {
         didSet { if oldValue != isActivePane { needsDisplay = true; refreshVisibleRows() } }
