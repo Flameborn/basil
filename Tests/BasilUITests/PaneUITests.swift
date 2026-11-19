@@ -54,6 +54,15 @@ final class PaneUITests: XCTestCase {
         return !contains(root)
     }
 
+    func testWindowTitleFollowsActivePaneFolder() {
+        XCTAssertTrue(leftTable.waitForExistence(timeout: 5))
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.title.hasPrefix("basil-uitest-"), window.title)
+        XCTAssertTrue(window.title.hasSuffix(" - Basil"), window.title)
+        app.typeKey(.tab, modifierFlags: [])
+        XCTAssertTrue(waitFor { window.title == "Beta - Basil" }, window.title)
+    }
+
     func cellLabels(_ row: XCUIElement) -> [String] {
         row.cells.allElementsBoundByIndex.map(\.label)
     }

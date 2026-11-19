@@ -106,6 +106,12 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         left.isActive = side == .left
         right.isActive = side == .right
         functionBar.updateEnabled { [unowned self] id in commands.command(id)?.isEnabled(self) ?? false }
+        updateTitle()
+    }
+
+    /// "Downloads - Basil": the active pane's folder name, then the product name.
+    func updateTitle() {
+        window?.title = "\(activePane.model.directory.name) - Basil"
     }
 
     /// Tab: VoiceOver already reads the focused list's label ("Left pane"/"Right pane"), so nothing extra is announced.
@@ -197,6 +203,7 @@ extension MainWindowController: PaneViewControllerDelegate {
 
     /// Nothing is announced: VoiceOver reads the item under the cursor.
     func paneDidChangeDirectory(_ pane: PaneViewController) {
+        if pane.side == activeSide { updateTitle() }
         if persistsDirectories {
             defaults.set(pane.model.directory.path, forKey: pane.side.defaultsKey)
         }
