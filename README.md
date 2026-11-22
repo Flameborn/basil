@@ -104,3 +104,7 @@ scripts/      bootstrap and test helper scripts
 ```
 
 `CLAUDE.md` describes the architecture in detail, and `progress.md` tracks milestones and decisions.
+
+## License
+
+Basil is released under the [MIT License](LICENSE). The third-party code in `Vendor/` keeps its own licenses (see each folder).
