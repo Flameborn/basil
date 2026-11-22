@@ -17,6 +17,7 @@ final class PackModel {
     var moveToArchive = false
     var perItem = false
     var storePaths = true
+    var testAfterPacking = false
     /// Whether any item is a folder (a single compressed file can't hold one).
     let hasFolders: Bool
     let itemCount: Int
@@ -84,6 +85,8 @@ struct PackView: View {
                     .accessibilityLabel("One archive per item")
                 Toggle("Move to archive", isOn: $model.moveToArchive)
                     .accessibilityLabel("Move to archive")
+                Toggle("Test archive after packing", isOn: $model.testAfterPacking)
+                    .accessibilityLabel("Test archive after packing")
                 if model.perItem {
                     Text("Each item is packed into its own archive, named after it, in the folder of the archive above.")
                         .font(.callout)
@@ -137,6 +140,7 @@ extension MainWindowController {
                               archivePath: folder.appending(base + "." + formatID).path,
                               formatID: formatID, level: level,
                               hasFolders: items.contains { $0.isDirectoryLike }, itemCount: items.count)
+        model.testAfterPacking = s.packTestAfter
         let hosting = NSHostingController(rootView: PackView(model: model))
         hosting.sizingOptions = [.preferredContentSize]
         hosting.view.setAccessibilityLabel("Pack \(what)")
@@ -166,6 +170,7 @@ extension MainWindowController {
         if archive.location != .local { archive = .local(archive.path) }
         settings.settings.packFormat = model.formatID
         settings.settings.packLevel = model.level.rawValue
+        settings.settings.packTestAfter = model.testAfterPacking
         let jobs: [PackOperation.Job]
         if model.perItem, let folder = archive.parent {
             jobs = items.map { PackOperation.Job(archive: folder.appending(Self.archiveBaseName($0) + "." + model.formatID),
@@ -179,8 +184,14 @@ extension MainWindowController {
                                              moveSources: model.moveToArchive, unstableRetries: s.unstableSourceRetries,
                                              registry: providers))
         pane.model.deselectAll()
-        queued.whenDone = { [weak self] _ in
-            for job in jobs { self?.reloadPanes(showingArchive: job.archive) }
+        let test = model.testAfterPacking
+        queued.whenDone = { [weak self] state in
+            guard let self else { return }
+            for job in jobs { reloadPanes(showingArchive: job.archive) }
+            // A separate Test Archive item, with its own result, sound and speech.
+            if test, state == .finished {
+                queue.add(TestArchiveOperation(archives: jobs.map(\.archive), registry: providers))
+            }
         }
     }
 

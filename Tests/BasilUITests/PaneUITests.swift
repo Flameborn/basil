@@ -658,8 +658,19 @@ final class PaneUITests: XCTestCase {
             print("AUDIT pack: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }
+        let testAfter = sheet.checkBoxes["Test archive after packing"].exists ? sheet.checkBoxes["Test archive after packing"]
+            : sheet.switches["Test archive after packing"]
+        XCTAssertTrue(testAfter.exists, sheet.debugDescription)
+        testAfter.click()
         sheet.buttons["Pack"].click()
         XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song.zip"] }, "\(names(in: rightTable))")
+        // The test runs as its own queue item once packing is done.
+        leftTable.typeKey("j", modifierFlags: .command)
+        let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
+        XCTAssertTrue(waitFor {
+            rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).hasPrefix("Test song.zip, finished") }
+        }, "\(rows.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
+        leftTable.typeKey("j", modifierFlags: .command)
         // Enter opens the new archive.
         app.typeKey(.tab, modifierFlags: [])
         rightTable.typeKey(.enter, modifierFlags: [])
