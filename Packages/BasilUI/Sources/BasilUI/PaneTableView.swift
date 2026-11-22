@@ -8,6 +8,8 @@ protocol PaneTableViewKeyDelegate: AnyObject {
     func paneTable(_ table: PaneTableView, perform chord: KeyChord) -> Bool
     func paneTable(_ table: PaneTableView, typeAhead text: String)
     func paneTableDidBecomeFirstResponder(_ table: PaneTableView)
+    /// The context menu for the cursor item.
+    func paneTableMenu(_ table: PaneTableView) -> NSMenu?
     /// What VoiceOver reads for one cell (table column index); "" means the cell is not exposed.
     func paneTable(_ table: PaneTableView, spokenTextForRow row: Int, column: Int) -> String
 }
@@ -67,6 +69,35 @@ final class PaneTableView: NSTableView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: Context menu
+
+    /// Right click: the cursor moves to the clicked row first (unless it is one of the selected
+    /// items), like TC.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let row = row(at: convert(event.locationInWindow, from: nil))
+        if row >= 0, row != selectedRow { selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+        window?.makeFirstResponder(self)
+        return keyDelegate?.paneTableMenu(self)
+    }
+
+    /// Shift+F10 and VO+Shift+M: the menu opens at the cursor row.
+    func showContextMenuAtCursor() {
+        guard let menu = keyDelegate?.paneTableMenu(self) else { return }
+        let point: NSPoint
+        if selectedRow >= 0 {
+            let rect = rect(ofRow: selectedRow)
+            point = NSPoint(x: rect.minX + 24, y: rect.maxY)
+        } else {
+            point = NSPoint(x: visibleRect.minX + 24, y: visibleRect.minY + 24)
+        }
+        menu.popUp(positioning: nil, at: point, in: self)
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        showContextMenuAtCursor()
+        return true
     }
 
     // MARK: Accessibility
@@ -211,6 +242,13 @@ final class PaneRowElement: NSAccessibilityElement {
         guard let table, row < table.numberOfRows else { return .zero }
         return NSAccessibility.screenRect(fromView: table, rect: table.rect(ofRow: row))
     }
+    /// VO+Shift+M on a row: the cursor goes to it, then its context menu opens.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let table, row < table.numberOfRows else { return false }
+        if table.selectedRow != row { setAccessibilitySelected(true) }
+        table.showContextMenuAtCursor()
+        return true
+    }
 }
 
 /// One non-empty cell of a PaneRowElement, e.g. "song, selected" or "1.5 MB".
@@ -241,6 +279,7 @@ final class PaneCellElement: NSAccessibilityElement {
     override func accessibilityChildren() -> [Any]? { [] }
     override func accessibilityRowIndexRange() -> NSRange { NSRange(location: rowElement?.row ?? 0, length: 1) }
     override func accessibilityColumnIndexRange() -> NSRange { NSRange(location: column, length: 1) }
+    override func accessibilityPerformShowMenu() -> Bool { rowElement?.accessibilityPerformShowMenu() ?? false }
     override func accessibilityFrame() -> NSRect {
         guard let rowElement, let table = rowElement.table, rowElement.row < table.numberOfRows,
               column < table.numberOfColumns else { return .zero }

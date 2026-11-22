@@ -1,13 +1,13 @@
 # Basil and Dropbox: Privacy Policy
 
-Effective date: 22 November 2026
+Effective date: 22 November 2026 (updated the same day: shared links)
 
 Basil is a free, open-source dual-pane file manager for macOS. This policy explains what happens to your information when you connect Basil to your Dropbox account. It covers only the Dropbox connection. Everything else Basil does stays on your Mac.
 
 ## Summary
 
 - Basil runs only on your Mac. The Basil project has no servers, and none of your Dropbox data or account details ever reach the project or anyone else.
-- Basil talks to Dropbox directly from your Mac, and only to do what you ask it to do: list folders, copy, move, rename, delete and create files and folders.
+- Basil talks to Dropbox directly from your Mac, and only to do what you ask it to do: list folders, copy, move, rename, delete and create files and folders, and copy a file's shared link when you choose Copy Link.
 - You sign in on Dropbox's own website. Basil never sees or stores your Dropbox password.
 - The sign-in token is kept in the macOS Keychain on your Mac. You can remove it at any time.
 - Basil has no analytics, tracking, advertising or crash reporting, and it does not sell or share any data.
@@ -27,8 +27,12 @@ When you connect a Dropbox account, Dropbox asks you to allow Basil the followin
 | `files.metadata.write` | Creating folders, and renaming, moving and deleting files and folders when you ask for it |
 | `files.content.read` | Reading file contents when you copy files to your Mac or another location, preview them (F3) or open them in an editor (F4) |
 | `files.content.write` | Writing file contents when you copy or move files into your Dropbox |
+| `sharing.read` | Finding the shared link a file or folder already has, when you choose Copy Link |
+| `sharing.write` | Creating a shared link for a file or folder that has none yet, when you choose Copy Link |
 
-Basil asks for full Dropbox access because it is a file manager: you choose which folders to browse, and it needs to reach them. Basil reads and changes your files only as a direct result of a command you give, such as opening a folder or starting a copy. It does not scan, index or upload anything in the background. Basil does not ask for permission to share files, manage shared links, read team information or change account settings.
+Basil asks for full Dropbox access because it is a file manager: you choose which folders to browse, and it needs to reach them. Basil reads and changes your files only as a direct result of a command you give, such as opening a folder or starting a copy. It does not scan, index or upload anything in the background.
+
+Shared links are made only when you choose Copy Link (in the file's context menu or the Commands menu) for the files or folders you picked. Basil then copies the link to your clipboard and does nothing else with it: it does not send it anywhere, change who can open it, or list your other shared links. The link is created with your account's default sharing settings, exactly as Dropbox's own "Copy link" does, and you can remove it on dropbox.com at any time. Basil does not ask for permission to manage file members or shared folders, read team information or change account settings.
 
 ## Where your data goes
 

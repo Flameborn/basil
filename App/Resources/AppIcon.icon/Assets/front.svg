@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#7CCB6F"/>
+      <stop offset="1" stop-color="#3F9A45"/>
+    </linearGradient>
+  </defs>
+  <!-- Front half of the folded leaf, lower than the back, so the scrolls show above it.
+       Its lower edge is the fold (the midrib), from the stem to the tip. -->
+  <path d="M 196 712 C 280 560 540 500 868 300 C 800 650 520 806 196 712 Z" fill="url(#g)"/>
+  <g stroke="#D4F0CC" stroke-linecap="round" fill="none" opacity="0.8">
+    <!-- Midrib, just inside the fold -->
+    <path d="M 214 712 C 520 786 790 640 852 322" stroke-width="14"/>
+    <!-- Veins from the midrib toward the edge, leaning to the tip -->
+    <path d="M 404 722 Q 418 660 452 604" stroke-width="10"/>
+    <path d="M 566 694 Q 580 620 616 548" stroke-width="10"/>
+    <path d="M 706 622 Q 716 550 748 476" stroke-width="10"/>
+  </g>
+</svg>

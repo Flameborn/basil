@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3E8E41"/>
+      <stop offset="1" stop-color="#1F5E25"/>
+    </linearGradient>
+  </defs>
+  <!-- Back half of the folded leaf: rises from the fold (midrib) at the bottom. -->
+  <path d="M 196 712 C 210 420 470 250 868 300 C 800 650 520 806 196 712 Z" fill="url(#g)"/>
+  <!-- Stem -->
+  <path d="M 200 708 C 170 740 145 770 118 800" stroke="#1F5E25" stroke-width="30" stroke-linecap="round" fill="none"/>
+</svg>

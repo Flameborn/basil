@@ -104,11 +104,16 @@ public final class CommandRegistry {
         public let menuTitle: (@MainActor (any WorkspaceContext) -> String?)?
         /// Whether menus show the item checked (the current sort order or view).
         public let isChecked: (@MainActor (any WorkspaceContext) -> Bool)?
+        /// Whether the command fits the items it would work on now (Unpack for archives, Copy Link
+        /// where the provider makes links). The pane context menu leaves out commands that do not
+        /// fit; the menu bar always shows them. nil: always fits.
+        public let isApplicable: (@MainActor (any WorkspaceContext) -> Bool)?
 
         public init(id: CommandID, title: String, defaultKeys: [KeyChord] = [],
                     isEnabled: @escaping @MainActor (any WorkspaceContext) -> Bool = { _ in true },
                     menuTitle: (@MainActor (any WorkspaceContext) -> String?)? = nil,
                     isChecked: (@MainActor (any WorkspaceContext) -> Bool)? = nil,
+                    isApplicable: (@MainActor (any WorkspaceContext) -> Bool)? = nil,
                     run: @escaping @MainActor (any WorkspaceContext) -> Void) {
             self.id = id
             self.title = title
@@ -116,6 +121,7 @@ public final class CommandRegistry {
             self.isEnabled = isEnabled
             self.menuTitle = menuTitle
             self.isChecked = isChecked
+            self.isApplicable = isApplicable
             self.run = run
         }
     }
@@ -138,6 +144,20 @@ public final class CommandRegistry {
     }
 
     public func command(_ id: CommandID) -> Command? { commands[id] }
+
+    private var applicabilityChecks: [CommandID: @MainActor (any WorkspaceContext) -> Bool] = [:]
+
+    /// Sets when a command fits the current items, for commands registered without
+    /// `isApplicable` (or to replace it). See `Command.isApplicable`.
+    public func setApplicability(of id: CommandID, _ check: @escaping @MainActor (any WorkspaceContext) -> Bool) {
+        applicabilityChecks[id] = check
+    }
+
+    /// Whether the command fits the current items; true when nothing says otherwise.
+    public func isApplicable(_ id: CommandID, in context: any WorkspaceContext) -> Bool {
+        guard let check = applicabilityChecks[id] ?? commands[id]?.isApplicable else { return true }
+        return check(context)
+    }
 
     public var allCommands: [Command] { registrationOrder.compactMap { commands[$0] } }
 

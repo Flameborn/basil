@@ -93,6 +93,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         super.init(window: window)
 
         BuiltinCommands.register(in: commands, window: self)
+        ContextMenuCommands.register(in: commands, window: self)
         functionBar = FunctionKeyBar(commands: commands, ids: BuiltinCommands.functionBarIDs)
         functionBar.onInvoke = { [weak self] id in
             guard let self else { return }
@@ -253,6 +254,10 @@ extension MainWindowController: PaneViewControllerDelegate {
         // Space, Cmd+A and friends change what the Quick Look panel shows.
         if handled { quickLook.paneChanged(activePane) }
         return handled
+    }
+
+    func paneContextMenu(_ pane: PaneViewController) -> NSMenu? {
+        contextMenu(for: pane)
     }
 
     func paneCursorDidChange(_ pane: PaneViewController) {

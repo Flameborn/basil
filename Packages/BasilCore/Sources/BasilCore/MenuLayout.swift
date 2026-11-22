@@ -17,6 +17,9 @@ public final class MenuLayout {
     }
 
     public private(set) var menus: [Menu] = []
+    /// The pane context menu (right click, VO+Shift+M, Shift+F10), like TC's file context menu.
+    /// Commands that do not fit the items (`Command.isApplicable`) are left out when it opens.
+    public private(set) var contextMenu: [MenuNode] = []
     /// Called after every change, so the menu bar can be rebuilt.
     public var onChange: (() -> Void)?
 
@@ -31,6 +34,11 @@ public final class MenuLayout {
             menus.append(Menu(title: title, items: items, placeholder: placeholder))
         }
         onChange?()
+    }
+
+    /// Appends `items` to the pane context menu, or to a submenu of it.
+    public func addToContextMenu(_ items: [MenuNode], submenu path: [String] = []) {
+        contextMenu = Self.append(items, into: contextMenu, path: path[...])
     }
 
     /// Appends `items` to a top-level menu, or to a submenu inside it (`path` is the submenu titles).

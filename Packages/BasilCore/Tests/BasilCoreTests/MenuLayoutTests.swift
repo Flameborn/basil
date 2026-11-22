@@ -23,6 +23,32 @@ struct MenuLayoutTests {
         #expect(changes == 5)
     }
 
+    @Test func contextMenuItemsAndApplicability() {
+        let layout = MenuLayout()
+        layout.addToContextMenu([.command("file.copy"), .separator])
+        layout.addToContextMenu([.command("plugin.share")], submenu: ["Share"])
+        #expect(layout.contextMenu == [.command("file.copy"), .separator, .submenu("Share", [.command("plugin.share")])])
+
+        final class Context: WorkspaceContext {
+            var activeDirectory: VFSPath? { nil }
+            var otherDirectory: VFSPath? { nil }
+            var cursorItem: FileItem? { nil }
+            var targetItems: [FileItem] { [] }
+            func navigate(to directory: VFSPath) {}
+            func announce(_ message: String) {}
+        }
+        let ctx = Context()
+        let registry = CommandRegistry()
+        registry.register(.init(id: "a", title: "A") { _ in })
+        registry.register(.init(id: "b", title: "B", isApplicable: { _ in false }) { _ in })
+        #expect(registry.isApplicable("a", in: ctx))
+        #expect(!registry.isApplicable("b", in: ctx))
+        registry.setApplicability(of: "a") { $0.cursorItem != nil }
+        registry.setApplicability(of: "b") { _ in true }
+        #expect(!registry.isApplicable("a", in: ctx))
+        #expect(registry.isApplicable("b", in: ctx))
+    }
+
     @Test func primaryChordPrefersTheFirstDefaultKeyStillBound() {
         let registry = CommandRegistry()
         registry.register(.init(id: "a", title: "A", defaultKeys: [KeyChord(.function(8)), KeyChord(.forwardDelete)]) { _ in })

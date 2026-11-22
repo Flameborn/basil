@@ -25,7 +25,11 @@ targets:
   Basil:
     type: application
     platform: macOS
-    sources: [App/Sources]
+    sources:
+      - App/Sources
+      # Icon Composer document (layers in Assets/); Xcode compiles it into the app icon.
+      - path: App/Resources/AppIcon.icon
+        buildPhase: resources
     info:
       path: App/Resources/Info.plist
       properties:
@@ -45,6 +49,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil
         PRODUCT_NAME: Basil
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The 7zz phase builds into Vendor/build, outside what a sandboxed script may write.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
     preBuildScripts:

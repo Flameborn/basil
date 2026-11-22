@@ -20,7 +20,7 @@ extension ProviderID {
 /// engine sees any change to a source, also one of the same size within the same second.
 /// Copies inside the account are server-side (`clone`), moves are renames. Folders are not
 /// watched.
-public final class DropboxProvider: WritableProvider, ConnectedProvider, @unchecked Sendable {
+public final class DropboxProvider: WritableProvider, ConnectedProvider, SharedLinkProvider, @unchecked Sendable {
     public let location: ProviderLocation
     let client: DropboxClient
     let tokens: DropboxTokens
@@ -132,6 +132,43 @@ public final class DropboxProvider: WritableProvider, ConnectedProvider, @unchec
     }
 
     static func nanos(_ date: Date) -> Int64 { Int64((date.timeIntervalSince1970 * 1_000_000_000).rounded()) }
+
+    // MARK: Shared links
+
+    /// The account's shared link for a file or folder (dropbox.com/scl/...), made with the
+    /// account's default settings when there is none yet. Dropbox answers
+    /// "shared_link_already_exists" for an existing one, with its metadata or without.
+    public func sharedLink(for path: VFSPath) async throws -> URL {
+        let action = "Copying the link of \(path.isRoot ? "Dropbox" : path.name)"
+        let api = Self.api(path)
+        switch await client.sharing.createSharedLinkWithSettings(path: api).responseResult() {
+        case .success(let link):
+            return try Self.url(link.url, action)
+        case .failure(let error):
+            if case .routeError(let box, _, _, _) = error,
+               case .sharedLinkAlreadyExists(let existing) = box.unboxed {
+                if case .metadata(let link)? = existing { return try Self.url(link.url, action) }
+                let found = try await call(action, path) { client.sharing.listSharedLinks(path: api, directOnly: true) }
+                guard let link = found.links.first else { throw VFSError.failed("\(action) failed: Dropbox lists no link") }
+                return try Self.url(link.url, action)
+            }
+            let problem = DropboxFailure(error)
+            if case .route(let summary, _) = problem.kind, summary.hasPrefix("email_not_verified") {
+                throw VFSError.failed("\(action) failed: Dropbox makes links only for accounts with a verified email address")
+            }
+            if case .route(let summary, _) = problem.kind, summary.hasPrefix("access_denied") {
+                throw VFSError.failed("\(action) failed: Dropbox does not allow a link to \(path.name)")
+            }
+            // Rate limits and the rest: once more through the usual retries and messages.
+            let link = try await call(action, path) { client.sharing.createSharedLinkWithSettings(path: api) }
+            return try Self.url(link.url, action)
+        }
+    }
+
+    private static func url(_ text: String, _ action: String) throws -> URL {
+        guard let url = URL(string: text) else { throw VFSError.failed("\(action) failed: Dropbox sent no usable link") }
+        return url
+    }
 
     // MARK: FileSystemProvider
 
@@ -398,6 +435,8 @@ struct DropboxFailure {
         case route(String, String?)
         case expiredToken
         case signInRefused(String)
+        /// The sign-in lacks a permission (scope) the call needs.
+        case missingScope(String)
         case rateLimited(UInt64)
         case serverError(String)
         case network(String)
@@ -411,7 +450,11 @@ struct DropboxFailure {
         case .routeError(_, let message, let summary, _):
             kind = .route(summary ?? "", message?.text)
         case .authError(let auth, _, _, _):
-            if case .expiredAccessToken = auth { kind = .expiredToken } else { kind = .signInRefused("\(auth)") }
+            switch auth {
+            case .expiredAccessToken: kind = .expiredToken
+            case .missingScope(let scope): kind = .missingScope(scope.requiredScope)
+            default: kind = .signInRefused("\(auth)")
+            }
         case .rateLimitError(let limit, _, _, _):
             kind = .rateLimited(limit.retryAfter)
         case .internalServerError(let code, let message, _):
@@ -439,7 +482,7 @@ struct DropboxFailure {
         case .rateLimited(let seconds): return max(Double(seconds), 1)
         case .serverError, .network: return backoff
         case .route(let summary, _): return summary.contains("too_many_write_operations") ? backoff : nil
-        case .signInRefused, .other: return nil
+        case .signInRefused, .missingScope, .other: return nil
         }
     }
 
@@ -463,6 +506,8 @@ struct DropboxFailure {
             return VFSError.failed("\(action) failed: \(message ?? summary)")
         case .expiredToken, .signInRefused:
             return VFSError.failed("Dropbox no longer accepts the sign-in of \(email). Disconnect and connect again to sign in.")
+        case .missingScope:
+            return VFSError.failed("\(action) failed: the sign-in of \(email) does not allow it yet. Disconnect and connect again, then allow Basil in the browser.")
         case .rateLimited:
             return VFSError.failed("\(action) failed: Dropbox asks Basil to slow down. Try again in a moment.")
         case .serverError(let text):

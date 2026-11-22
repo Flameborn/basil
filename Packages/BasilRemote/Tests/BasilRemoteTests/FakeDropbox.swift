@@ -46,6 +46,13 @@ final class FakeDropbox: @unchecked Sendable {
         var revokes = 0
         var downloads = 0
         var uploadedParts = 0
+        /// Shared links by lower-cased path.
+        var links: [String: String] = [:]
+        /// Answer "shared_link_already_exists" without the link's metadata (Dropbox does both).
+        var existingLinkWithoutMetadata = false
+        /// Scopes the next sign-in grants.
+        var grantedScopes = DropboxScopes.all
+        var signIns = 0
     }
 
     let state = Mutex(State())
@@ -274,6 +281,8 @@ final class FakeDropbox: @unchecked Sendable {
         case "/2/files/upload_session/append_v2": return sessionAppend(argument, request.body)
         case "/2/files/upload_session/finish": return sessionFinish(argument, request.body)
         case "/2/files/download": return download(argument, range: request.header("Range"))
+        case "/2/sharing/create_shared_link_with_settings": return createLink(argument)
+        case "/2/sharing/list_shared_links": return listLinks(argument)
         default: return Response(status: 404, body: Data("no route \(request.path)".utf8))
         }
     }
@@ -299,11 +308,12 @@ final class FakeDropbox: @unchecked Sendable {
                     return .json(["error": "invalid_grant", "error_description": "bad code or verifier"], status: 400)
                 }
                 let refresh = "refresh-\(UUID().uuidString)"
+                s.signIns += 1
                 s.refreshTokens.insert(refresh)
                 s.accessTokens[access] = Token(refresh: refresh, expires: Date().addingTimeInterval(s.lifetime))
                 return .json(["access_token": access, "token_type": "bearer", "expires_in": s.lifetime,
                               "refresh_token": refresh, "uid": "12345", "account_id": accountID,
-                              "scope": DropboxScopes.all.joined(separator: " ")])
+                              "scope": s.grantedScopes.joined(separator: " ")])
             case "refresh_token":
                 guard let refresh = form["refresh_token"], s.refreshTokens.contains(refresh) else {
                     return .json(["error": "invalid_grant", "error_description": "refresh token is invalid or revoked"], status: 400)
@@ -358,6 +368,51 @@ final class FakeDropbox: @unchecked Sendable {
             summary += "\(conflict)/"
         }
         return .json(["error_summary": summary + "..", "error": [".tag": field, field: inner]], status: 409)
+    }
+
+    // MARK: Shared links
+
+    private func linkMetadata(_ node: Node, url: String) -> [String: Any] {
+        var json: [String: Any] = [
+            ".tag": node.folder ? "folder" : "file", "url": url, "name": node.name, "id": node.id,
+            "path_lower": node.display.lowercased(),
+            "link_permissions": ["can_revoke": true, "visibility_policies": [], "can_set_expiry": false,
+                                 "can_remove_expiry": false, "allow_download": true, "can_allow_download": true,
+                                 "can_disallow_download": false, "allow_comments": true, "team_restricts_comments": false],
+        ]
+        if !node.folder {
+            json["client_modified"] = Self.iso(node.clientModified)
+            json["server_modified"] = Self.iso(node.serverModified)
+            json["rev"] = node.rev
+            json["size"] = node.data.count
+        }
+        return json
+    }
+
+    private func createLink(_ argument: [String: Any]) -> Response {
+        let path = (argument["path"] as? String ?? "").lowercased()
+        return state.withLock { s -> Response in
+            guard let node = s.nodes[path] else { return error("path", "not_found") }
+            if let url = s.links[path] {
+                var inner: [String: Any] = [".tag": "shared_link_already_exists"]
+                if !s.existingLinkWithoutMetadata {
+                    inner["shared_link_already_exists"] = [".tag": "metadata", "metadata": linkMetadata(node, url: url)]
+                }
+                return .json(["error_summary": "shared_link_already_exists/..", "error": inner], status: 409)
+            }
+            s.counter += 1
+            let url = "https://www.dropbox.com/scl/fi/link\(s.counter)/\(node.name)?dl=0"
+            s.links[path] = url
+            return .json(linkMetadata(node, url: url))
+        }
+    }
+
+    private func listLinks(_ argument: [String: Any]) -> Response {
+        let path = (argument["path"] as? String ?? "").lowercased()
+        return state.withLock { s -> Response in
+            let links = s.links[path].flatMap { url in s.nodes[path].map { linkMetadata($0, url: url) } }
+            return .json(["links": links.map { [$0] } ?? [], "has_more": false])
+        }
     }
 
     private func listFolder(_ argument: [String: Any]) -> Response {

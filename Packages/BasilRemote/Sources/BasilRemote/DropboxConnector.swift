@@ -36,12 +36,17 @@ public struct DropboxConnector: RemoteConnector {
     }
 
     static func keychainKey(_ accountID: String) -> String { "dropbox:\(accountID)" }
+    /// The scopes the stored sign-in was granted, space-separated.
+    static func scopesKey(_ accountID: String) -> String { "dropbox:\(accountID):scopes" }
 
     public func connect(_ target: RemoteTarget, prompts: any RemotePrompts) async throws
         -> (provider: any FileSystemProvider, start: VFSPath) {
         let saved = target.host.trimmingCharacters(in: .whitespaces)
         var token: DropboxToken?
-        if !saved.isEmpty, let refresh = secrets.secret(for: Self.keychainKey(saved)) {
+        // A sign-in from before Basil asked for more permissions (shared links) is replaced by a
+        // new one, so Dropbox asks the user to allow them.
+        if !saved.isEmpty, let refresh = secrets.secret(for: Self.keychainKey(saved)),
+           DropboxScopes.covered(by: secrets.secret(for: Self.scopesKey(saved))) {
             do {
                 let fresh = try await auth.refresh(refresh)
                 token = DropboxToken(accessToken: fresh.accessToken, refreshToken: refresh, expires: fresh.expires,
@@ -57,6 +62,9 @@ public struct DropboxConnector: RemoteConnector {
         } else {
             signedIn = try await signIn(prompts: prompts, account: target.user)
             secrets.save(signedIn.refreshToken, for: Self.keychainKey(signedIn.accountID))
+            // Dropbox answers with the scopes it granted; without them, the ones asked for.
+            let granted = signedIn.scopes.map { $0.sorted() } ?? DropboxScopes.all
+            secrets.save(granted.joined(separator: " "), for: Self.scopesKey(signedIn.accountID))
         }
         let tokens = DropboxTokens(auth: auth, token: signedIn)
         let client = DropboxClient(transportClient: DropboxTransportClientImpl(
@@ -129,6 +137,7 @@ public struct DropboxConnector: RemoteConnector {
         let key = Self.keychainKey(account)
         guard let refresh = secrets.secret(for: key) else { return }
         secrets.remove(for: key)
+        secrets.remove(for: Self.scopesKey(account))
         if let fresh = try? await auth.refresh(refresh) {
             try? await auth.revoke(accessToken: fresh.accessToken)
         }

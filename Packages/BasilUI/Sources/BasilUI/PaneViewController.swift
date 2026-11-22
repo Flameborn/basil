@@ -10,6 +10,8 @@ protocol PaneViewControllerDelegate: AnyObject {
     func paneDidChangeDirectory(_ pane: PaneViewController)
     func paneRequestsSettings(_ pane: PaneViewController)
     func paneCursorDidChange(_ pane: PaneViewController)
+    /// The context menu for the pane's cursor item (right click, VO+Shift+M, Shift+F10).
+    func paneContextMenu(_ pane: PaneViewController) -> NSMenu?
 }
 
 /// One side of the window: drive bar, path header, file table, quick-filter bar and status line.
@@ -76,6 +78,7 @@ final class PaneViewController: NSViewController {
     }
 
     var tableView: NSTableView { table }
+    var paneTable: PaneTableView { table }
 
     // MARK: View
 
@@ -765,6 +768,10 @@ extension PaneViewController: PaneTableViewKeyDelegate {
         let text = def.spoken(item, columnContext) ?? def.text(item, columnContext)
         if def.id == .name, model.selected.contains(item.path) { return "\(text), selected" }
         return text
+    }
+
+    func paneTableMenu(_ table: PaneTableView) -> NSMenu? {
+        delegate?.paneContextMenu(self)
     }
 
     func paneTableDidBecomeFirstResponder(_ table: PaneTableView) {

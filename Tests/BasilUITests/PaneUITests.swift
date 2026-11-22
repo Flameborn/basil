@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Drives the real app against a fixture directory with the keyboard only.
@@ -274,6 +275,96 @@ final class PaneUITests: XCTestCase {
         XCTAssertEqual(tabs.radioButtons.element(boundBy: 0).label, "\(URL(fileURLWithPath: fixture).lastPathComponent) (locked)")
         leftTable.typeKey(.tab, modifierFlags: [.control, .shift])
         XCTAssertTrue(waitFor { (path.value as? String) == fixture })
+    }
+
+    /// Cmd+T, back to the first tab, Enter: the folder opens in the first tab (reported with Dropbox).
+    func testEnterInTheFirstTabAfterNewTab() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let path = app.groups["pane.left.path"]
+        let fixture = try XCTUnwrap(path.value as? String)
+        let tabs = app.tabGroups["pane.left.tabs"]
+        leftTable.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(tabs.waitForExistence(timeout: 3))
+        leftTable.typeKey(.tab, modifierFlags: .control)
+        XCTAssertTrue(waitFor { (tabs.radioButtons.element(boundBy: 0).value as? Int) == 1 })
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture + "/Alpha" })
+        XCTAssertTrue(waitFor { tabs.radioButtons.element(boundBy: 0).label == "Alpha" }, tabs.debugDescription)
+        XCTAssertEqual(tabs.radioButtons.element(boundBy: 0).value as? Int, 1)
+        XCTAssertEqual(tabs.radioButtons.element(boundBy: 1).label, URL(fileURLWithPath: fixture).lastPathComponent)
+    }
+
+    /// The same on a server: the folder opens in the first tab (reported with Dropbox).
+    func testEnterInTheFirstTabAfterNewTabOnServer() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_SSHD"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("k", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        if !sheet.waitForExistence(timeout: 2) { leftTable.typeKey("k", modifierFlags: .command) }
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        sheet.buttons["Connect"].click()
+        let alert = app.sheets.firstMatch
+        XCTAssertTrue(waitFor { alert.buttons["Trust Once"].exists })
+        alert.buttons["Trust Once"].click()
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable).count == 6 && !alert.exists }, timeout: 10))
+        let path = app.groups["pane.left.path"]
+        XCTAssertTrue(waitFor { path.buttons.firstMatch.label.contains("@127.0.0.1:") })
+        let start = try XCTUnwrap(path.value as? String)
+        let tabs = app.tabGroups["pane.left.tabs"]
+        leftTable.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(tabs.waitForExistence(timeout: 3))
+        leftTable.typeKey(.tab, modifierFlags: .control)
+        XCTAssertTrue(waitFor { (tabs.radioButtons.element(boundBy: 0).value as? Int) == 1 })
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { (path.value as? String) == start + "/Alpha" }, "\(path.value ?? "")")
+        XCTAssertTrue(waitFor { tabs.radioButtons.element(boundBy: 0).label == "Alpha" }, tabs.debugDescription)
+        XCTAssertEqual(tabs.radioButtons.element(boundBy: 0).value as? Int, 1)
+    }
+
+    /// Shift+F10 or a right click opens the context menu of the cursor item with what fits it.
+    func testContextMenu() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let path = app.groups["pane.left.path"]
+        let fixture = try XCTUnwrap(path.value as? String)
+        func openMenu() -> XCUIElement {
+            leftTable.typeKey(.F10, modifierFlags: .shift)
+            let menu = app.menus.containing(.menuItem, identifier: "Copy Name").containing(.menuItem, identifier: "Get Info").firstMatch
+            XCTAssertTrue(waitFor { menu.exists }, app.debugDescription)
+            return menu
+        }
+        func titles(_ menu: XCUIElement) -> [String] {
+            menu.menuItems.allElementsBoundByIndex.map(\.title).filter { !$0.isEmpty }
+        }
+        // Alpha (a folder): no View or Edit, no Unpack, no Copy Link on a local disk.
+        var menu = openMenu()
+        var items = titles(menu)
+        XCTAssertTrue(items.contains("Open") && items.contains("Calculate Folder Size") && items.contains("Get Info"), "\(items)")
+        XCTAssertFalse(items.contains("View") || items.contains("Edit") || items.contains("Unpack...") || items.contains("Copy Link"), "\(items)")
+        menu.menuItems["Copy Path"].click()
+        XCTAssertTrue(waitFor { NSPasteboard.general.string(forType: .string) == fixture + "/Alpha" },
+                      NSPasteboard.general.string(forType: .string) ?? "")
+
+        // A right click on notes.md moves the cursor there: View and Edit, no folder size.
+        leftTable.tableRows.element(boundBy: 3).coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).rightClick()
+        menu = app.menus.containing(.menuItem, identifier: "Copy Name").containing(.menuItem, identifier: "Get Info").firstMatch
+        XCTAssertTrue(waitFor { menu.exists }, app.debugDescription)
+        items = titles(menu)
+        XCTAssertTrue(items.contains("View") && items.contains("Edit") && items.contains("Rename"), "\(items)")
+        XCTAssertFalse(items.contains("Calculate Folder Size"), "\(items)")
+        menu.menuItems["Copy Name"].click()
+        XCTAssertTrue(waitFor { NSPasteboard.general.string(forType: .string) == "notes.md" })
+        XCTAssertTrue(leftTable.tableRows.element(boundBy: 3).isSelected)
+
+        // The keys work the same from the Commands menu; Escape closes the context menu.
+        menu = openMenu()
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !menu.exists })
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Commands"].click()
+        XCTAssertTrue(menuBar.menuItems["Copy Link"].exists)
+        app.typeKey(.escape, modifierFlags: [])
     }
 
     func testPathBarGoesToAnyPartOfThePath() throws {

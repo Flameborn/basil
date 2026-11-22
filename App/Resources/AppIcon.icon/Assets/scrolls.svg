@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- A rolled scroll, leaning left -->
+  <g transform="rotate(-11 420 640)">
+    <rect x="360" y="200" width="122" height="400" rx="30" fill="#F6E7C4"/>
+    <ellipse cx="421" cy="204" rx="61" ry="22" fill="#E2C88F"/>
+    <ellipse cx="421" cy="204" rx="26" ry="9" fill="#C9A866"/>
+  </g>
+  <!-- A sheet with a curled top, leaning right -->
+  <g transform="rotate(9 600 650)">
+    <rect x="520" y="250" width="170" height="330" rx="14" fill="#FBF1DA"/>
+    <rect x="508" y="228" width="194" height="56" rx="28" fill="#E8D19E"/>
+    <rect x="556" y="330" width="96" height="16" rx="8" fill="#D8BF88"/>
+    <rect x="556" y="374" width="78" height="16" rx="8" fill="#D8BF88"/>
+    <rect x="556" y="418" width="90" height="16" rx="8" fill="#D8BF88"/>
+  </g>
+</svg>

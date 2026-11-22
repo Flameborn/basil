@@ -56,7 +56,7 @@ private final class Monitor: TransferMonitor {
         #expect(query["redirect_uri"] == "db-k3y://2/token")
         #expect(query["response_type"] == "code" && query["code_challenge_method"] == "S256")
         #expect(query["token_access_type"] == "offline")
-        #expect(query["scope"] == "account_info.read files.metadata.read files.metadata.write files.content.read files.content.write")
+        #expect(query["scope"] == "account_info.read files.metadata.read files.metadata.write files.content.read files.content.write sharing.read sharing.write")
         #expect(query["state"] == "st")
     }
 
@@ -210,6 +210,47 @@ private final class Monitor: TransferMonitor {
         #expect(s.secrets.secret(for: "dropbox:\(s.fake.accountID)") == nil)
         #expect(s.fake.state.withLock { $0.revokes } == 1)
         #expect(s.fake.state.withLock { $0.refreshTokens.isEmpty })
+    }
+
+    @Test func aSignInWithoutTheSharingScopesSignsInAgain() async throws {
+        let s = try await setUp()
+        let saved = try #require(s.provider.signedInTarget)
+        #expect(s.secrets.secret(for: "dropbox:\(s.fake.accountID):scopes")?.contains("sharing.write") == true)
+        await s.registry.disconnect(s.provider.location)
+        // A sign-in kept by an earlier Basil, which asked for fewer scopes: no record of them.
+        s.secrets.remove(for: "dropbox:\(s.fake.accountID):scopes")
+        let prompts = FakeBrowserPrompts(s.fake)
+        _ = try await s.registry.connect(saved, prompts: prompts)
+        #expect(prompts.signIns.withLock { $0.count } == 1)
+        #expect(s.fake.state.withLock { $0.signIns } == 2)
+        // Recorded now: the next connection needs no browser.
+        await s.registry.disconnect(s.provider.location)
+        let quiet = FakeBrowserPrompts(s.fake, giveUp: true)
+        _ = try await s.registry.connect(saved, prompts: quiet)
+        #expect(quiet.signIns.withLock { $0.isEmpty })
+        // Forgetting removes the record too.
+        await s.connector.forget(saved, remaining: [])
+        #expect(s.secrets.secret(for: "dropbox:\(s.fake.accountID):scopes") == nil)
+    }
+
+    // MARK: Shared links
+
+    @Test func sharedLinksAreMadeOnceAndReused() async throws {
+        let s = try await setUp()
+        s.fake.put("/Docs/report.pdf", Data("pdf".utf8))
+        let file = s.root.appending("Docs").appending("report.pdf")
+        let link = try await s.provider.sharedLink(for: file)
+        #expect(link.absoluteString.hasPrefix("https://www.dropbox.com/scl/fi/") && link.absoluteString.contains("report.pdf"))
+        // Asked again: Dropbox says it exists, with or without its metadata.
+        #expect(try await s.provider.sharedLink(for: file) == link)
+        s.fake.state.withLock { $0.existingLinkWithoutMetadata = true }
+        #expect(try await s.provider.sharedLink(for: file) == link)
+        // Folders have links too.
+        let folder = try await s.provider.sharedLink(for: s.root.appending("Docs"))
+        #expect(folder != link)
+        await #expect(throws: VFSError.notFound(s.root.appending("nope"))) {
+            _ = try await s.provider.sharedLink(for: s.root.appending("nope"))
+        }
     }
 
     // MARK: Files

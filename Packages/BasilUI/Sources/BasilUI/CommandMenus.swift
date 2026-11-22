@@ -36,7 +36,8 @@ enum BuiltinMenus {
                 + c("pane.parent")),
             .submenu("Locations", c("pane.locations", "pane.locationsLeft", "pane.locationsRight")),
             .separator,
-        ] + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show"))
+        ] + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show")
+            + [.separator] + c("file.copyLink", "file.copyPath", "file.copyName", "pane.contextMenu"))
 
         layout.addMenu("Net", items: c("net.connect", "net.disconnect") + [.separator]
             + (1...20).map { N.command(CommandID(rawValue: "net.saved\($0)")) })
@@ -84,6 +85,15 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
         }
     }
 
+    /// The pane context menu, built now for the current items.
+    func contextMenu() -> NSMenu {
+        let menu = LayoutMenu(title: "Context menu", nodes: commands.menus.contextMenu, placeholder: "No commands",
+                              onlyApplicable: true)
+        menu.delegate = self
+        rebuild(menu)
+        return menu
+    }
+
     /// Items are rebuilt each time a menu opens, so titles, keys, checkmarks and hidden items
     /// (custom view slots without a view) are current.
     private func rebuild(_ menu: LayoutMenu) {
@@ -96,6 +106,7 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 pendingSeparator = menu.numberOfItems > 0
             case .command(let id):
                 guard let command = commands.command(id) else { continue }
+                if menu.onlyApplicable, let ctx, !commands.isApplicable(id, in: ctx) { continue }
                 let title: String
                 if let menuTitle = command.menuTitle {
                     guard let ctx, let t = menuTitle(ctx) else { continue }
@@ -114,7 +125,7 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 if let isChecked = command.isChecked, let ctx { item.state = isChecked(ctx) ? .on : .off }
                 menu.addItem(item)
             case .submenu(let title, let children):
-                let submenu = LayoutMenu(title: title, nodes: children, placeholder: nil)
+                let submenu = LayoutMenu(title: title, nodes: children, placeholder: nil, onlyApplicable: menu.onlyApplicable)
                 submenu.delegate = self
                 rebuild(submenu)
                 guard submenu.numberOfItems > 0 else { continue }
@@ -157,10 +168,13 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
 final class LayoutMenu: NSMenu {
     let nodes: [MenuNode]
     let placeholder: String?
+    /// The context menu: commands that do not fit the current items are left out.
+    let onlyApplicable: Bool
 
-    init(title: String, nodes: [MenuNode], placeholder: String?) {
+    init(title: String, nodes: [MenuNode], placeholder: String?, onlyApplicable: Bool = false) {
         self.nodes = nodes
         self.placeholder = placeholder
+        self.onlyApplicable = onlyApplicable
         super.init(title: title)
     }
 
@@ -206,6 +220,7 @@ extension MainWindowController {
     /// `index` (the app menu and the Edit menu come first), and keeps them in step with the layout.
     public func installCommandMenus(in mainMenu: NSMenu, at index: Int) {
         BuiltinMenus.register(in: commands.menus)
+        ContextMenuCommands.registerLayout(in: commands.menus)
         let builder = CommandMenuBuilder(commands: commands, context: { [weak self] in
             // While a sheet asks something, menu commands wait like the keys do.
             guard let self, window?.attachedSheet == nil else { return nil }

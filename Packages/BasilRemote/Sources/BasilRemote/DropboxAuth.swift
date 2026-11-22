@@ -37,6 +37,8 @@ struct DropboxToken: Sendable {
     var refreshToken: String
     var expires: Date
     var accountID: String
+    /// The permissions Dropbox granted (the "scope" of a sign-in answer); nil after a refresh.
+    var scopes: Set<String>? = nil
 }
 
 /// The sign-in failed in a way the user should hear about.
@@ -50,7 +52,13 @@ struct DropboxAuthError: Error, LocalizedError {
 /// The permissions Basil asks for (see db_privacypolicy.md).
 enum DropboxScopes {
     static let all = ["account_info.read", "files.metadata.read", "files.metadata.write",
-                      "files.content.read", "files.content.write"]
+                      "files.content.read", "files.content.write", "sharing.read", "sharing.write"]
+
+    /// Whether a sign-in that granted `granted` (a space-separated list) has every scope Basil asks for.
+    static func covered(by granted: String?) -> Bool {
+        guard let granted else { return false }
+        return Set(all).isSubset(of: Set(granted.split(separator: " ").map(String.init)))
+    }
 }
 
 /// A PKCE verifier and its S256 challenge (RFC 7636).
@@ -112,8 +120,9 @@ struct DropboxAuth: Sendable {
             throw DropboxAuthError(invalidGrant: false, message: "Dropbox sent an incomplete sign-in answer")
         }
         let seconds = (json["expires_in"] as? Double) ?? 14400
+        let scopes = (json["scope"] as? String).map { Set($0.split(separator: " ").map(String.init)) }
         return DropboxToken(accessToken: access, refreshToken: refresh, expires: Date().addingTimeInterval(seconds),
-                            accountID: account)
+                            accountID: account, scopes: scopes)
     }
 
     /// A new access token for a refresh token. The answer has no refresh token or account; the
