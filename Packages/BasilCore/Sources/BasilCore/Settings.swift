@@ -47,6 +47,10 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var packLevel = "normal"
     /// "Test archive after packing" in the pack dialog, remembered (off at first).
     public var packTestAfter = false
+    /// "Solid archive" (7z) in the pack dialog, remembered (on at first, like 7-Zip).
+    public var packSolid = true
+    /// "Encrypt file names" (7z, with a password) in the pack dialog, remembered (off at first).
+    public var packEncryptNames = false
     /// The Create Checksum Files dialog starts with the algorithm used last (an algorithm's raw value).
     public var checksumAlgorithm = "sha256"
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
@@ -77,6 +81,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         packFormat = try c.decodeIfPresent(String.self, forKey: .packFormat) ?? d.packFormat
         packLevel = try c.decodeIfPresent(String.self, forKey: .packLevel) ?? d.packLevel
         packTestAfter = try c.decodeIfPresent(Bool.self, forKey: .packTestAfter) ?? d.packTestAfter
+        packSolid = try c.decodeIfPresent(Bool.self, forKey: .packSolid) ?? d.packSolid
+        packEncryptNames = try c.decodeIfPresent(Bool.self, forKey: .packEncryptNames) ?? d.packEncryptNames
         checksumAlgorithm = try c.decodeIfPresent(String.self, forKey: .checksumAlgorithm) ?? d.checksumAlgorithm
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
         if viewsVersion < 2, let full = views.firstIndex(where: { $0.id == ListView.full.id }) {

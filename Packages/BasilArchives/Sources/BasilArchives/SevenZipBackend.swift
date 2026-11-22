@@ -9,24 +9,36 @@ import zlib
 public struct SevenZipBackend: ArchiveBackend {
     public var name: String { "7-Zip" }
     let tool: SevenZipTool
+    /// The one format this instance opens (7zz's -t): "7z", or "zip" for the zip fallback.
+    let type: String
 
     public init(executable: URL) {
         tool = SevenZipTool(executable: executable)
+        type = "7z"
     }
+
+    init(tool: SevenZipTool, type: String = "7z") {
+        self.tool = tool
+        self.type = type
+    }
+
+    /// Zip files libarchive cannot read (an AES-encrypted link, methods it lacks such as PPMd);
+    /// registered after libarchive, which the opener tries first.
+    public func zipFallback() -> SevenZipBackend { SevenZipBackend(tool: tool, type: "zip") }
+
+    private var typeSwitch: String { "-t" + type }
 
     /// The 7zz inside the app (Contents/MacOS/7zz), if it is there.
     public static func bundled(in bundle: Bundle = .main) -> SevenZipBackend? {
         bundle.url(forAuxiliaryExecutable: "7zz").map(SevenZipBackend.init(executable:))
     }
 
-    static let suffixes: Set<String> = ["7z"]
-
     public func recognizes(name: String) -> Bool {
-        ArchiveNames.suffixes(of: name).contains { Self.suffixes.contains($0) }
+        ArchiveNames.suffixes(of: name).contains { $0 == type }
     }
 
     public func entries(of url: URL, byContent: Bool, password: String?) throws -> [ArchiveEntry]? {
-        let output = try tool.run(["l", "-slt", "-ba", "-bso1", "-bsp0", "-t7z", "--", url.path], password: password)
+        let output = try tool.run(["l", "-slt", "-ba", "-bso1", "-bsp0", typeSwitch, "--", url.path], password: password)
         if output.status != 0 {
             if output.stderr.contains("Wrong password") { throw ArchiveError.wrongPassword(archive: url.lastPathComponent) }
             if output.askedForPassword { throw ArchiveError.passwordNeeded(archive: url.lastPathComponent) }
@@ -47,7 +59,7 @@ public struct SevenZipBackend: ArchiveBackend {
     private func readSymlinkTargets(_ entries: inout [ArchiveEntry], of url: URL, password: String?) throws {
         let links = entries.indices.filter { entries[$0].kind == .symlink && (password != nil || !entries[$0].isEncrypted) }
         guard !links.isEmpty else { return }
-        let session = SevenZipSession(tool: tool, url: url, entries: entries, password: password)
+        let session = SevenZipSession(tool: tool, type: type, url: url, entries: entries, password: password)
         for i in links {
             let data = try session.read(entries[i], at: 0, count: Int(entries[i].size ?? 0))
             entries[i].symlinkTarget = String(decoding: data, as: UTF8.self)
@@ -55,7 +67,7 @@ public struct SevenZipBackend: ArchiveBackend {
     }
 
     public func session(for url: URL, byContent: Bool, entries: [ArchiveEntry], password: String?) -> any ArchiveReadSession {
-        SevenZipSession(tool: tool, url: url, entries: entries, password: password)
+        SevenZipSession(tool: tool, type: type, url: url, entries: entries, password: password)
     }
 
     /// 7z has no password check value: a wrong password shows only as a data or CRC error.
@@ -67,14 +79,14 @@ public struct SevenZipBackend: ArchiveBackend {
         let list = FileManager.default.temporaryDirectory.appendingPathComponent("basil-7z-\(UUID().uuidString).txt")
         try Data(name.utf8).write(to: list)
         defer { unlink(list.path) }
-        let output = try tool.run(["t", "-bso1", "-bsp0", "-spd", "-t7z", "-i@" + list.path, "--", url.path], password: password)
+        let output = try tool.run(["t", "-bso1", "-bsp0", "-spd", typeSwitch, "-i@" + list.path, "--", url.path], password: password)
         if output.status == 0 { return true }
         if output.stderr.contains("Wrong password") || output.stderr.contains("in encrypted file") { return false }
         throw ArchiveError.damaged(output.errors.first ?? "7-Zip could not test the archive", archive: url.lastPathComponent)
     }
 
     public func test(_ url: URL, byContent: Bool, password: String?, progress: (Double, String) -> Bool) throws -> [String] {
-        let running = try tool.start(["t", "-bso1", "-bsp1", "-t7z", "--", url.path], password: password)
+        let running = try tool.start(["t", "-bso1", "-bsp1", typeSwitch, "--", url.path], password: password)
         let stderr = running.drainStderr()
         let fd = running.stdout
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -141,8 +153,11 @@ final class SevenZipSession: ArchiveReadSession {
     private var consumed: Int64 = 0
     private var crc: uLong = 0
 
-    init(tool: SevenZipTool, url: URL, entries: [ArchiveEntry], password: String? = nil) {
+    private let type: String
+
+    init(tool: SevenZipTool, type: String = "7z", url: URL, entries: [ArchiveEntry], password: String? = nil) {
         self.tool = tool
+        self.type = type
         self.url = url
         self.entries = entries
         self.password = password
@@ -195,7 +210,7 @@ final class SevenZipSession: ArchiveReadSession {
         let list = FileManager.default.temporaryDirectory.appendingPathComponent("basil-7z-\(UUID().uuidString).txt")
         try Data(names.sorted().joined(separator: "\n").utf8).write(to: list)
         listFile = list
-        let process = try tool.start(["x", "-so", "-snl", "-spd", "-y", "-bsp0", "-t7z", "-i@" + list.path, "--", url.path],
+        let process = try tool.start(["x", "-so", "-snl", "-spd", "-y", "-bsp0", "-t" + type, "-i@" + list.path, "--", url.path],
                                      password: password)
         running = process
         stderr = process.drainStderr()

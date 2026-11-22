@@ -8,10 +8,22 @@ import Foundation
 /// target as ".basil-partial-*", F_FULLFSYNC it, read it back and check it, and only then rename
 /// it into place, so the old archive is intact until the last step.
 extension ArchiveOpener: ContainerWriter {
-    public var packFormats: [PackFormat] { LibArchiveFormats.packFormats }
+    /// libarchive's formats, and with 7zz also 7z (second, after zip) and zip with a password.
+    public var packFormats: [PackFormat] {
+        let formats = LibArchiveFormats.packFormats
+        guard sevenZip.withLock({ $0 }) != nil else { return formats }
+        var result = formats.map { $0.id == "zip" ? $0.withEncryption() : $0 }
+        result.insert(SevenZipWriter.sevenZipFormat, at: min(1, result.count))
+        return result
+    }
 
     public func create(_ destination: VFSPath, options: PackOptions, changes: [ContainerChange], replacing: Bool,
                        registry: ProviderRegistry, monitor: any ContainerWriteMonitor) async throws -> ContainerWriteResult {
+        if SevenZipWriter.creates(options) {
+            guard let writer = sevenZip.withLock({ $0 }) else { throw VFSError.unsupported("the format \(options.format)") }
+            return try await writer.create(destination, options: options, changes: changes, replacing: replacing,
+                                           registry: registry, monitor: monitor)
+        }
         guard destination.location == .local, let folder = destination.parent else {
             throw VFSError.unsupported("creating archives outside local folders")
         }
@@ -36,6 +48,9 @@ extension ArchiveOpener: ContainerWriter {
         let location = ProviderLocation(provider: .archive, container: container)
         if let provider = try? registry.provider(for: location) as? ArchiveProvider {
             if provider.isSingleCompressedFile { return "\(container.name) is a single compressed file and cannot be changed." }
+            if provider.backendIs(SevenZipBackend.self) {
+                return sevenZip.withLock({ $0 }) == nil ? "\(container.name) cannot be changed: 7-Zip is missing." : nil
+            }
             if !(provider.backendIs(LibArchiveBackend.self)) { return "\(container.name) cannot be changed yet." }
             if provider.hasEncryptedEntries { return "\(container.name) is encrypted and cannot be changed yet." }
         }
@@ -45,6 +60,11 @@ extension ArchiveOpener: ContainerWriter {
     public func update(_ container: VFSPath, changes: [ContainerChange], macMetadata: Bool,
                        registry: ProviderRegistry, monitor: any ContainerWriteMonitor) async throws -> ContainerWriteResult {
         if let refusal = updateRefusal(for: container, registry: registry) { throw VFSError.unsupported(refusal) }
+        let location = ProviderLocation(provider: .archive, container: container)
+        if let provider = try? registry.provider(for: location) as? ArchiveProvider, provider.backendIs(SevenZipBackend.self),
+           let writer = sevenZip.withLock({ $0 }) {
+            return try await writer.update(container, provider: provider, changes: changes, registry: registry, monitor: monitor)
+        }
         guard let folder = container.parent else { throw VFSError.notFound(container) }
         let url = URL(fileURLWithPath: container.path)
         let before = ArchiveProvider.stamp(url)

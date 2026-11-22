@@ -59,6 +59,13 @@ public final class RememberingPasswords: ContainerPasswords {
         return answer.password
     }
 
+    /// A password set by Basil itself (an archive just packed with it): kept in memory, and in
+    /// the Keychain when `inKeychain`.
+    public func remember(_ password: String, for container: VFSPath, inKeychain: Bool) {
+        state.withLock { $0.memory[container] = password }
+        if inKeychain { store.save(password, for: Self.key(for: container)) }
+    }
+
     public func accepted(_ password: String, for container: VFSPath) {
         let remember = state.withLock { s -> Bool in
             s.memory[container] = password

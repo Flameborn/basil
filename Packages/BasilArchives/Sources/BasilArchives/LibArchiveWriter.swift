@@ -56,10 +56,10 @@ enum LibArchiveFormats {
     /// Each filter's own number for a level.
     static func level(_ level: PackLevel, filter: Int32) -> Int {
         switch filter {
-        case ARCHIVE_FILTER_GZIP, ARCHIVE_FILTER_BZIP2: [.store: 1, .fast: 1, .normal: 6, .maximum: 9][level]!
-        case ARCHIVE_FILTER_XZ: [.store: 0, .fast: 1, .normal: 6, .maximum: 9][level]!
-        case ARCHIVE_FILTER_ZSTD: [.store: 1, .fast: 1, .normal: 3, .maximum: 19][level]!
-        case ARCHIVE_FILTER_LZ4: [.store: 1, .fast: 1, .normal: 3, .maximum: 9][level]!
+        case ARCHIVE_FILTER_GZIP, ARCHIVE_FILTER_BZIP2: [.store: 1, .fast: 1, .normal: 6, .maximum: 9, .ultra: 9][level]!
+        case ARCHIVE_FILTER_XZ: [.store: 0, .fast: 1, .normal: 6, .maximum: 9, .ultra: 9][level]!
+        case ARCHIVE_FILTER_ZSTD: [.store: 1, .fast: 1, .normal: 3, .maximum: 19, .ultra: 19][level]!
+        case ARCHIVE_FILTER_LZ4: [.store: 1, .fast: 1, .normal: 3, .maximum: 9, .ultra: 9][level]!
         default: 6
         }
     }
@@ -102,7 +102,7 @@ final class LibArchiveWriter {
             if spec.level == .store {
                 try check(archive_write_set_format_option(handle, "zip", "compression", "store"))
             } else {
-                let level = [PackLevel.fast: 1, .normal: 6, .maximum: 9][spec.level] ?? 6
+                let level = [PackLevel.fast: 1, .normal: 6, .maximum: 9, .ultra: 9][spec.level] ?? 6
                 try check(archive_write_set_format_option(handle, "zip", "compression-level", String(level)))
             }
         }

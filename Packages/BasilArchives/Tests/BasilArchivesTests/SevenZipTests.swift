@@ -27,7 +27,10 @@ extension Fixture {
     /// A fixture whose opener also has the 7-Zip backend.
     static func withSevenZip() throws -> Fixture {
         let f = try Fixture()
-        f.opener.register(SevenZipBackend(executable: SevenZipBinary.url))
+        let sevenZip = SevenZipBackend(executable: SevenZipBinary.url)
+        f.opener.register(sevenZip)
+        f.opener.register(sevenZip.zipFallback(), first: false)
+        f.registry.register(writer: f.opener)
         return f
     }
 

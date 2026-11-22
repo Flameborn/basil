@@ -18,9 +18,15 @@ public final class ArchiveOpener: ContainerOpener {
         self.temporaryRoot = temporaryRoot
     }
 
+    /// The 7zz that writes 7z (and encrypted zip), once its backend is registered.
+    let sevenZip = Mutex<SevenZipWriter?>(nil)
+
     /// Adds a backend; `first` puts it ahead of the existing ones.
     public func register(_ backend: any ArchiveBackend, first: Bool = true) {
         backends.withLock { first ? $0.insert(backend, at: 0) : $0.append(backend) }
+        if let sevenZipBackend = backend as? SevenZipBackend, sevenZipBackend.type == "7z" {
+            sevenZip.withLock { $0 = SevenZipWriter(tool: sevenZipBackend.tool) }
+        }
     }
 
     public func recognizes(name: String) -> Bool {
@@ -34,15 +40,25 @@ public final class ArchiveOpener: ContainerOpener {
         let (url, temporary) = try await localFile(for: file.path, registry: registry)
         let location = ProviderLocation(provider: .archive, container: file.path)
         do {
+            var firstError: (any Error)?
             for backend in candidates {
-                let (entries, password) = try await Self.list(url, with: backend, byContent: byContent,
-                                                              archive: file.path, passwords: registry.passwords)
+                let listed: ([ArchiveEntry]?, String?)
+                do {
+                    listed = try await Self.list(url, with: backend, byContent: byContent,
+                                                 archive: file.path, passwords: registry.passwords)
+                } catch ArchiveError.damaged(let message, let archive) {
+                    // A later backend may read what this one cannot (7-Zip after libarchive for zip).
+                    firstError = firstError ?? ArchiveError.damaged(message, archive: archive)
+                    continue
+                }
+                let (entries, password) = listed
                 if let entries {
                     return ArchiveProvider(location: location, backend: backend, url: url, byContent: byContent,
                                            entries: entries, temporaryCopy: temporary,
                                            passwords: registry.passwords, password: password)
                 }
             }
+            if let firstError { throw firstError }
         } catch {
             if temporary { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
             throw error

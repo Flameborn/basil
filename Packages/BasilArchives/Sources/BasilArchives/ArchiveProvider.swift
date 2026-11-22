@@ -42,10 +42,14 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
 
     struct Stamp: Equatable { var size: Int64; var mtime: Int; var mtimeNanos: Int; var inode: UInt64 }
 
+    /// The names are encrypted too (the archive could not be listed without the password).
+    let namesEncrypted: Bool
+
     init(location: ProviderLocation, backend: any ArchiveBackend, url: URL, byContent: Bool,
          entries: [ArchiveEntry], temporaryCopy: Bool,
          passwords: (any ContainerPasswords)? = nil, password: String? = nil) {
         self.passwords = passwords
+        self.namesEncrypted = password != nil
         self.password = Mutex(password)
         self.location = location
         self.backend = backend
@@ -214,6 +218,12 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
 
     public func readSymlink(_ path: VFSPath) async throws -> String {
         let entry = try await entry(path)
+        if entry.kind == .symlink, entry.symlinkTarget == nil, entry.isEncrypted {
+            // 7z keeps a link's target as its data, encrypted with the files.
+            _ = try await knownPassword()
+            let data = try await read(entry, name: path.name, at: 0, count: Int(entry.size ?? 4096))
+            return String(decoding: data, as: UTF8.self)
+        }
         guard entry.kind == .symlink, let target = entry.symlinkTarget else { throw VFSError.unsupported("\(path.name) is not a link") }
         return target
     }
@@ -272,6 +282,11 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
             }
             retry = true
         }
+    }
+
+    /// The entries the archive stores (no implied folders), from a current index.
+    var explicitEntries: [ArchiveEntry] {
+        state.withLock { $0.index.list }.filter { $0.ordinal >= 0 && $0.path != "/" }
     }
 
     var hasEncryptedEntries: Bool { state.withLock { $0.index.list.contains { $0.isEncrypted } } }

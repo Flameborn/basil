@@ -40,8 +40,8 @@ struct SevenZipTool: Sendable {
     }
 
     /// Runs 7zz to the end and collects its output.
-    func run(_ arguments: [String], password: String? = nil) throws -> Output {
-        let process = try start(arguments, password: password)
+    func run(_ arguments: [String], password: String? = nil, passwordLines: Int = 1, in directory: URL? = nil) throws -> Output {
+        let process = try start(arguments, password: password, passwordLines: passwordLines, in: directory)
         let stderr = process.drainStderr()
         var stdout = Data()
         var buffer = [UInt8](repeating: 0, count: 1 << 16)
@@ -58,7 +58,9 @@ struct SevenZipTool: Sendable {
     /// Starts 7zz with stdout and stderr on pipes. The caller reads them and waits for the end.
     /// posix_spawn and waitpid, not Process: Process.waitUntilExit depends on run-loop delivery
     /// and hung on the threads these calls run on.
-    func start(_ arguments: [String], password: String? = nil) throws -> Running {
+    /// `passwordLines`: how often 7zz asks (twice when it updates an encrypted archive: once to
+    /// open it, once for the new items). `directory`: the working directory names are relative to.
+    func start(_ arguments: [String], password: String? = nil, passwordLines: Int = 1, in directory: URL? = nil) throws -> Running {
         var input: [Int32] = [0, 0], output: [Int32] = [0, 0], errors: [Int32] = [0, 0]
         guard pipe(&input) == 0 else { throw POSIXError(.EMFILE) }
         guard pipe(&output) == 0 else { close(input[0]); close(input[1]); throw POSIXError(.EMFILE) }
@@ -66,12 +68,17 @@ struct SevenZipTool: Sendable {
             [input[0], input[1], output[0], output[1]].forEach { close($0) }
             throw POSIXError(.EMFILE)
         }
+        // Close-on-exec at once: other children (Process, posix_spawn elsewhere) must not inherit
+        // these ends, or a pipe never reaches end of file after 7zz exits. dup2 in the child
+        // clears the flag on 0, 1 and 2.
+        for fd in input + output + errors { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
         var actions: posix_spawn_file_actions_t? = nil
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
         posix_spawn_file_actions_adddup2(&actions, input[0], 0)
         posix_spawn_file_actions_adddup2(&actions, output[1], 1)
         posix_spawn_file_actions_adddup2(&actions, errors[1], 2)
+        if let directory { posix_spawn_file_actions_addchdir(&actions, directory.path) }
         // Only 0, 1 and 2 reach 7zz: no other descriptor of Basil leaks into it.
         var attributes: posix_spawnattr_t? = nil
         posix_spawnattr_init(&attributes)
@@ -95,7 +102,7 @@ struct SevenZipTool: Sendable {
         _ = fcntl(input[1], F_SETNOSIGPIPE, 1)
         if let password {
             // A short write into an empty pipe does not block, so this never waits on 7zz.
-            let line = Array((password + "\n").utf8)
+            let line = Array(String(repeating: password + "\n", count: max(1, passwordLines)).utf8)
             _ = line.withUnsafeBytes { Darwin.write(input[1], $0.baseAddress, $0.count) }
         }
         close(input[1])
@@ -127,12 +134,14 @@ struct SevenZipTool: Sendable {
             if !state.withLock({ $0.stderrTaken }) { close(stderrFD) }
         }
 
-        /// Reads stderr on another thread so a chatty 7zz never blocks on a full pipe.
+        /// Reads stderr on another thread so a chatty 7zz never blocks on a full pipe. A thread of
+        /// its own, not a GCD work item: callers wait for it while holding GCD threads, and with
+        /// many 7zz runs at once the pool ran out and the drain never started.
         func drainStderr() -> Collected {
             let collected = Collected()
             let fd = stderrFD
             state.withLock { $0.stderrTaken = true }
-            DispatchQueue.global(qos: .utility).async {
+            SevenZipTool.thread {
                 var data = Data()
                 var buffer = [UInt8](repeating: 0, count: 4096)
                 while true {
@@ -170,6 +179,13 @@ struct SevenZipTool: Sendable {
             kill(pid, SIGTERM)
             wait()
         }
+    }
+
+    /// Runs a blocking loop (a pipe reader) on a new thread.
+    static func thread(_ body: @escaping @Sendable () -> Void) {
+        let thread = Thread(block: body)
+        thread.qualityOfService = .userInitiated
+        thread.start()
     }
 
     /// Text that arrives on another thread.

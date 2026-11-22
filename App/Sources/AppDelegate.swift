@@ -21,7 +21,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         providers.register(LocalProvider())
         let archives = ArchiveOpener()
         // 7z through the 7zz built from Vendor/7zip and copied into Contents/MacOS.
-        if let sevenZip = SevenZipBackend.bundled() { archives.register(sevenZip) }
+        // Zip files libarchive cannot read fall back to 7-Zip, tried after libarchive.
+        if let sevenZip = SevenZipBackend.bundled() {
+            archives.register(sevenZip)
+            archives.register(sevenZip.zipFallback(), first: false)
+        }
         providers.register(opener: archives)
         providers.register(writer: archives)
         var start: (left: VFSPath, right: VFSPath)?

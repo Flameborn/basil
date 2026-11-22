@@ -808,6 +808,62 @@ final class PaneUITests: XCTestCase {
                       "\(names(in: rightTable))")
     }
 
+    /// 7z in the pack dialog: Solid archive, a password with Show password, and Encrypt file names
+    /// and Remember in Keychain once a password is typed. The packed archive opens without asking.
+    func testPackEncrypted7z() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("so")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 4).isSelected })
+        leftTable.typeKey(.F5, modifierFlags: .option)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        sheet.popUpButtons["Format"].click()
+        app.menuItems["7z"].click()
+        let field = sheet.textFields["Archive"]
+        XCTAssertTrue(waitFor { (field.value as? String)?.hasSuffix("/Beta/song.7z") == true }, "\(field.value ?? "")")
+        func toggle(_ name: String) -> XCUIElement {
+            sheet.checkBoxes[name].exists ? sheet.checkBoxes[name] : sheet.switches[name]
+        }
+        XCTAssertTrue(toggle("Solid archive").exists, sheet.debugDescription)
+        XCTAssertTrue(toggle("Show password").exists, sheet.debugDescription)
+        XCTAssertFalse(toggle("Encrypt file names").exists)
+        let password = sheet.secureTextFields["Password"]
+        XCTAssertTrue(password.exists, sheet.debugDescription)
+        password.click()
+        XCTAssertTrue(waitFor { (password.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("basil")
+        XCTAssertTrue(waitFor { toggle("Encrypt file names").exists }, sheet.debugDescription)
+        XCTAssertTrue(toggle("Remember in Keychain").exists)
+        toggle("Show password").click()
+        XCTAssertTrue(waitFor { sheet.textFields["Password"].exists && (sheet.textFields["Password"].value as? String) == "basil" },
+                      sheet.debugDescription)
+        toggle("Encrypt file names").click()
+        // Out of every text field before auditing (an edited field reports Parent/Child mismatch).
+        func editing() -> Bool {
+            (sheet.textFields.allElementsBoundByIndex + sheet.secureTextFields.allElementsBoundByIndex)
+                .contains { ($0.value(forKey: "hasKeyboardFocus") as? Bool) == true }
+        }
+        for _ in 0..<8 where editing() { app.typeKey(.tab, modifierFlags: []) }
+        XCTAssertFalse(editing())
+        try audit(app) { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT pack 7z: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        sheet.buttons["Pack"].click()
+        XCTAssertTrue(waitFor({ self.names(in: self.rightTable) == ["song.7z"] }, timeout: 10), "\(names(in: rightTable))")
+        // The password just typed is known: Enter opens the archive without asking.
+        app.typeKey(.tab, modifierFlags: [])
+        rightTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song.mp3"] }, "\(names(in: rightTable))")
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+    }
+
     func testF2Rereads() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(.F2, modifierFlags: [])

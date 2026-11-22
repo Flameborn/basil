@@ -44,14 +44,29 @@ public struct PackFormat: Sendable, Hashable, Identifiable {
     public let levels: [PackLevel]
     /// Whether macOS metadata (extended attributes, Finder tags) can be stored.
     public let storesMacMetadata: Bool
+    /// Whether the pack dialog offers "Solid archive" (7z).
+    public let solid: Bool
+    /// Whether the pack dialog offers a password (AES-256).
+    public let encryption: Bool
+    /// Whether the names can be encrypted too ("Encrypt file names", 7z).
+    public let nameEncryption: Bool
 
     public init(id: String, name: String, singleFile: Bool = false, levels: [PackLevel] = [.fast, .normal, .maximum],
-                storesMacMetadata: Bool = false) {
+                storesMacMetadata: Bool = false, solid: Bool = false, encryption: Bool = false, nameEncryption: Bool = false) {
         self.id = id
         self.name = name
         self.singleFile = singleFile
         self.levels = levels
         self.storesMacMetadata = storesMacMetadata
+        self.solid = solid
+        self.encryption = encryption
+        self.nameEncryption = nameEncryption
+    }
+
+    /// The same format with a password offered (zip, when a writer that encrypts is available).
+    public func withEncryption() -> PackFormat {
+        PackFormat(id: id, name: name, singleFile: singleFile, levels: levels, storesMacMetadata: storesMacMetadata,
+                   solid: solid, encryption: true, nameEncryption: nameEncryption)
     }
 
     public var fileExtension: String { id }
@@ -59,7 +74,7 @@ public struct PackFormat: Sendable, Hashable, Identifiable {
 
 /// Compression level in the pack dialog. Each format maps it to its own scale.
 public enum PackLevel: String, Sendable, Codable, CaseIterable {
-    case store, fast, normal, maximum
+    case store, fast, normal, maximum, ultra
 
     public var title: String {
         switch self {
@@ -67,6 +82,7 @@ public enum PackLevel: String, Sendable, Codable, CaseIterable {
         case .fast: "Fast"
         case .normal: "Normal"
         case .maximum: "Maximum"
+        case .ultra: "Ultra (slowest)"
         }
     }
 }
@@ -76,12 +92,25 @@ public struct PackOptions: Sendable, Equatable {
     public var level: PackLevel
     /// Store extended attributes, Finder tags and resource forks (AppleDouble, like Finder).
     public var macMetadata: Bool
+    /// One compressed block for all files (7z).
+    public var solid: Bool
+    /// Encrypts the data with AES-256 (formats with `encryption`); nil or empty: not encrypted.
+    public var password: String?
+    /// Encrypts the names too, so the archive cannot be listed without the password (7z).
+    public var encryptNames: Bool
 
-    public init(format: String, level: PackLevel = .normal, macMetadata: Bool = true) {
+    public init(format: String, level: PackLevel = .normal, macMetadata: Bool = true, solid: Bool = true,
+                password: String? = nil, encryptNames: Bool = false) {
         self.format = format
         self.level = level
         self.macMetadata = macMetadata
+        self.solid = solid
+        self.password = password
+        self.encryptNames = encryptNames
     }
+
+    /// The password, when one was given.
+    public var encryptionPassword: String? { password.flatMap { $0.isEmpty ? nil : $0 } }
 }
 
 /// How a container writer talks to whoever runs it (a queue operation, or a test).

@@ -18,6 +18,11 @@ final class PackModel {
     var perItem = false
     var storePaths = true
     var testAfterPacking = false
+    var solid = true
+    var password = ""
+    var showPassword = false
+    var encryptNames = false
+    var rememberPassword = false
     /// Whether any item is a folder (a single compressed file can't hold one).
     let hasFolders: Bool
     let itemCount: Int
@@ -46,6 +51,12 @@ final class PackModel {
             if itemCount > 1, !perItem { return "\(format.name) holds one file. Turn on One archive per item." }
         }
         return nil
+    }
+
+    /// The password to encrypt with, if the format takes one and one was typed.
+    var encryptionPassword: String? {
+        guard format?.encryption == true, !password.isEmpty else { return nil }
+        return password
     }
 
     private func replaceExtension(old: String, new: String) {
@@ -78,6 +89,34 @@ struct PackView: View {
                         ForEach(levels, id: \.self) { Text($0.title).tag($0) }
                     }
                     .accessibilityLabel("Compression")
+                }
+                if model.format?.solid == true {
+                    Toggle("Solid archive", isOn: $model.solid)
+                        .accessibilityLabel("Solid archive")
+                }
+                if model.format?.encryption == true {
+                    Group {
+                        if model.showPassword {
+                            TextField("Password", text: $model.password)
+                        } else {
+                            SecureField("Password", text: $model.password)
+                        }
+                    }
+                    .accessibilityLabel("Password")
+                    Toggle("Show password", isOn: $model.showPassword)
+                        .accessibilityLabel("Show password")
+                    if model.encryptionPassword != nil {
+                        if model.format?.nameEncryption == true {
+                            Toggle("Encrypt file names", isOn: $model.encryptNames)
+                                .accessibilityLabel("Encrypt file names")
+                        }
+                        Toggle("Remember in Keychain", isOn: $model.rememberPassword)
+                            .accessibilityLabel("Remember in Keychain")
+                    }
+                    Text(model.encryptionPassword == nil ? "Leave the password empty for an archive that is not encrypted."
+                                                         : "The files are encrypted with AES-256.")
+                        .font(.callout)
+                        .foregroundStyle(Theme.secondaryTextColor)
                 }
                 Toggle("Store folder paths", isOn: $model.storePaths)
                     .accessibilityLabel("Store folder paths")
@@ -141,6 +180,8 @@ extension MainWindowController {
                               formatID: formatID, level: level,
                               hasFolders: items.contains { $0.isDirectoryLike }, itemCount: items.count)
         model.testAfterPacking = s.packTestAfter
+        model.solid = s.packSolid
+        model.encryptNames = s.packEncryptNames
         let hosting = NSHostingController(rootView: PackView(model: model))
         hosting.sizingOptions = [.preferredContentSize]
         hosting.view.setAccessibilityLabel("Pack \(what)")
@@ -171,6 +212,10 @@ extension MainWindowController {
         settings.settings.packFormat = model.formatID
         settings.settings.packLevel = model.level.rawValue
         settings.settings.packTestAfter = model.testAfterPacking
+        if model.format?.solid == true { settings.settings.packSolid = model.solid }
+        if model.encryptionPassword != nil, model.format?.nameEncryption == true {
+            settings.settings.packEncryptNames = model.encryptNames
+        }
         let jobs: [PackOperation.Job]
         if model.perItem, let folder = archive.parent {
             jobs = items.map { PackOperation.Job(archive: folder.appending(Self.archiveBaseName($0) + "." + model.formatID),
@@ -179,7 +224,11 @@ extension MainWindowController {
             jobs = [PackOperation.Job(archive: archive, sources: items.map(\.path))]
         }
         let s = settings.settings
-        let options = PackOptions(format: model.formatID, level: model.level, macMetadata: s.packMacMetadata)
+        let password = model.encryptionPassword
+        let options = PackOptions(format: model.formatID, level: model.level, macMetadata: s.packMacMetadata,
+                                  solid: model.solid, password: password,
+                                  encryptNames: model.encryptNames && model.format?.nameEncryption == true)
+        let remember = model.rememberPassword
         let queued = queue.add(PackOperation(jobs: jobs, options: options, storePaths: model.storePaths,
                                              moveSources: model.moveToArchive, unstableRetries: s.unstableSourceRetries,
                                              registry: providers))
@@ -187,6 +236,10 @@ extension MainWindowController {
         let test = model.testAfterPacking
         queued.whenDone = { [weak self] state in
             guard let self else { return }
+            // Opening (or testing) the new archive does not ask for the password just typed.
+            if let password, state == .finished, let passwords = providers.passwords as? RememberingPasswords {
+                for job in jobs { passwords.remember(password, for: job.archive, inKeychain: remember) }
+            }
             for job in jobs { reloadPanes(showingArchive: job.archive) }
             // A separate Test Archive item, with its own result, sound and speech.
             if test, state == .finished {
