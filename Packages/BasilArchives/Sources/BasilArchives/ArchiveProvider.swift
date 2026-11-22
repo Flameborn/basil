@@ -47,6 +47,9 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
         if temporaryCopy { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     }
 
+    /// A single compressed file (notes.txt.gz): one entry, nothing to change.
+    public var isSingleCompressedFile: Bool { LibArchiveBackend.allowsRaw(url) && state.withLock { $0.index.count } == 1 }
+
     /// The archive's display name, for logs and errors.
     var archiveName: String { location.container?.name ?? url.lastPathComponent }
 
@@ -54,11 +57,14 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
 
     private func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
-            queue.async { continuation.resume(with: Result { try body() }) }
+            queue.async {
+                UTF8Locale.use() // per thread: a serial queue does not always run on the same one
+                continuation.resume(with: Result { try body() })
+            }
         }
     }
 
-    private static func stamp(_ url: URL) -> Stamp? {
+    static func stamp(_ url: URL) -> Stamp? {
         var st = Darwin.stat()
         guard stat(url.path, &st) == 0 else { return nil }
         return Stamp(size: st.st_size, mtime: st.st_mtimespec.tv_sec, mtimeNanos: st.st_mtimespec.tv_nsec, inode: st.st_ino)
@@ -78,9 +84,11 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
         return fresh
     }
 
-    private func entry(_ path: VFSPath) throws -> ArchiveEntry {
+    /// The entry at `path`, from an index that is current (the archive file is checked first).
+    private func entry(_ path: VFSPath) async throws -> ArchiveEntry {
         guard path.location == location else { throw VFSError.noProvider(path.location) }
-        guard let entry = state.withLock({ $0.index.entry(path.path) }) else { throw VFSError.notFound(path) }
+        let index = try await run { [self] in try refreshIfChanged() }
+        guard let entry = index.entry(path.path) else { throw VFSError.notFound(path) }
         return entry
     }
 
@@ -89,6 +97,7 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     public func list(_ directory: VFSPath) -> AsyncThrowingStream<[FileItem], Error> {
         AsyncThrowingStream { continuation in
             queue.async { [self] in
+                UTF8Locale.use()
                 do {
                     let index = try refreshIfChanged()
                     guard let folder = index.entry(directory.path) else { throw VFSError.notFound(directory) }
@@ -108,7 +117,7 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     }
 
     public func item(at path: VFSPath) async throws -> FileItem {
-        let entry = try entry(path)
+        let entry = try await entry(path)
         let index = state.withLock { $0.index }
         return makeItem(entry, path: path, index: index)
     }
@@ -136,7 +145,7 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     // MARK: Reading (the copy engine extracts through these)
 
     public func fingerprint(of path: VFSPath) async throws -> FileFingerprint {
-        let entry = try entry(path)
+        let entry = try await entry(path)
         let kind: FileFingerprint.Kind = switch entry.kind {
         case .file: .file
         case .directory: .directory
@@ -149,15 +158,17 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     }
 
     public func metadata(of path: VFSPath) async throws -> FileMetadata {
-        let entry = try entry(path)
-        return FileMetadata(permissions: entry.ordinal >= 0 ? entry.permissions : nil, modified: entry.modified)
+        let entry = try await entry(path)
+        let attributes = entry.macMetadata.map(AppleDouble.unpack) ?? []
+        return FileMetadata(permissions: entry.ordinal >= 0 ? entry.permissions : nil, modified: entry.modified,
+                            extendedAttributes: attributes)
     }
 
     /// Never the same volume as anything else, so the engine always streams out of an archive.
     public func volumeIdentifier(of path: VFSPath) async throws -> String? { nil }
 
     public func openForReading(_ path: VFSPath, bypassCache: Bool) async throws -> any ReadableFile {
-        let entry = try entry(path)
+        let entry = try await entry(path)
         guard entry.kind == .file else { throw VFSError.unsupported("reading \(path.name): it is not a file") }
         if entry.isEncrypted { throw ArchiveError.encrypted(entry: path.name) }
         return ArchiveFile(provider: self, entry: entry, name: path.name)
@@ -178,7 +189,7 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     }
 
     public func readSymlink(_ path: VFSPath) async throws -> String {
-        let entry = try entry(path)
+        let entry = try await entry(path)
         guard entry.kind == .symlink, let target = entry.symlinkTarget else { throw VFSError.unsupported("\(path.name) is not a link") }
         return target
     }

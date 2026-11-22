@@ -21,10 +21,12 @@ public struct ArchiveEntry: Sendable, Equatable {
     public var ordinal: Int
     /// The entry whose data this entry has (a tar hard link points to an earlier entry); usually `ordinal`.
     public var dataOrdinal: Int
+    /// AppleDouble data with the entry's extended attributes (Finder tags, resource fork), if stored.
+    public var macMetadata: Data?
 
     public init(path: String, kind: Kind, size: Int64? = nil, modified: timespec? = nil,
                 permissions: UInt16? = nil, symlinkTarget: String? = nil, isEncrypted: Bool = false,
-                ordinal: Int, dataOrdinal: Int? = nil) {
+                ordinal: Int, dataOrdinal: Int? = nil, macMetadata: Data? = nil) {
         self.path = path
         self.kind = kind
         self.size = size
@@ -34,6 +36,7 @@ public struct ArchiveEntry: Sendable, Equatable {
         self.isEncrypted = isEncrypted
         self.ordinal = ordinal
         self.dataOrdinal = dataOrdinal ?? ordinal
+        self.macMetadata = macMetadata
     }
 
     public static func == (a: Self, b: Self) -> Bool {

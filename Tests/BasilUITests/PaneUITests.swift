@@ -464,12 +464,14 @@ final class PaneUITests: XCTestCase {
         }
     }
 
-    func testArchiveBrowseExtractAndReadOnly() throws {
+    func testArchiveBrowseChangeAndExtract() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
-        // The first test after a build can type before the cursor is placed.
-        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
         leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] })
+        // The first test after a build sometimes types before the app takes keys: try once more.
+        if !waitFor({ self.names(in: self.leftTable) == ["Inner"] }, timeout: 2) {
+            leftTable.typeKey(.enter, modifierFlags: [])
+        }
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
         leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
         XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack"] }, "\(names(in: leftTable))")
         leftTable.typeKey(.enter, modifierFlags: [])                     // Enter enters the archive
@@ -493,21 +495,68 @@ final class PaneUITests: XCTestCase {
             return false
         }
 
-        // Read-only: F7 explains instead of asking for a name.
-        leftTable.typeKey(.F7, modifierFlags: [])
+        // Shift+F4 does not work inside archives yet and says so.
+        leftTable.typeKey(.F4, modifierFlags: .shift)
         let status = app.staticTexts["pane.left.status"]
-        XCTAssertTrue(waitFor { (status.value as? String)?.contains("pack.zip is read-only") == true }, "\(status.value ?? "")")
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("does not work inside archives") == true }, "\(status.value ?? "")")
         XCTAssertFalse(app.sheets.firstMatch.exists)
+
+        // F7 makes a folder inside the archive (the archive is rewritten).
+        let sheet = app.sheets.firstMatch
+        leftTable.typeKey(.F7, modifierFlags: [])
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        app.typeText("Made\r")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "Made", "top"] }, "\(names(in: leftTable))")
 
         // F5 extracts the cursor item into the other pane (Beta).
         leftTable.typeKey(.end, modifierFlags: [])
-        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 1).isSelected })
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 2).isSelected })
         leftTable.typeKey(.F5, modifierFlags: [])
-        let sheet = app.sheets.firstMatch
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
         waitForFieldFocus(in: sheet)
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["top"] }, "\(names(in: rightTable))")
+
+        // F8 deletes from the archive after asking.
+        leftTable.typeKey(.F8, modifierFlags: [])
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        let question = sheet.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@",
+                                                               "Delete top.txt from pack.zip?", "Delete top.txt from pack.zip?"))
+        XCTAssertTrue(waitFor { question.firstMatch.exists }, sheet.staticTexts.allElementsBoundByIndex.map { "\($0.label)|\($0.value ?? "")" }.joined(separator: " / "))
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "Made"] }, "\(names(in: leftTable))")
+    }
+
+    func testPackDialog() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("so")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 4).isSelected })
+        leftTable.typeKey(.F5, modifierFlags: .option)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        let field = sheet.textFields["Archive"]
+        XCTAssertTrue(waitFor { (field.value as? String)?.hasSuffix("/Beta/song.zip") == true }, "\(field.value ?? "")")
+        XCTAssertTrue(sheet.popUpButtons["Format"].exists, sheet.debugDescription)
+        XCTAssertTrue(sheet.checkBoxes["Move to archive"].exists || sheet.switches["Move to archive"].exists, sheet.debugDescription)
+        app.typeKey(.tab, modifierFlags: [])   // out of the text field before auditing
+        try app.performAccessibilityAudit { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT pack: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        sheet.buttons["Pack"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song"] }, "\(names(in: rightTable))")
+        XCTAssertEqual(cellLabels(rightTable.tableRows.element(boundBy: 0)).dropFirst().first, "zip")
+        // Enter opens the new archive.
+        app.typeKey(.tab, modifierFlags: [])
+        rightTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song"] && self.cellLabels(self.rightTable.tableRows.element(boundBy: 0)).dropFirst().first == "mp3" },
+                      "\(names(in: rightTable))")
     }
 
     func testF2Rereads() {

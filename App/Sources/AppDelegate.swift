@@ -19,7 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugMenu.install(queue: queue)
         #endif
         providers.register(LocalProvider())
-        providers.register(opener: ArchiveOpener())
+        let archives = ArchiveOpener()
+        providers.register(opener: archives)
+        providers.register(writer: archives)
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
         var dataDirectory = MainWindowController.defaultDataDirectory
@@ -27,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         start = UITestFixture.makeIfRequested()
         if let isolated = UITestFixture.isolatedDefaults() {
             defaults = isolated
+            BasilWindows.savesFrames = false
             dataDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-data", isDirectory: true)
             try? FileManager.default.removeItem(at: dataDirectory)
             settings = SettingsStore(defaults: isolated)

@@ -60,6 +60,7 @@ public protocol FileSystemProvider: Sendable {
 public final class ProviderRegistry: Sendable {
     private let providers = Mutex<[ProviderLocation: any FileSystemProvider]>([:])
     let openers = Mutex<[any ContainerOpener]>([])
+    let writers = Mutex<[any ContainerWriter]>([])
 
     public init() {}
 

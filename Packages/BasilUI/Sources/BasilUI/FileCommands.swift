@@ -13,7 +13,8 @@ extension MainWindowController {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
         guard let window else { return }
-        if mode == .move, !ensureWritable(activePane.model.directory) { return }
+        let sourceFolder = activePane.model.directory
+        if mode == .move, !ensureWritable(sourceFolder) { return }
         let verb = mode == .copy ? "Copy" : "Move"
         let what = items.count == 1 ? items[0].name : FeedbackText.items(items.count)
         let other = otherPane.model.directory
@@ -27,8 +28,19 @@ extension MainWindowController {
             let s = settings.settings
             let options = SecureCopyOptions(verifyDestination: s.verifyCopies, unstableRetries: s.unstableSourceRetries,
                                             secure: s.secureCopy)
-            queue.add(TransferOperation(mode: mode, sources: items.map(\.path), target: target,
-                                        registry: providers, options: options))
+            let sources = items.map(\.path)
+            if let archive = target.location.container {
+                // Into an archive: the target must be one of its folders.
+                let kind = try? await providers.provider(for: target.location).item(at: target).kind
+                guard kind == .directory else { return activePane.report("Choose a folder inside \(archive.name) as the target.") }
+                let action = ArchiveUpdateOperation.Action.add(sources: sources, into: target, move: mode == .move)
+                queueArchiveUpdate(action, reloading: [archive])
+            } else if mode == .move, let archive = sourceFolder.location.container {
+                queueArchiveUpdate(.moveOut(sources: sources, target: target, options: options), reloading: [archive])
+            } else {
+                queue.add(TransferOperation(mode: mode, sources: sources, target: target,
+                                            registry: providers, options: options))
+            }
             activePane.model.deselectAll()
         }
     }
@@ -49,6 +61,10 @@ extension MainWindowController {
                 return
             }
             let destination = parent.appending(name)
+            if let archive = parent.location.container {
+                queueArchiveUpdate(.rename(from: item.path, to: destination), reloading: [archive], cursor: destination, in: pane)
+                return
+            }
             let queued = queue.add(RenameOperation(source: item.path, destination: destination, registry: providers))
             queued.whenDone = { state in
                 if state == .finished { pane.model.reload(cursor: destination) }
@@ -60,7 +76,7 @@ extension MainWindowController {
     func multiRename() {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
-        guard ensureWritable(activePane.model.directory) else { return }
+        guard ensureWritable(activePane.model.directory, archives: false) else { return }
         let pane = activePane
         let log = dataDirectory.appendingPathComponent("LastMultiRename.json")
         let model = MultiRenameModel(items: items, existingNames: pane.model.allItems.map(\.name), undoLog: log)
@@ -98,6 +114,10 @@ extension MainWindowController {
                                            confirm: "Create", fieldLabel: "Folder name"),
                   !name.isEmpty else { return }
             guard let path = resolve(name, relativeTo: directory) else { return }
+            if let archive = path.location.container {
+                queueArchiveUpdate(.makeDirectory(path), reloading: [archive], cursor: path, in: pane)
+                return
+            }
             let queued = queue.add(MakeDirectoryOperation(path: path, registry: providers))
             queued.whenDone = { state in
                 if state == .finished, pane.model.directory == path.parent { pane.model.reload(cursor: path) }
@@ -108,7 +128,7 @@ extension MainWindowController {
     /// Shift+F4 (Total Commander): asks for a name (prefilled with the cursor file's name), creates
     /// an empty file through the queue unless it exists, then opens it in the editor from Settings.
     func newFile() {
-        guard let window, ensureWritable(activePane.model.directory) else { return }
+        guard let window, ensureWritable(activePane.model.directory, archives: false) else { return }
         let pane = activePane
         let directory = pane.model.directory
         let initial = pane.cursorItem.flatMap { $0.isDirectoryLike ? nil : $0.name } ?? ""
@@ -187,15 +207,21 @@ extension MainWindowController {
         let canTrash = (try? providers.writableProvider(for: activePane.model.directory.location))?
             .capabilities.contains(.trash) ?? false
         let toTrash = !permanently && canTrash
+        let archive = activePane.model.directory.location.container
         let alert = NSAlert()
-        alert.messageText = toTrash ? "Move \(what) to the Trash?" : "Delete \(what) permanently?"
+        alert.messageText = toTrash ? "Move \(what) to the Trash?"
+            : archive.map { "Delete \(what) from \($0.name)?" } ?? "Delete \(what) permanently?"
         if !toTrash { alert.informativeText = "This cannot be undone." }
         alert.alertStyle = toTrash ? .informational : .warning
         alert.addButton(withTitle: toTrash ? "Move to Trash" : "Delete")
         alert.addButton(withTitle: "Cancel")
         Task {
             guard await present(alert, in: window) == 0 else { return }
-            queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers))
+            if let archive {
+                queueArchiveUpdate(.delete(items.map(\.path)), reloading: [archive])
+            } else {
+                queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers))
+            }
             activePane.model.deselectAll()
         }
     }
@@ -212,17 +238,41 @@ extension MainWindowController {
         activePane.model.deselectAll()
     }
 
-    /// False, with a spoken and shown reason, when items in `directory` can't be changed
-    /// (inside an archive, for now).
-    func ensureWritable(_ directory: VFSPath) -> Bool {
+    /// False, with a spoken and shown reason, when items in `directory` can't be changed.
+    /// Inside an archive that a container writer can change, true unless `archives` is false
+    /// (commands that do not work inside archives yet).
+    func ensureWritable(_ directory: VFSPath, archives: Bool = true) -> Bool {
         let capabilities = (try? providers.provider(for: directory.location))?.capabilities ?? []
         if capabilities.contains(.write) { return true }
-        if let archive = directory.location.container {
-            activePane.report("\(archive.name) is read-only. Changing archives is not supported yet.")
-        } else {
+        guard let archive = directory.location.container else {
             activePane.report("This folder is read-only.")
+            return false
         }
-        return false
+        guard archives else {
+            activePane.report("This does not work inside archives yet.")
+            return false
+        }
+        guard let writer = providers.containerWriter(for: directory.location) else {
+            activePane.report("\(archive.name) is read-only.")
+            return false
+        }
+        if let refusal = writer.updateRefusal(for: archive, registry: providers) {
+            activePane.report(refusal)
+            return false
+        }
+        return true
+    }
+
+    /// Queues a change inside an archive and rereads the panes showing it when it is done.
+    func queueArchiveUpdate(_ action: ArchiveUpdateOperation.Action, reloading archives: [VFSPath],
+                            cursor: VFSPath? = nil, in pane: PaneViewController? = nil) {
+        let s = settings.settings
+        let queued = queue.add(ArchiveUpdateOperation(action, macMetadata: s.packMacMetadata,
+                                                      unstableRetries: s.unstableSourceRetries, registry: providers))
+        queued.whenDone = { [weak self] state in
+            for archive in archives { self?.reloadPanes(showingArchive: archive) }
+            if state == .finished, let cursor, let pane { pane.model.reload(cursor: cursor) }
+        }
     }
 
     /// A typed path: absolute, "~/..." or relative to `directory`. Inside an archive, an absolute

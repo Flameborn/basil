@@ -135,6 +135,7 @@ enum BuiltinCommands {
             C(id: "tools.terminal", title: "Open Terminal Here", defaultKeys: [K(.character("t"), [.command, .shift])]) { _ in
                 w?.openTerminal()
             },
+            C(id: "file.pack", title: "Pack", defaultKeys: [K(.function(5), .option)]) { _ in w?.packItems() },
             C(id: "file.testArchive", title: "Test Archives", defaultKeys: [K(.function(9), [.option, .shift])]) { _ in
                 w?.testArchives()
             },

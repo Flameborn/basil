@@ -91,6 +91,12 @@ public struct TransferOperation: QueueOperation {
     }
 
     public func run(_ context: OperationContext) async throws {
+        _ = try await transferAll(context)
+    }
+
+    /// Runs the transfers and returns the sources that were transferred completely (nothing
+    /// inside them failed or was skipped).
+    func transferAll(_ context: OperationContext) async throws -> [VFSPath] {
         let dst = try registry.writableProvider(for: target.location)
         let targetKind = try? await dst.fingerprint(of: target).kind
         let pairs: [(VFSPath, VFSPath)]
@@ -115,6 +121,7 @@ public struct TransferOperation: QueueOperation {
         let engine = SecureCopyEngine(registry: registry, options: options, monitor: monitor)
         context.log(options.secure ? "Secure mode" : "Total Commander style mode")
         var done = 0
+        var complete: [VFSPath] = []
         for (index, (source, destination)) in pairs.enumerated() {
             try await context.checkpoint()
             monitor.setLabel("\(index + 1) of \(pairs.count), \(source.name)")
@@ -127,9 +134,11 @@ public struct TransferOperation: QueueOperation {
             for p in summary.acceptedUnstable { context.log("Accepted while still changing: \(p.path)") }
             for p in summary.sourcesKept { context.log("Kept source \(p.path)") }
             if summary.failed.isEmpty, summary.files + summary.directories + summary.symlinks > 0 { done += 1 }
+            if summary.failed.isEmpty, summary.skipped.isEmpty { complete.append(source) }
             context.items(done: done, total: pairs.count)
         }
         context.progress(1, "\(itemsText(done)) \(mode == .copy ? "copied" : "moved")")
+        return complete
     }
 
     /// Bytes of a file, or of all files below a folder.
@@ -274,7 +283,7 @@ public struct DeleteOperation: QueueOperation {
                     try await registry.writableProvider(for: path.location).trash(path)
                 }
             } else {
-                removed = try await removeTree(path, errors, context)
+                removed = try await Self.removeTree(path, registry, errors, context)
             }
             guard removed else { continue }
             done += 1
@@ -286,7 +295,8 @@ public struct DeleteOperation: QueueOperation {
 
     /// Deletes a file or a folder with everything in it. False when something was skipped
     /// after an error (the folders above it are then kept too).
-    private func removeTree(_ path: VFSPath, _ errors: ItemErrorPolicy, _ context: OperationContext) async throws -> Bool {
+    static func removeTree(_ path: VFSPath, _ registry: ProviderRegistry, _ errors: ItemErrorPolicy,
+                           _ context: OperationContext) async throws -> Bool {
         try await context.checkpoint()
         let provider = try registry.writableProvider(for: path.location)
         var children: [FileItem] = []
@@ -297,7 +307,7 @@ public struct DeleteOperation: QueueOperation {
         }) else { return false }
         var complete = true
         for child in children {
-            if try await !removeTree(child.path, errors, context) { complete = false }
+            if try await !removeTree(child.path, registry, errors, context) { complete = false }
         }
         guard complete else { return false }
         return try await errors.run(path) { try await provider.remove(path) }

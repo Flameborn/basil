@@ -26,7 +26,7 @@ final class QueueWindowController: NSWindowController {
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = true
         panel.becomesKeyOnlyIfNeeded = false
-        panel.setFrameAutosaveName("BasilQueueWindow")
+        panel.basilAutosave("BasilQueueWindow")
         panel.contentMinSize = NSSize(width: 420, height: 300)
         panel.isToggleChord = isToggleChord
         super.init(window: panel)

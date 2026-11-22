@@ -226,7 +226,7 @@ final class MultiRenameWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.title = "Multi-Rename"
-        window.setFrameAutosaveName("BasilMultiRenameWindow")
+        window.basilAutosave("BasilMultiRenameWindow")
         super.init(window: window)
         window.delegate = self
         let hosting = NSHostingController(rootView: MultiRenameView(model: model, settings: settings))

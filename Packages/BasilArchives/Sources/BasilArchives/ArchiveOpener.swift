@@ -98,7 +98,10 @@ public final class ArchiveOpener: ContainerOpener {
 
     static func blocking<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
-            queue.async { continuation.resume(with: Result { try body() }) }
+            queue.async {
+                UTF8Locale.use() // per thread: a serial queue does not always run on the same one
+                continuation.resume(with: Result { try body() })
+            }
         }
     }
 }

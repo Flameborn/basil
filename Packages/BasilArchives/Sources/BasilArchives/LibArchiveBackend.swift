@@ -159,6 +159,8 @@ struct LibArchiveHeader {
     /// Normalised path of the entry this one is a hard link to.
     var hardlink: String?
     var isEncrypted: Bool
+    /// AppleDouble data libarchive found for this entry (Finder's "__MACOSX/._name" in zip, "._name" in tar).
+    var macMetadata: Data?
 
     func entry(ordinal: Int) -> ArchiveEntry {
         let kind: ArchiveEntry.Kind = switch type {
@@ -169,7 +171,7 @@ struct LibArchiveHeader {
         }
         return ArchiveEntry(path: path, kind: kind, size: kind == .file ? size : nil, modified: modified,
                             permissions: permissions, symlinkTarget: kind == .symlink ? symlink : nil,
-                            isEncrypted: isEncrypted, ordinal: ordinal)
+                            isEncrypted: isEncrypted, ordinal: ordinal, macMetadata: macMetadata)
     }
 }
 
@@ -179,6 +181,8 @@ final class LibArchiveReader {
     private let archiveName: String
     private(set) var isFatal = false
     private var opened = false
+    /// The entry of the last header read; valid until the next one.
+    private(set) var currentEntry: OpaquePointer?
 
     /// nil when libarchive recognises no format in the file.
     init?(url: URL, raw: Bool) throws {
@@ -211,6 +215,11 @@ final class LibArchiveReader {
     deinit { archive_read_free(handle) }
 
     var isRaw: Bool { archive_format(handle) == ARCHIVE_FORMAT_RAW }
+    var formatCode: Int32 { archive_format(handle) }
+    /// Filter codes from the outermost (applied last when writing) inwards, without "none".
+    var filterCodes: [Int32] {
+        (0..<max(0, archive_filter_count(handle))).map { archive_filter_code(handle, $0) }.filter { $0 != ARCHIVE_FILTER_NONE }
+    }
     var compressedBytesRead: Int64 { archive_filter_bytes(handle, -1) }
 
     /// The next header, or nil at the end of the archive.
@@ -223,6 +232,9 @@ final class LibArchiveReader {
             isFatal = true
             throw ArchiveError.damaged(Self.message(handle), archive: archiveName)
         }
+        currentEntry = entry
+        var macSize = 0
+        let mac = archive_entry_mac_metadata(entry, &macSize)
         let raw = Self.string(archive_entry_pathname_utf8(entry)) ?? Self.string(archive_entry_pathname(entry)) ?? ""
         let hardlink = Self.string(archive_entry_hardlink_utf8(entry)) ?? Self.string(archive_entry_hardlink(entry))
         return LibArchiveHeader(
@@ -234,7 +246,8 @@ final class LibArchiveReader {
             permissions: UInt16(archive_entry_perm(entry) & 0o7777),
             symlink: Self.string(archive_entry_symlink_utf8(entry)) ?? Self.string(archive_entry_symlink(entry)),
             hardlink: hardlink.map { VFSPath.local($0).path },
-            isEncrypted: archive_entry_is_data_encrypted(entry) != 0
+            isEncrypted: archive_entry_is_data_encrypted(entry) != 0,
+            macMetadata: mac.map { Data(bytes: $0, count: macSize) }
         )
     }
 

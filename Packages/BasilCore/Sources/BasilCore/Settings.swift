@@ -40,6 +40,11 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var terminalID = "terminal"
     /// Shell command for the "custom" terminal; `{dir}` is replaced by the quoted folder path.
     public var terminalCommand = ""
+    /// Store extended attributes, Finder tags and resource forks in zip and tar archives (like Finder).
+    public var packMacMetadata = true
+    /// The pack dialog starts with the format and level used last.
+    public var packFormat = "zip"
+    public var packLevel = "normal"
 
     public init() {}
 
@@ -60,6 +65,9 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         editorRules = try c.decodeIfPresent([EditorRule].self, forKey: .editorRules) ?? d.editorRules
         terminalID = try c.decodeIfPresent(String.self, forKey: .terminalID) ?? d.terminalID
         terminalCommand = try c.decodeIfPresent(String.self, forKey: .terminalCommand) ?? d.terminalCommand
+        packMacMetadata = try c.decodeIfPresent(Bool.self, forKey: .packMacMetadata) ?? d.packMacMetadata
+        packFormat = try c.decodeIfPresent(String.self, forKey: .packFormat) ?? d.packFormat
+        packLevel = try c.decodeIfPresent(String.self, forKey: .packLevel) ?? d.packLevel
         // Built-in views must always exist.
         for builtin in ListView.defaults where !views.contains(where: { $0.id == builtin.id }) {
             views.append(builtin)

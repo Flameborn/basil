@@ -22,8 +22,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let queue: FileOperationQueue
     private var queueWindow: QueueWindowController?
     let quickLook = QuickLookController()
-    private let left: PaneViewController
-    private let right: PaneViewController
+    let left: PaneViewController
+    let right: PaneViewController
     private var functionBar: FunctionKeyBar!
     private(set) var activeSide: PaneSide = .left
     /// False when start folders were forced (UI tests), so test folders never become the user's saved start folders.
@@ -65,7 +65,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
             defer: false
         )
         window.title = "Basil"
-        window.setFrameAutosaveName("BasilMainWindow")
+        window.basilAutosave("BasilMainWindow")
         super.init(window: window)
 
         BuiltinCommands.register(in: commands, window: self)
@@ -76,7 +76,13 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         }
 
         window.contentViewController = WorkspaceViewController(left: left, right: right, functionBar: functionBar)
-        if !window.setFrameUsingName("BasilMainWindow") { window.center() }
+        if !BasilWindows.savesFrames || !window.setFrameUsingName("BasilMainWindow") {
+            // No saved frame: 1280 by 800, or smaller to fit the screen, centred.
+            let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+            let size = NSSize(width: min(1280, visible.width - 40), height: min(800, visible.height - 40))
+            window.setFrame(NSRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2,
+                                   width: size.width, height: size.height), display: false)
+        }
 
         quickLook.announce = { [weak self] message in self?.announce(message) }
         for pane in [left, right] {
@@ -267,5 +273,18 @@ final class WorkspaceViewController: NSViewController {
             root.heightAnchor.constraint(greaterThanOrEqualToConstant: 320),
         ])
         view = root
+    }
+}
+
+/// Window frames are remembered in the standard preferences. UI tests turn this off, so they
+/// never change the user's settings and always start from the same window positions.
+@MainActor
+public enum BasilWindows {
+    public static var savesFrames = true
+}
+
+extension NSWindow {
+    @MainActor func basilAutosave(_ name: String) {
+        if BasilWindows.savesFrames { setFrameAutosaveName(name) }
     }
 }

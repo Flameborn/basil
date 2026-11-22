@@ -35,7 +35,7 @@ public final class SettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Basil Settings"
-        window.setFrameAutosaveName("BasilSettingsWindow")
+        window.basilAutosave("BasilSettingsWindow")
         // Wide enough that all tabs fit in the toolbar (otherwise one hides behind an overflow button).
         window.contentMinSize = NSSize(width: 980, height: 520)
         super.init(window: window)
@@ -338,6 +338,11 @@ struct CopySettings: View {
             .accessibilityLabel("Retries when a file changes during copying")
             .accessibilityValue("\(store.settings.unstableSourceRetries)")
             Text("Secure mode only. A file that is still being written is read again this many times, waiting longer each time, before Basil asks what to do.")
+                .font(.callout)
+                .foregroundStyle(Theme.secondaryTextColor)
+            Toggle("Store macOS metadata in archives", isOn: $store.settings.packMacMetadata)
+                .accessibilityLabel("Store macOS metadata in archives")
+            Text("Packing zip and tar archives keeps extended attributes, Finder tags and resource forks, the way Finder does (zip archives get a __MACOSX folder, which other systems show as extra files). Basil restores them when extracting. On by default.")
                 .font(.callout)
                 .foregroundStyle(Theme.secondaryTextColor)
         }
