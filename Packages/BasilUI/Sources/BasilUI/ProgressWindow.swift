@@ -13,7 +13,7 @@ import SwiftUI
 final class ProgressWindowController: NSWindowController, NSWindowDelegate {
     /// Kinds that show the window at once; every other kind after `delay`.
     static let immediateKinds: Set<OperationKind> = [
-        .copy, .move, .delete, .trash, .pack, .testArchive, .createChecksums, .verifyChecksums, .other,
+        .copy, .move, .delete, .trash, .pack, .unpack, .testArchive, .createChecksums, .verifyChecksums, .split, .combine, .other,
     ]
     static let delay: Duration = .seconds(1)
 

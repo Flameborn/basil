@@ -17,6 +17,9 @@ public protocol ContainerOpener: Sendable {
     /// the container can't be read at all. `progress` gets a fraction from 0 to 1.
     func test(_ file: VFSPath, registry: ProviderRegistry,
               progress: @escaping @Sendable (Double, String) -> Void) async throws -> [String]
+    /// Every file that belongs to the container `file` (the volumes of a multi-volume RAR set),
+    /// `file` included. Unpack's "Delete archive after unpacking" removes all of them.
+    func volumes(of file: VFSPath, registry: ProviderRegistry) async -> [VFSPath]
 }
 
 extension ContainerOpener {
@@ -24,6 +27,8 @@ extension ContainerOpener {
                      progress: @escaping @Sendable (Double, String) -> Void) async throws -> [String] {
         throw VFSError.unsupported("testing \(file.name)")
     }
+
+    public func volumes(of file: VFSPath, registry: ProviderRegistry) async -> [VFSPath] { [file] }
 }
 
 extension ProviderRegistry {

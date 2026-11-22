@@ -12,7 +12,7 @@ extension MainWindowController {
     func copyOrMove(_ mode: TransferMode) {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
-        guard let window else { return }
+        guard let window, ensureReadable(activePane.model.directory) else { return }
         let sourceFolder = activePane.model.directory
         if mode == .move, !ensureWritable(sourceFolder) { return }
         let verb = mode == .copy ? "Copy" : "Move"
@@ -155,6 +155,7 @@ extension MainWindowController {
     func editCursorItem() {
         guard let item = activePane.cursorItem else { return announce("No items") }
         if item.isDirectoryLike { return announce("\(item.name) is a folder") }
+        guard ensureReadable(activePane.model.directory) else { return }
         guard item.path.location == .local || item.path.location.container != nil else {
             return announce("Only local files and files in archives can be edited for now")
         }
@@ -251,6 +252,16 @@ extension MainWindowController {
         activePane.model.deselectAll()
     }
 
+    /// False, with a spoken and shown reason, when the files in `directory` have no contents to
+    /// read: a file list (.lst) only has their names, sizes and dates.
+    func ensureReadable(_ directory: VFSPath) -> Bool {
+        let capabilities = (try? providers.provider(for: directory.location))?.capabilities ?? []
+        if capabilities.contains(.read) || capabilities.contains(.write) { return true }
+        let name = directory.location.container?.name ?? "This folder"
+        activePane.report("\(name) is a file list: it has the names, sizes and dates of the files, not the files.")
+        return false
+    }
+
     /// False, with a spoken and shown reason, when items in `directory` can't be changed.
     /// Inside an archive that a container writer can change, true unless `archives` is false
     /// (commands that do not work inside archives yet).
@@ -316,6 +327,7 @@ extension MainWindowController {
             case .conflict: return .conflict(.skip)
             case .unstableSource: return .unstableSource(.skip)
             case .itemFailed: return .itemFailed(.fail)
+            case .folderExists: return .folderExists(.skip, forAll: false)
             }
         }
         window.makeKeyAndOrderFront(nil)
@@ -354,6 +366,21 @@ extension MainWindowController {
             for (title, _) in choices { alert.addButton(withTitle: title) }
             let index = await present(alert, in: window)
             return .itemFailed(choices.indices.contains(index) ? choices[index].1 : .cancel)
+        case .folderExists(let f):
+            let alert = NSAlert()
+            alert.messageText = "\(f.folder.name) already exists"
+            alert.informativeText = "Unpacking \(f.archive.name) would put its items into this folder.\nIn \(f.folder.parent?.path ?? "")"
+            let choices: [(String, FolderExistsChoice)] = [
+                ("Unpack into It", .merge), ("Use \(f.newName)", .newName), ("Skip", .skip), ("Cancel", .cancel),
+            ]
+            for (title, _) in choices { alert.addButton(withTitle: title) }
+            if f.moreArchives {
+                alert.showsSuppressionButton = true
+                alert.suppressionButton?.title = "Do the same for the other archives"
+            }
+            let index = await present(alert, in: window)
+            let forAll = alert.suppressionButton?.state == .on
+            return .folderExists(choices.indices.contains(index) ? choices[index].1 : .cancel, forAll: forAll)
         }
     }
 

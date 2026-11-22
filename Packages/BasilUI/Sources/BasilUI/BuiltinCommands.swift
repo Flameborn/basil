@@ -148,6 +148,7 @@ enum BuiltinCommands {
             // F3 Quick Look (F3 again or Escape closes it), F4 edit with the editor rules from Settings.
             C(id: "file.view", title: "View", defaultKeys: [K(.function(3))]) { _ in
                 guard let w else { return }
+                guard w.quickLook.isOpen || w.ensureReadable(w.activePane.model.directory) else { return }
                 w.quickLook.toggle(for: w.activePane)
             },
             C(id: "file.edit", title: "Edit", defaultKeys: [K(.function(4))]) { _ in w?.editCursorItem() },
@@ -155,6 +156,10 @@ enum BuiltinCommands {
                 w?.openTerminal()
             },
             C(id: "file.pack", title: "Pack", defaultKeys: [K(.function(5), .option)]) { _ in w?.packItems() },
+            C(id: "file.unpack", title: "Unpack...", defaultKeys: [K(.function(9), .option)]) { _ in w?.unpackArchives() },
+            // Split and combine like TC (no default keys there either).
+            C(id: "file.split", title: "Split File...") { _ in w?.splitFile() },
+            C(id: "file.combine", title: "Combine Files...") { _ in w?.combineFiles() },
             C(id: "file.testArchive", title: "Test Archives", defaultKeys: [K(.function(9), [.option, .shift])]) { _ in
                 w?.testArchives()
             },

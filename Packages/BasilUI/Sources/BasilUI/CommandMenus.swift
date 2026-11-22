@@ -17,6 +17,7 @@ enum BuiltinMenus {
                 .separator,
                 .submenu("Archives", c("file.pack", "file.unpack", "file.testArchive", "pane.openArchive")),
                 .submenu("Checksums", c("file.checksumCreate", "file.checksumVerify")),
+                .submenu("Split", c("file.split", "file.combine")),
                 .separator,
             ] + c("file.calculateSize"))
 

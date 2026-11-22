@@ -7,7 +7,8 @@ extension MainWindowController {
     /// Hashes the selected (or cursor) items into one checksum file in the current folder, or into
     /// one checksum file next to each file.
     func createChecksums() {
-        guard let window, ensureWritable(activePane.model.directory, archives: false) else { return }
+        guard let window, ensureReadable(activePane.model.directory),
+              ensureWritable(activePane.model.directory, archives: false) else { return }
         let pane = activePane
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
@@ -96,7 +97,7 @@ extension MainWindowController {
         return ChecksumAnswer(algorithm: algorithms[popup.indexOfSelectedItem], perFile: perFile.state == .on, name: name)
     }
 
-    private func confirm(in window: NSWindow, message: String, confirm: String) async -> Bool {
+    func confirm(in window: NSWindow, message: String, confirm: String) async -> Bool {
         let alert = NSAlert()
         alert.messageText = message
         alert.addButton(withTitle: confirm)

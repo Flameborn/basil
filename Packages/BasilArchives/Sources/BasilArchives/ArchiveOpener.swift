@@ -83,6 +83,28 @@ public final class ArchiveOpener: ContainerOpener {
         return try await provider.test(progress: progress)
     }
 
+    /// The volumes of a multi-volume RAR set ("name.part1.rar", "name.part2.rar", or "name.rar",
+    /// "name.r00", ...), found next to `file`; any other archive is only itself.
+    public func volumes(of file: VFSPath, registry: ProviderRegistry) async -> [VFSPath] {
+        guard file.location == .local, let folder = file.parent else { return [file] }
+        let first = UnRARBackend.firstVolume(of: URL(fileURLWithPath: file.path)).lastPathComponent
+        let pattern: Regex<AnyRegexOutput>
+        if let m = first.wholeMatch(of: /(?i)(.*)\.part\d+\.rar/) {
+            let base = NSRegularExpression.escapedPattern(for: String(m.1))
+            guard let r = try? Regex("(?i)" + base + "\\.part\\d+\\.rar") else { return [file] }
+            pattern = r
+        } else if let m = first.wholeMatch(of: /(?i)(.*)\.rar/) {
+            let base = NSRegularExpression.escapedPattern(for: String(m.1))
+            guard let r = try? Regex("(?i)" + base + "\\.(?:rar|[r-z]\\d\\d)") else { return [file] }
+            pattern = r
+        } else {
+            return [file]
+        }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        let found = names.filter { $0.wholeMatch(of: pattern) != nil }.sorted().map { folder.appending($0) }
+        return found.contains(file) ? found : [file] + found
+    }
+
     /// Lists an archive, asking for its password when the names are encrypted (until one works
     /// or the prompt is cancelled). Returns the password that opened it, if one was needed.
     static func list(_ url: URL, with backend: any ArchiveBackend, byContent: Bool, archive: VFSPath,

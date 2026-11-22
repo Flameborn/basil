@@ -55,6 +55,20 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var packEncryptNames = false
     /// The Create Checksum Files dialog starts with the algorithm used last (an algorithm's raw value).
     public var checksumAlgorithm = "sha256"
+    /// Unpack dialog (Option+F9), remembered: extract into a folder named after the archive when
+    /// it has several items at the top (on at first), the file mask, "Unpack folder paths" (on),
+    /// and how "Delete archive after unpacking" deletes (the Trash at first). The delete box
+    /// itself always starts off.
+    public var unpackOwnFolder = true
+    public var unpackMask = ""
+    public var unpackPaths = true
+    public var unpackDeletePermanently = false
+    /// Split dialog, remembered: the size preset's id ("cd700", "custom"), the custom size as
+    /// typed ("1 GB"), decimal units for it (1000) instead of binary (1024), and "Create SFV file".
+    public var splitPreset = "cd700"
+    public var splitCustomSize = "1 GB"
+    public var splitDecimalUnits = false
+    public var splitCreateSFV = true
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
     /// extension and Full no longer shows the Ext column.
     public var viewsVersion = BasilSettings.currentViewsVersion
@@ -87,6 +101,14 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         packSolid = try c.decodeIfPresent(Bool.self, forKey: .packSolid) ?? d.packSolid
         packEncryptNames = try c.decodeIfPresent(Bool.self, forKey: .packEncryptNames) ?? d.packEncryptNames
         checksumAlgorithm = try c.decodeIfPresent(String.self, forKey: .checksumAlgorithm) ?? d.checksumAlgorithm
+        unpackOwnFolder = try c.decodeIfPresent(Bool.self, forKey: .unpackOwnFolder) ?? d.unpackOwnFolder
+        unpackMask = try c.decodeIfPresent(String.self, forKey: .unpackMask) ?? d.unpackMask
+        unpackPaths = try c.decodeIfPresent(Bool.self, forKey: .unpackPaths) ?? d.unpackPaths
+        unpackDeletePermanently = try c.decodeIfPresent(Bool.self, forKey: .unpackDeletePermanently) ?? d.unpackDeletePermanently
+        splitPreset = try c.decodeIfPresent(String.self, forKey: .splitPreset) ?? d.splitPreset
+        splitCustomSize = try c.decodeIfPresent(String.self, forKey: .splitCustomSize) ?? d.splitCustomSize
+        splitDecimalUnits = try c.decodeIfPresent(Bool.self, forKey: .splitDecimalUnits) ?? d.splitDecimalUnits
+        splitCreateSFV = try c.decodeIfPresent(Bool.self, forKey: .splitCreateSFV) ?? d.splitCreateSFV
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
         if viewsVersion < 2, let full = views.firstIndex(where: { $0.id == ListView.full.id }) {
             for i in views[full].columns.indices where views[full].columns[i].id == .ext {

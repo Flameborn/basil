@@ -956,6 +956,142 @@ final class PaneUITests: XCTestCase {
         XCTAssertFalse(app.sheets.firstMatch.exists)
     }
 
+    /// Audits a sheet, skipping the documented false positives (pop-ups, disabled controls,
+    /// contrast of the dimmed window behind it).
+    func auditSheet(_ sheet: XCUIElement, _ label: String) throws {
+        try audit(app) { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled {
+                return true
+            }
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT \(label): \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+    }
+
+    func toggle(_ name: String, in sheet: XCUIElement) -> XCUIElement {
+        sheet.checkBoxes[name].exists ? sheet.checkBoxes[name] : sheet.switches[name]
+    }
+
+    /// Enters Alpha/Inner in the left pane, cursor on pack.zip.
+    func openInner() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.enter, modifierFlags: [])
+        if !waitFor({ self.names(in: self.leftTable) == ["Inner"] }, timeout: 2) { leftTable.typeKey(.enter, modifierFlags: []) }
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack.zip"] }, "\(names(in: leftTable))")
+    }
+
+    /// Option+F5 with a file list format writes Alpha.lst; it opens like a folder, and copying
+    /// or deleting inside it says why it cannot.
+    func testFileListPackBrowseAndRefusals() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected }) // Alpha
+        leftTable.typeKey(.F5, modifierFlags: .option)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        sheet.popUpButtons["Format"].click()
+        app.menuItems["Optimised file list (lst)"].click()
+        let field = sheet.textFields["Archive"]
+        XCTAssertTrue(waitFor { (field.value as? String)?.hasSuffix("/Beta/Alpha.lst") == true }, "\(field.value ?? "")")
+        XCTAssertFalse(toggle("Move to archive", in: sheet).exists)
+        app.typeKey(.tab, modifierFlags: [])
+        try auditSheet(sheet, "pack lst")
+        sheet.buttons["Pack"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Alpha.lst"] }, "\(names(in: rightTable))")
+        app.typeKey(.tab, modifierFlags: [])
+        rightTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Alpha"] }, "\(names(in: rightTable))")
+        rightTable.typeKey(.enter, modifierFlags: [])
+        rightTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["pack.zip"] }, "\(names(in: rightTable))")
+        XCTAssertTrue(waitFor { self.cellLabels(self.rightTable.tableRows.element(boundBy: 0)).dropFirst().first?.hasSuffix("B") == true })
+        // Audited before the refusals: a status line showing an error trips the audit (see progress.md).
+        try audit(app) { issue in
+            print("AUDIT lst pane: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        let status = app.staticTexts["pane.right.status"]
+        rightTable.typeKey(.F5, modifierFlags: [])
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("is a file list") == true }, "\(status.value ?? "")")
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+        rightTable.typeKey(.F8, modifierFlags: [])
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("cannot be changed") == true }, "\(status.value ?? "")")
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+    }
+
+    /// Option+F9: pack.zip has two items at the top, so it is unpacked into Beta/pack.
+    func testUnpackDialog() throws {
+        openInner()
+        leftTable.typeKey(.F9, modifierFlags: .option)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        let field = sheet.textFields["Unpack to"]
+        XCTAssertTrue(waitFor { (field.value as? String)?.hasSuffix("/Beta") == true }, "\(field.value ?? "")")
+        let own = toggle("Extract into its own folder when the archive has several items at the top", in: sheet)
+        XCTAssertTrue(own.exists, sheet.debugDescription)
+        XCTAssertTrue(toggle("Unpack folder paths", in: sheet).exists)
+        XCTAssertTrue(toggle("Delete archive after unpacking", in: sheet).exists)
+        XCTAssertTrue(sheet.popUpButtons["How to delete"].exists)
+        XCTAssertTrue(sheet.textFields["Only files matching"].exists)
+        app.typeKey(.tab, modifierFlags: [])
+        try auditSheet(sheet, "unpack")
+        sheet.buttons["Unpack"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["pack"] }, "\(names(in: rightTable))")
+        app.typeKey(.tab, modifierFlags: [])
+        rightTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["docs", "top.txt"] }, "\(names(in: rightTable))")
+    }
+
+    /// Files > Split: pack.zip into 100-byte parts with an SFV file, then Combine Files joins them.
+    func testSplitAndCombine() throws {
+        openInner()
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Files"].click()
+        menuBar.menuItems["Split"].click()
+        menuBar.menuItems["Split File..."].click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        sheet.popUpButtons["Part size"].click()
+        app.menuItems["Custom size"].click()
+        let custom = sheet.textFields["Custom size"]
+        XCTAssertTrue(custom.waitForExistence(timeout: 2), sheet.debugDescription)
+        XCTAssertTrue(sheet.popUpButtons["Units"].exists)
+        custom.doubleClick()
+        custom.typeKey("a", modifierFlags: .command)
+        custom.typeText("100 bytes")
+        XCTAssertTrue(toggle("Create SFV file", in: sheet).exists)
+        for _ in 0..<6 where (custom.value(forKey: "hasKeyboardFocus") as? Bool) == true { app.typeKey(.tab, modifierFlags: []) }
+        try auditSheet(sheet, "split")
+        sheet.buttons["Split"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable).contains("pack.zip.sfv") }, "\(names(in: rightTable))")
+        let parts = names(in: rightTable).filter { $0.hasPrefix("pack.zip.0") }
+        XCTAssertGreaterThan(parts.count, 1, "\(names(in: rightTable))")
+
+        app.typeKey(.tab, modifierFlags: [])                         // right pane, cursor on pack.zip.001
+        XCTAssertTrue(waitFor { self.rightTable.tableRows.element(boundBy: 0).isSelected })
+        menuBar.menuBarItems["Files"].click()
+        menuBar.menuItems["Split"].click()
+        menuBar.menuItems["Combine Files..."].click()
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        let target = sheet.textFields["Combined file"]
+        XCTAssertTrue((target.value as? String)?.hasSuffix("/Alpha/Inner/pack.zip") == true, "\(target.value ?? "")")
+        target.typeKey("a", modifierFlags: .command)
+        target.typeText("joined.zip\r")                               // relative to the right pane
+        XCTAssertTrue(waitFor({ self.names(in: self.rightTable).contains("joined.zip") }, timeout: 10), "\(names(in: rightTable))")
+        rightTable.typeKey("j", modifierFlags: .command)
+        let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
+        XCTAssertTrue(waitFor {
+            rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).contains("into joined.zip, finished") }
+        }, "\(rows.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
+    }
+
     func testF2Rereads() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(.F2, modifierFlags: [])

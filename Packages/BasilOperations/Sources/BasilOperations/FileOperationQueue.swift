@@ -31,12 +31,43 @@ public enum QueuePrompt: Sendable {
     case conflict(FileConflict)
     case unstableSource(UnstableSource)
     case itemFailed(ItemFailure)
+    /// Unpack: the folder the archive would be unpacked into already exists.
+    case folderExists(FolderExists)
 }
 
 public enum QueuePromptAnswer: Sendable, Equatable {
     case conflict(ConflictChoice)
     case unstableSource(UnstableSourceDecision)
     case itemFailed(ItemFailureChoice)
+    /// `forAll`: the same answer for the other archives of this operation.
+    case folderExists(FolderExistsChoice, forAll: Bool)
+}
+
+/// "photos already exists in Downloads": unpacking would put the archive's items into it.
+public struct FolderExists: Sendable, Equatable {
+    public let folder: VFSPath
+    public let archive: VFSPath
+    /// The name a new folder would get ("photos (2)").
+    public let newName: String
+    /// More archives follow, so "do the same for the others" makes sense.
+    public let moreArchives: Bool
+
+    public init(folder: VFSPath, archive: VFSPath, newName: String, moreArchives: Bool) {
+        self.folder = folder
+        self.archive = archive
+        self.newName = newName
+        self.moreArchives = moreArchives
+    }
+}
+
+public enum FolderExistsChoice: Sendable, Equatable {
+    /// Unpack into the existing folder; files that exist go through the conflict question.
+    case merge
+    /// Unpack into a new folder with the next free name.
+    case newName
+    /// Leave this archive out.
+    case skip
+    case cancel
 }
 
 /// One item of a copy, move or delete failed, e.g. "Cannot copy notes.txt: Permission denied".
@@ -261,6 +292,7 @@ public final class FileOperationQueue {
         case .conflict(let c): question = "\(c.destination.name) already exists"
         case .unstableSource(let u): question = "\(u.path.name) keeps changing"
         case .itemFailed(let f): question = "\(f.question): \(f.reason)"
+        case .folderExists(let f): question = "\(f.folder.name) already exists"
         }
         item.log.append("Waiting for a decision: \(question)")
         onEvent?(event(.needsDecision, item, reason: question))
@@ -270,6 +302,7 @@ public final class FileOperationQueue {
             case .conflict: return .conflict(.skip)
             case .unstableSource: return .unstableSource(.skip)
             case .itemFailed: return .itemFailed(.fail)
+            case .folderExists: return .folderExists(.newName, forAll: false)
             }
         }
         return await handler(item, prompt)

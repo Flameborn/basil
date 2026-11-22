@@ -60,11 +60,13 @@ final class PackModel {
     }
 
     private func replaceExtension(old: String, new: String) {
-        let suffix = "." + old
-        if archivePath.lowercased().hasSuffix(suffix) {
-            archivePath = String(archivePath.dropLast(suffix.count)) + "." + new
+        let oldExtension = formats.first { $0.id == old }?.fileExtension ?? old
+        let suffix = "." + oldExtension
+        if archivePath.lowercased().hasSuffix(suffix), let format {
+            archivePath = String(archivePath.dropLast(suffix.count)) + "." + format.fileExtension
         }
         if let format, !format.levels.isEmpty, !format.levels.contains(level) { level = .normal }
+        if format?.storesContents == false { moveToArchive = false }
     }
 }
 
@@ -122,8 +124,14 @@ struct PackView: View {
                     .accessibilityLabel("Store folder paths")
                 Toggle("One archive per item", isOn: $model.perItem)
                     .accessibilityLabel("One archive per item")
-                Toggle("Move to archive", isOn: $model.moveToArchive)
-                    .accessibilityLabel("Move to archive")
+                if model.format?.storesContents != false {
+                    Toggle("Move to archive", isOn: $model.moveToArchive)
+                        .accessibilityLabel("Move to archive")
+                } else {
+                    Text("A file list holds names, sizes and dates, not the files. It can be browsed like a folder.")
+                        .font(.callout)
+                        .foregroundStyle(Theme.secondaryTextColor)
+                }
                 Toggle("Test archive after packing", isOn: $model.testAfterPacking)
                     .accessibilityLabel("Test archive after packing")
                 if model.perItem {
@@ -164,11 +172,12 @@ extension MainWindowController {
     func packItems() {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
-        guard let window else { return }
+        guard let window, ensureReadable(activePane.model.directory) else { return }
         let formats = providers.packFormats
         guard !formats.isEmpty else { return announce("No archive formats available") }
         let s = settings.settings
         let formatID = formats.contains { $0.id == s.packFormat } ? s.packFormat : formats[0].id
+        let fileExtension = formats.first { $0.id == formatID }?.fileExtension ?? formatID
         let level = PackLevel(rawValue: s.packLevel) ?? .normal
         let home = VFSPath.local(FileManager.default.homeDirectoryForCurrentUser.path)
         let folder = [otherPane.model.directory, activePane.model.directory].first { $0.location == .local } ?? home
@@ -176,7 +185,7 @@ extension MainWindowController {
             : (activePane.model.directory.isRoot ? "Archive" : activePane.model.directory.displayName)
         let what = items.count == 1 ? items[0].name : FeedbackText.items(items.count)
         let model = PackModel(what: what, formats: formats,
-                              archivePath: folder.appending(base + "." + formatID).path,
+                              archivePath: folder.appending(base + "." + fileExtension).path,
                               formatID: formatID, level: level,
                               hasFolders: items.contains { $0.isDirectoryLike }, itemCount: items.count)
         model.testAfterPacking = s.packTestAfter
@@ -218,7 +227,7 @@ extension MainWindowController {
         }
         let jobs: [PackOperation.Job]
         if model.perItem, let folder = archive.parent {
-            jobs = items.map { PackOperation.Job(archive: folder.appending(Self.archiveBaseName($0) + "." + model.formatID),
+            jobs = items.map { PackOperation.Job(archive: folder.appending(Self.archiveBaseName($0) + "." + (model.format?.fileExtension ?? model.formatID)),
                                                  sources: [$0.path]) }
         } else {
             jobs = [PackOperation.Job(archive: archive, sources: items.map(\.path))]
@@ -229,8 +238,9 @@ extension MainWindowController {
                                   solid: model.solid, password: password,
                                   encryptNames: model.encryptNames && model.format?.nameEncryption == true)
         let remember = model.rememberPassword
+        let moveSources = model.moveToArchive && model.format?.storesContents != false
         let queued = queue.add(PackOperation(jobs: jobs, options: options, storePaths: model.storePaths,
-                                             moveSources: model.moveToArchive, unstableRetries: s.unstableSourceRetries,
+                                             moveSources: moveSources, unstableRetries: s.unstableSourceRetries,
                                              registry: providers))
         pane.model.deselectAll()
         let test = model.testAfterPacking

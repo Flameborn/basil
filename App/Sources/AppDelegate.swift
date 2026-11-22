@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         providers.register(opener: archives)
         providers.register(writer: archives)
+        // File lists (.lst) like TC's DiskDir: browsed like folders, written by the pack dialog.
+        let fileLists = FileListOpener()
+        providers.register(opener: fileLists)
+        providers.register(writer: fileLists)
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
         var dataDirectory = MainWindowController.defaultDataDirectory

@@ -42,10 +42,10 @@ public enum Theme {
     /// secondary label colour renders at about 3.5:1 on light window backgrounds. This one is about 8:1
     /// (light) and 5:1 (dark) as specified; small text renders lighter through antialiasing, so keep margin.
     static let secondaryText = dynamic(light: 0x474747, dark: 0xB0B0B0)
-    /// The SwiftUI form of `secondaryText`: the primary label colour at 75 percent (about 7:1 light,
-    /// 6:1 dark). Not `Color(nsColor: secondaryText)`: the accessibility audit misreads SwiftUI text
+    /// The SwiftUI form of `secondaryText`: the primary label colour at 85 percent (about 9:1 light,
+    /// 8:1 dark; 75 percent was flagged "nearly passed" on a wrapped hint). Not `Color(nsColor: secondaryText)`: the accessibility audit misreads SwiftUI text
     /// drawn in a custom dynamic NSColor and reports a contrast failure for it in dark mode.
-    static var secondaryTextColor: Color { Color.primary.opacity(0.75) }
+    static var secondaryTextColor: Color { Color.primary.opacity(0.85) }
     static var errorTextColor: Color { Color(nsColor: errorText) }
 
     // Progress bars (queue panel). Outline and fill keep at least 3:1 against the window background

@@ -34,8 +34,10 @@ public enum ContainerChange: Sendable, Equatable {
 
 /// A format a container writer can create ("zip", "tar.gz", ...).
 public struct PackFormat: Sendable, Hashable, Identifiable {
-    /// Stable identifier, also the default file extension ("tar.gz").
+    /// Stable identifier, also the file extension unless `fileExtension` differs ("tar.gz").
     public let id: String
+    /// The extension new containers get ("lst" for both file list formats).
+    public let fileExtension: String
     /// Shown in the pack dialog ("ZIP", "tar.gz (gzip)").
     public let name: String
     /// Compresses one file on its own (notes.txt.gz): no folders, one file per archive.
@@ -50,10 +52,15 @@ public struct PackFormat: Sendable, Hashable, Identifiable {
     public let encryption: Bool
     /// Whether the names can be encrypted too ("Encrypt file names", 7z).
     public let nameEncryption: Bool
+    /// Whether the container holds the files' contents. False for a file list (.lst), which
+    /// keeps only names, sizes and dates: the pack dialog then offers no "Move to archive".
+    public let storesContents: Bool
 
     public init(id: String, name: String, singleFile: Bool = false, levels: [PackLevel] = [.fast, .normal, .maximum],
-                storesMacMetadata: Bool = false, solid: Bool = false, encryption: Bool = false, nameEncryption: Bool = false) {
+                storesMacMetadata: Bool = false, solid: Bool = false, encryption: Bool = false, nameEncryption: Bool = false,
+                storesContents: Bool = true, fileExtension: String? = nil) {
         self.id = id
+        self.fileExtension = fileExtension ?? id
         self.name = name
         self.singleFile = singleFile
         self.levels = levels
@@ -61,15 +68,15 @@ public struct PackFormat: Sendable, Hashable, Identifiable {
         self.solid = solid
         self.encryption = encryption
         self.nameEncryption = nameEncryption
+        self.storesContents = storesContents
     }
 
     /// The same format with a password offered (zip, when a writer that encrypts is available).
     public func withEncryption() -> PackFormat {
         PackFormat(id: id, name: name, singleFile: singleFile, levels: levels, storesMacMetadata: storesMacMetadata,
-                   solid: solid, encryption: true, nameEncryption: nameEncryption)
+                   solid: solid, encryption: true, nameEncryption: nameEncryption, storesContents: storesContents,
+                   fileExtension: fileExtension)
     }
-
-    public var fileExtension: String { id }
 }
 
 /// Compression level in the pack dialog. Each format maps it to its own scale.
