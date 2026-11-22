@@ -631,6 +631,8 @@ struct ConnectionsView: View {
 struct ConnectionList: View {
     @Bindable var model: ConnectionsModel
     @FocusState private var quickFocused: Bool
+    /// The connection Delete asks about.
+    @State private var deleting: SavedConnection?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -670,13 +672,24 @@ struct ConnectionList: View {
                     .accessibilityAction(named: "Edit") { model.selection = connection.id; model.editSelected() }
                     .accessibilityAction(named: "Move Up") { model.selection = connection.id; model.move(by: -1) }
                     .accessibilityAction(named: "Move Down") { model.selection = connection.id; model.move(by: 1) }
-                    .accessibilityAction(named: "Delete") { model.selection = connection.id; model.deleteSelected() }
+                    .accessibilityAction(named: "Delete") { model.selection = connection.id; askDelete() }
                 }
             }
             .accessibilityLabel("Saved connections")
             .frame(minHeight: 160)
             .onKeyPress(.return) {
                 model.connectSelected()
+                return .handled
+            }
+            // Delete and Forward Delete ask before deleting; Cmd+Up and Cmd+Down move, like the queue.
+            .onDeleteCommand { askDelete() }
+            .onKeyPress(.deleteForward) {
+                askDelete()
+                return .handled
+            }
+            .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                guard press.modifiers == .command else { return .ignored }
+                model.move(by: press.key == .upArrow ? -1 : 1)
                 return .handled
             }
             if model.saved.isEmpty {
@@ -686,9 +699,12 @@ struct ConnectionList: View {
             }
             HStack {
                 Button("New") { model.newConnection() }
+                    .keyboardShortcut("n", modifiers: .command)
                 Button("Edit") { model.editSelected() }.disabled(model.selected == nil)
+                    .keyboardShortcut("e", modifiers: .command)
                 Button("Duplicate") { model.duplicateSelected() }.disabled(model.selected == nil)
-                Button("Delete") { model.deleteSelected() }.disabled(model.selected == nil)
+                    .keyboardShortcut("d", modifiers: .command)
+                Button("Delete") { askDelete() }.disabled(model.selected == nil)
                 Spacer()
                 Button("Close") { model.onClose?() }
                     .keyboardShortcut(.cancelAction)
@@ -697,6 +713,24 @@ struct ConnectionList: View {
             }
         }
         .onAppear { quickFocused = model.saved.isEmpty }
+        .alert(deleting.map { "Delete \(model.title($0))?" } ?? "", isPresented: Binding(
+            get: { deleting != nil }, set: { if !$0 { deleting = nil } }
+        ), presenting: deleting) { connection in
+            Button("Delete", role: .destructive) {
+                model.selection = connection.id
+                model.deleteSelected()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { connection in
+            Text(model.service(connection.target.service)?.usesServerAddress == false
+                 ? "Basil forgets this connection and signs out of the account, unless another saved connection uses it. This cannot be undone."
+                 : "Basil forgets this connection. This cannot be undone.")
+        }
+    }
+
+    private func askDelete() {
+        guard let connection = model.selected else { return }
+        deleting = connection
     }
 }
 

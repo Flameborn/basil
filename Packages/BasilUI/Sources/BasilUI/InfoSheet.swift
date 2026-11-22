@@ -192,4 +192,14 @@ extension MainWindowController {
 final class EscapableSheet: NSWindow {
     var onCancel: (() -> Void)?
     override func cancelOperation(_ sender: Any?) { onCancel?() }
+
+    /// Cmd+W does what Escape does (the main menu has no Close item to send it).
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w", let onCancel {
+            onCancel()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }

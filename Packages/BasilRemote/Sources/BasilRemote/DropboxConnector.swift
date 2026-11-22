@@ -152,7 +152,7 @@ public struct DropboxConnector: RemoteConnector {
             return .init(title: "Dropbox did not sign in", message: "Dropbox said: \(detail). You can close this tab and try again in Basil.")
         }
         if matched {
-            return .init(title: "Signed in to Dropbox", message: "Basil is connecting. You can close this tab and go back to Basil.")
+            return .init(title: "Signed in to Dropbox", message: "Basil is now authorised. You can close this tab and go back to Basil.")
         }
         return .init(title: "This sign-in has ended",
                      message: "Basil is no longer waiting for it. If you are not connected yet, connect again in Basil.")

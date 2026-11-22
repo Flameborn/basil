@@ -217,7 +217,7 @@ enum BuiltinCommands {
         commands.append(C(id: "net.connect", title: "Connect to Server...", defaultKeys: [K(.character("k"), .command)]) { _ in
             w?.showConnections()
         })
-        commands.append(C(id: "net.disconnect", title: "Disconnect",
+        commands.append(C(id: "net.disconnect", title: "Disconnect", defaultKeys: [K(.character("k"), [.command, .shift])],
                           isEnabled: { _ in w?.activeConnection != nil },
                           menuTitle: { _ in w?.activeConnection.map { "Disconnect \($0.connectionTitle)" } ?? "Disconnect" }) { _ in
             w?.disconnectActive()

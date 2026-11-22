@@ -859,6 +859,62 @@ final class PaneUITests: XCTestCase {
 
     /// Cmd+K, a saved connection to the app's own test sshd (BASIL_UITEST_SSHD), the host key
     /// question, browsing the fixture over SFTP, F7 there, and Disconnect from the Net menu.
+    /// The connection manager's keys: Cmd+D, Delete (asks), Cmd+N, Escape, Cmd+W, Return; Cmd+Shift+K disconnects.
+    func testConnectionManagerKeys() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_SSHD"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        func openManager() -> XCUIElement {
+            leftTable.typeKey("k", modifierFlags: .command)
+            let sheet = app.sheets.firstMatch
+            if !sheet.waitForExistence(timeout: 2) { leftTable.typeKey("k", modifierFlags: .command) }
+            XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+            return sheet
+        }
+        func rows(_ sheet: XCUIElement) -> Int {
+            sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Test server'")).count
+        }
+        var sheet = openManager()
+        XCTAssertTrue(waitFor { rows(sheet) == 1 }, sheet.debugDescription)
+        sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Test server, '")).firstMatch.click()
+        app.typeKey("d", modifierFlags: .command)
+        XCTAssertTrue(waitFor { rows(sheet) == 2 }, sheet.debugDescription)
+
+        // Delete asks first; Cancel keeps it, Delete deletes it.
+        app.typeKey(.delete, modifierFlags: [])
+        var confirm = app.sheets.buttons["Cancel"].firstMatch
+        XCTAssertTrue(waitFor { app.staticTexts["Delete Test server copy?"].exists }, app.debugDescription)
+        confirm.click()
+        XCTAssertTrue(waitFor { !app.staticTexts["Delete Test server copy?"].exists })
+        XCTAssertEqual(rows(sheet), 2)
+        app.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor { app.staticTexts["Delete Test server copy?"].exists })
+        confirm = app.buttons.matching(NSPredicate(format: "label == 'Delete'")).allElementsBoundByIndex.last!
+        confirm.click()
+        XCTAssertTrue(waitFor { rows(sheet) == 1 }, sheet.debugDescription)
+
+        // Cmd+N opens the editor, Escape goes back to the list, Cmd+W closes the manager.
+        app.typeKey("n", modifierFlags: .command)
+        XCTAssertTrue(sheet.textFields["Host"].waitForExistence(timeout: 3))
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { rows(sheet) == 1 })
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitFor { !sheet.exists })
+
+        // Return on the list connects; Cmd+Shift+K disconnects.
+        sheet = openManager()
+        sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Test server, '")).firstMatch.click()
+        app.typeKey(.return, modifierFlags: [])
+        let alert = app.sheets.firstMatch
+        XCTAssertTrue(waitFor { alert.buttons["Trust Once"].exists }, app.debugDescription)
+        alert.buttons["Trust Once"].click()
+        let path = app.groups["pane.left.path"]
+        XCTAssertTrue(waitFor({ path.buttons.firstMatch.label.contains("@127.0.0.1:") }, timeout: 10))
+        leftTable.typeKey("k", modifierFlags: [.command, .shift])
+        XCTAssertTrue(waitFor { !path.buttons.firstMatch.label.contains("@127.0.0.1:") }, path.debugDescription)
+    }
+
     func testSFTPConnectBrowseAndDisconnect() throws {
         app.terminate()
         app.launchEnvironment["BASIL_UITEST_SSHD"] = "1"
