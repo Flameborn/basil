@@ -99,14 +99,23 @@ public final class CommandRegistry {
         public let defaultKeys: [KeyChord]
         public let isEnabled: @MainActor (any WorkspaceContext) -> Bool
         public let run: @MainActor (any WorkspaceContext) -> Void
+        /// The title menus show right now; nil hides the item (a custom view slot with no view).
+        /// Without it menus use `title`.
+        public let menuTitle: (@MainActor (any WorkspaceContext) -> String?)?
+        /// Whether menus show the item checked (the current sort order or view).
+        public let isChecked: (@MainActor (any WorkspaceContext) -> Bool)?
 
         public init(id: CommandID, title: String, defaultKeys: [KeyChord] = [],
                     isEnabled: @escaping @MainActor (any WorkspaceContext) -> Bool = { _ in true },
+                    menuTitle: (@MainActor (any WorkspaceContext) -> String?)? = nil,
+                    isChecked: (@MainActor (any WorkspaceContext) -> Bool)? = nil,
                     run: @escaping @MainActor (any WorkspaceContext) -> Void) {
             self.id = id
             self.title = title
             self.defaultKeys = defaultKeys
             self.isEnabled = isEnabled
+            self.menuTitle = menuTitle
+            self.isChecked = isChecked
             self.run = run
         }
     }
@@ -116,6 +125,9 @@ public final class CommandRegistry {
     /// User overrides: chord -> command (or nil to unbind a default).
     private var overrides: [KeyChord: CommandID?] = [:]
     private var defaultKeymap: [KeyChord: CommandID] = [:]
+
+    /// The menu bar's command menus. Built-in features and plugins add items here.
+    public let menus = MenuLayout()
 
     public init() {}
 
@@ -139,6 +151,14 @@ public final class CommandRegistry {
         var result = Set(defaultKeymap.filter { $0.value == id && overrides[$0.key] == nil }.map(\.key))
         for (chord, target) in overrides where target == id { result.insert(chord) }
         return result.sorted { $0.description < $1.description }
+    }
+
+    /// The chord shown for a command (menus, function-key bar): its first default key that is still
+    /// bound to it, otherwise any chord bound to it.
+    public func primaryChord(for id: CommandID) -> KeyChord? {
+        let bound = chords(for: id)
+        if let command = commands[id], let first = command.defaultKeys.first(where: bound.contains) { return first }
+        return bound.first
     }
 
     public func bind(_ chord: KeyChord, to id: CommandID?) {

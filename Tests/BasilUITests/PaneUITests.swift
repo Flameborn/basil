@@ -71,7 +71,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 },
                       "rows=\(leftTable.tableRows.count) label=\(leftTable.label) status=\(app.staticTexts["pane.left.status"].value ?? "")")
         // No ".." row; directories first, then files; hidden files not shown; extension in its own column.
-        XCTAssertEqual(names(in: leftTable), ["Alpha", "Beta", "apple pie", "notes", "song", "track"])
+        XCTAssertEqual(names(in: leftTable), ["Alpha", "Beta", "apple pie.txt", "notes.md", "song.mp3", "track.flac"])
         XCTAssertEqual(leftTable.label, "Left pane")
         XCTAssertEqual(rightTable.label, "Right pane")
     }
@@ -100,7 +100,7 @@ final class PaneUITests: XCTestCase {
         let field = app.searchFields["quickFilter.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 2))
         field.typeText("*.mp3;*.flac")
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["song", "track"] }, "\(names(in: leftTable))")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["song.mp3", "track.flac"] }, "\(names(in: leftTable))")
         field.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
 
@@ -115,9 +115,41 @@ final class PaneUITests: XCTestCase {
         let status = app.staticTexts["pane.left.status"]
         XCTAssertTrue(waitFor { (status.value as? String)?.contains("1 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
         // The selected file's name is read with ", selected".
-        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 5)).prefix(2), ["track, selected", "flac"])
-        leftTable.typeKey("-", modifierFlags: [.command, .shift])   // Deselect All (also Numpad Minus)
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 5)).first, "track.flac, selected")
+        leftTable.typeKey("-", modifierFlags: [.command, .shift])   // Deselect All (also Cmd+Numpad Minus)
         XCTAssertTrue(waitFor { (status.value as? String)?.contains("0 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
+    }
+
+    /// XCUITest cannot type keypad keys, so the numpad commands are reached through the Mark menu.
+    func testSelectGroupFromMarkMenu() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Mark"].click()
+        menuBar.menuItems["Select Group..."].click()
+        let mask = app.comboBoxes["Mask"]
+        XCTAssertTrue(mask.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertTrue(waitFor { (mask.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        mask.typeKey("a", modifierFlags: .command)
+        mask.typeText("*.mp3;*.flac")
+        mask.typeKey(.tab, modifierFlags: [])
+        let sheet = app.sheets.firstMatch
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT select group: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        sheet.buttons["Select"].click()
+        let status = app.staticTexts["pane.left.status"]
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("2 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
+
+        menuBar.menuBarItems["Mark"].click()
+        menuBar.menuItems["Invert Selection"].click()
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("2 of 4 files, 0 of 2 folders selected") == true }, "\(status.value ?? "")")
+        leftTable.typeKey("-", modifierFlags: [.command, .shift])
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("0 of 4 files") == true })
+        menuBar.menuBarItems["Mark"].click()
+        menuBar.menuItems["Restore Selection"].click()
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("2 of 4 files") == true }, "\(status.value ?? "")")
     }
 
     func testCalculateFolderSize() {
@@ -141,7 +173,7 @@ final class PaneUITests: XCTestCase {
         app.typeKey(.tab, modifierFlags: [])   // completes to "Alpha/"
         XCTAssertTrue(waitFor { (field.value as? String) == "Alpha/" }, "\(field.value ?? "")")
         XCTAssertTrue(waitFor { suggestions.staticTexts["Inner"].exists }, suggestions.debugDescription)
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             // The field being edited makes the audit report a parent/child mismatch (AppKit field editor).
             if issue.auditType == .parentChild { return true }
             if self.isCoveredElsewhere(issue, by: self.app.sheets.firstMatch) { return true }
@@ -177,7 +209,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(sheet.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'song.mp3' OR value CONTAINS 'song.mp3'")).firstMatch.exists,
                       sheet.debugDescription)
         XCTAssertTrue(sheet.popUpButtons["Open with"].exists, sheet.debugDescription)
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element,
                element.elementType == .popUpButton || !element.isEnabled {
                 return true
@@ -205,9 +237,9 @@ final class PaneUITests: XCTestCase {
         let folder = cellLabels(leftTable.tableRows.element(boundBy: 0))
         XCTAssertEqual(folder.count, 4, "\(folder)")
         XCTAssertEqual(folder.prefix(2), ["Alpha", "dir"])
-        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 4)).prefix(2), ["song", "mp3"])
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 4)).prefix(2), ["song.mp3", "1 B"])
         // The row itself carries the whole row, read when the cursor row has VoiceOver focus.
-        XCTAssertTrue(leftTable.tableRows.element(boundBy: 4).label.hasPrefix("song, mp3, "),
+        XCTAssertTrue(leftTable.tableRows.element(boundBy: 4).label.hasPrefix("song.mp3, 1 B, "),
                       leftTable.tableRows.element(boundBy: 4).label)
     }
 
@@ -215,11 +247,36 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(XCUIKeyboardKey.F1, modifierFlags: .control)
         XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 1 })
-        // Brief has no Ext column, so names include the extension.
+        // Names always include the extension.
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song.mp3") }, "\(names(in: leftTable))")
         leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: .control)
-        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 5 })
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song") })
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 4 })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song.mp3") })
+    }
+
+    func testMenusRunRegistryCommands() {
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 4 })
+        let menuBar = app.menuBars.firstMatch
+        for title in ["Files", "Mark", "Commands", "Net", "Show", "Tabs", "Edit", "Window", "Help"] {
+            XCTAssertTrue(menuBar.menuBarItems[title].exists, "missing menu \(title)")
+        }
+        menuBar.menuBarItems["Files"].click()
+        XCTAssertTrue(menuBar.menuItems["Copy"].waitForExistence(timeout: 2))
+        XCTAssertTrue(menuBar.menuItems["Archives"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+        menuBar.menuBarItems["Net"].click()
+        let placeholder = menuBar.menuItems["No connections yet"]
+        XCTAssertTrue(placeholder.waitForExistence(timeout: 2))
+        XCTAssertFalse(placeholder.isEnabled)
+        app.typeKey(.escape, modifierFlags: [])
+
+        menuBar.menuBarItems["Show"].click()
+        menuBar.menuItems["View Mode"].click()
+        menuBar.menuItems["Brief View"].click()
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 1 })
+        // The keys still go to the pane, not to the menu items that show them.
+        leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: .control)
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 4 })
     }
 
     func testLocationsMenuOpensForCurrentPane() {
@@ -231,16 +288,16 @@ final class PaneUITests: XCTestCase {
     }
 
     func testColumnsAreConfigurableInSettings() throws {
-        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 5 })
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 4 })
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
         let created = settings.checkBoxes["Created"]
         XCTAssertTrue(created.waitForExistence(timeout: 2), settings.debugDescription)
         created.click()
-        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 6 })
+        XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 5 })
         // Audits the app with the settings window in front.
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             // SwiftUI's own Picker pop-up button reports "Action is missing" to the audit although
             // VoiceOver can open it (VO-Space). Verify manually with VoiceOver when changing pickers.
             // Disabled controls (e.g. "Add Column" when every column is already in the view) have no action by design.
@@ -271,7 +328,7 @@ final class PaneUITests: XCTestCase {
         let secure = settings.descendants(matching: .any)
             .matching(NSPredicate(format: "label == 'Secure copy and move'")).firstMatch
         XCTAssertEqual(secure.value as? Int, 0, "secure mode is off by default")
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element, !element.isEnabled { return true }
             if self.isCoveredElsewhere(issue, by: settings) { return true }
             print("AUDIT copy settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
@@ -300,7 +357,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(newName.waitForExistence(timeout: 5), window.debugDescription)
         XCTAssertEqual(window.tables["multiRename.preview"].tableColumns.count, 4, window.debugDescription)
         mask.typeKey(.tab, modifierFlags: [])   // ends editing: an active field editor fails the audit's parent check
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             // SwiftUI Menu and Picker pop-up buttons report "Action is missing" although VoiceOver opens them;
             // disabled controls have no action by design.
             if issue.auditType == .action, let element = issue.element,
@@ -314,20 +371,20 @@ final class PaneUITests: XCTestCase {
         mask.click()
         app.typeKey(.return, modifierFlags: [])   // Return in the mask field starts, as in TC
         XCTAssertTrue(waitFor { !window.exists })
-        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["song 1", "track 2"]) },
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["song 1.mp3", "track 2.flac"]) },
                       "\(names(in: leftTable))")
 
         leftTable.typeKey("m", modifierFlags: .command)
         XCTAssertTrue(window.waitForExistence(timeout: 3))
         window.buttons["Undo Last Rename"].click()
-        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["song", "track"]) },
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["song.mp3", "track.flac"]) },
                       "\(names(in: leftTable))")
     }
 
     func testMainWindowPassesAccessibilityAudit() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         XCTAssertTrue(rightTable.exists)
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             print("AUDIT: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }
@@ -353,7 +410,7 @@ final class PaneUITests: XCTestCase {
         tab.click()
         let speak = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Finished: speak'")).firstMatch
         XCTAssertTrue(speak.waitForExistence(timeout: 2), settings.debugDescription)
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element,
                element.elementType == .popUpButton || !element.isEnabled {
                 return true
@@ -381,7 +438,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
         XCTAssertTrue(sheet.textFields["Target folder"].exists, sheet.debugDescription)
         app.typeKey(.return, modifierFlags: [])
-        if !waitFor({ self.names(in: self.rightTable) == ["song"] }) {
+        if !waitFor({ self.names(in: self.rightTable) == ["song.mp3"] }) {
             let sheetText = sheet.exists ? sheet.debugDescription : "no sheet"
             leftTable.typeKey("j", modifierFlags: .command)
             let query = app.descendants(matching: .any).matching(identifier: "queue.row")
@@ -394,13 +451,13 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
         waitForFieldFocus(in: sheet)
         app.typeText("tune\r")   // the name without its extension is selected, so this keeps ".mp3"
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("tune") }, "\(names(in: leftTable))")
-        XCTAssertFalse(names(in: leftTable).contains("song"))
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("tune.mp3") }, "\(names(in: leftTable))")
+        XCTAssertFalse(names(in: leftTable).contains("song.mp3"))
 
         leftTable.typeKey(.F8, modifierFlags: .shift)   // the cursor is on the renamed item
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
         XCTAssertTrue(sheet.buttons["Delete"].exists, sheet.debugDescription)
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if self.isCoveredElsewhere(issue, by: sheet) { return true }
             // The system NSAlert draws this text on translucent glass over the panes. Measured in the
             // audit's own element screenshot (dark mode): E7E7E7 on 454545, 7.7:1, yet it is reported.
@@ -409,7 +466,7 @@ final class PaneUITests: XCTestCase {
             return false
         }
         app.typeKey(.return, modifierFlags: [])
-        if !waitFor({ !self.names(in: self.leftTable).contains("tune") }) {
+        if !waitFor({ !self.names(in: self.leftTable).contains("tune.mp3") }) {
             leftTable.typeKey("j", modifierFlags: .command)
             let query = app.descendants(matching: .any).matching(identifier: "queue.row")
             _ = waitFor { query.count > 0 }
@@ -453,7 +510,7 @@ final class PaneUITests: XCTestCase {
         row.click()
         XCTAssertTrue(waitFor { (patterns.value(forKey: "hasKeyboardFocus") as? Bool) != true })
         XCTAssertTrue(settings.popUpButtons["Terminal"].exists, settings.debugDescription)
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element,
                element.elementType == .popUpButton || !element.isEnabled {
                 return true
@@ -473,24 +530,24 @@ final class PaneUITests: XCTestCase {
         }
         XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
         leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack"] }, "\(names(in: leftTable))")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack.zip"] }, "\(names(in: leftTable))")
         leftTable.typeKey(.enter, modifierFlags: [])                     // Enter enters the archive
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top"] }, "\(names(in: leftTable))")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top.txt"] }, "\(names(in: leftTable))")
         let window = app.windows.element(boundBy: 0)
         XCTAssertTrue(waitFor { window.title == "pack.zip - Basil" }, window.title)
-        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 1)).prefix(3), ["top", "txt", "3 B"])
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 1)).prefix(2), ["top.txt", "3 B"])
 
         leftTable.typeKey(.enter, modifierFlags: [])                     // docs
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["readme"] })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["readme.txt"] })
         leftTable.typeKey(.delete, modifierFlags: [])
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top"] })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top.txt"] })
         leftTable.typeKey(.delete, modifierFlags: [])                    // leaves the archive, cursor on it
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack"] })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack.zip"] })
         XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
 
         leftTable.typeKey(.enter, modifierFlags: [])
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top"] })
-        try app.performAccessibilityAudit { issue in
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top.txt"] })
+        try audit(app) { issue in
             print("AUDIT archive: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }
@@ -507,7 +564,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
         waitForFieldFocus(in: sheet)
         app.typeText("Made\r")
-        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "Made", "top"] }, "\(names(in: leftTable))")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "Made", "top.txt"] }, "\(names(in: leftTable))")
 
         // F5 extracts the cursor item into the other pane (Beta).
         leftTable.typeKey(.end, modifierFlags: [])
@@ -516,7 +573,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 3))
         waitForFieldFocus(in: sheet)
         app.typeKey(.return, modifierFlags: [])
-        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["top"] }, "\(names(in: rightTable))")
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["top.txt"] }, "\(names(in: rightTable))")
 
         // F8 deletes from the archive after asking.
         leftTable.typeKey(.F8, modifierFlags: [])
@@ -540,7 +597,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(sheet.popUpButtons["Format"].exists, sheet.debugDescription)
         XCTAssertTrue(sheet.checkBoxes["Move to archive"].exists || sheet.switches["Move to archive"].exists, sheet.debugDescription)
         app.typeKey(.tab, modifierFlags: [])   // out of the text field before auditing
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element,
                element.elementType == .popUpButton || !element.isEnabled {
                 return true
@@ -550,12 +607,11 @@ final class PaneUITests: XCTestCase {
             return false
         }
         sheet.buttons["Pack"].click()
-        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song"] }, "\(names(in: rightTable))")
-        XCTAssertEqual(cellLabels(rightTable.tableRows.element(boundBy: 0)).dropFirst().first, "zip")
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song.zip"] }, "\(names(in: rightTable))")
         // Enter opens the new archive.
         app.typeKey(.tab, modifierFlags: [])
         rightTable.typeKey(.enter, modifierFlags: [])
-        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song"] && self.cellLabels(self.rightTable.tableRows.element(boundBy: 0)).dropFirst().first == "mp3" },
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song.mp3"] },
                       "\(names(in: rightTable))")
     }
 
@@ -567,6 +623,21 @@ final class PaneUITests: XCTestCase {
 }
 
 extension XCTestCase {
+    /// `performAccessibilityAudit` with Basil's one app-wide exception: list cells that show a file
+    /// name with an extension ("notes.md", "song.mp3, selected"). The audit's heuristic calls such
+    /// labels "not human-readable", but in a file manager the file name is exactly what VoiceOver
+    /// should read (it says "notes dot md").
+    @MainActor func audit(_ app: XCUIApplication, _ handler: @escaping (XCUIAccessibilityAuditIssue) -> Bool) throws {
+        try app.performAccessibilityAudit { issue in
+            if issue.compactDescription == "Label not human-readable", let element = issue.element,
+               element.elementType == .cell,
+               element.label.range(of: #"^[^/]*\.[^. /]+(, selected)?$"#, options: .regularExpression) != nil {
+                return true
+            }
+            return handler(issue)
+        }
+    }
+
     /// Contrast issues outside `window` belong to windows it covers, dims or makes inactive. The audit
     /// samples pixels on screen, so a covered main-window status line "fails", and so do the main window
     /// that macOS dims behind a sheet and the greyed title of an inactive window. The main window is

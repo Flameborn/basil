@@ -55,7 +55,7 @@ public struct ListView: Codable, Hashable, Sendable, Identifiable {
     ], isBuiltin: true)
 
     public static let full = ListView(id: "full", name: "Full", columns: [
-        ColumnSpec(.name), ColumnSpec(.ext), ColumnSpec(.size), ColumnSpec(.modified), ColumnSpec(.attributes),
+        ColumnSpec(.name), ColumnSpec(.ext, visible: false), ColumnSpec(.size), ColumnSpec(.modified), ColumnSpec(.attributes),
         ColumnSpec(.created, visible: false), ColumnSpec(.kind, visible: false),
     ], isBuiltin: true)
 
@@ -69,11 +69,8 @@ public struct ColumnDefinition: Sendable {
     /// Context a column needs to render a row.
     public struct Context: Sendable {
         public let formatters: DisplayFormatters
-        /// When the view has no Ext column, the Name column shows the full name including the extension.
-        public let viewHasExtColumn: Bool
-        public init(formatters: DisplayFormatters, viewHasExtColumn: Bool) {
+        public init(formatters: DisplayFormatters) {
             self.formatters = formatters
-            self.viewHasExtColumn = viewHasExtColumn
         }
     }
 
@@ -127,9 +124,8 @@ private final class ColumnStorage: @unchecked Sendable {
     }
 
     static let builtins: [ColumnDefinition] = [
-        ColumnDefinition(id: .name, title: "Name", defaultWidth: 260, sortKey: .name) { item, ctx in
-            (item.isDirectoryLike || !ctx.viewHasExtColumn) ? item.name : item.nameAndExtension.base
-        },
+        // The full name, extension included, also in views that show the Ext column.
+        ColumnDefinition(id: .name, title: "Name", defaultWidth: 300, sortKey: .name) { item, _ in item.name },
         ColumnDefinition(id: .ext, title: "Ext", defaultWidth: 52, sortKey: .ext) { item, _ in
             item.isDirectoryLike ? "" : item.nameAndExtension.ext
         },

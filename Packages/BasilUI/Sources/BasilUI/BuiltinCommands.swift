@@ -14,6 +14,12 @@ enum BuiltinCommands {
         weak let w = window
         func pane() -> PaneViewController? { w?.activePane }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        func sorted(_ key: SortKey) -> @MainActor (any WorkspaceContext) -> Bool {
+            { _ in pane()?.model.sortOrder.key == key }
+        }
+        func showing(_ viewID: String) -> @MainActor (any WorkspaceContext) -> Bool {
+            { _ in pane()?.viewID == viewID }
+        }
 
         var commands: [C] = [
             C(id: "pane.switch", title: "Switch Pane", defaultKeys: [K(.tab), K(.tab, .shift)]) { _ in w?.switchPane() },
@@ -27,7 +33,8 @@ enum BuiltinCommands {
                 p.model.reload(cursor: p.cursorPath)
                 ctx.announce("Reread")
             },
-            C(id: "pane.toggleHidden", title: "Show or Hide Hidden Files", defaultKeys: [K(.character("."), [.command, .shift])]) { ctx in
+            C(id: "pane.toggleHidden", title: "Show Hidden Files", defaultKeys: [K(.character("."), [.command, .shift])],
+              isChecked: { _ in pane()?.model.showHidden ?? false }) { ctx in
                 guard let p = pane() else { return }
                 p.model.setShowHidden(!p.model.showHidden, cursor: p.cursorPath)
                 ctx.announce(p.model.showHidden ? "Showing hidden files" : "Hiding hidden files")
@@ -80,26 +87,36 @@ enum BuiltinCommands {
             C(id: "select.toggle", title: "Select or Deselect", defaultKeys: [K(.space)]) { _ in pane()?.toggleSelectionAtCursor() },
             C(id: "select.toggleDown", title: "Select and Move Down", defaultKeys: [K(.down, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: 1) },
             C(id: "select.toggleUp", title: "Select and Move Up", defaultKeys: [K(.up, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: -1) },
-            C(id: "select.allFiles", title: "Select All Files", defaultKeys: [K(.character("a"), .command)]) { ctx in
+            C(id: "select.allFiles", title: "Select All Files",
+              defaultKeys: [K(.character("a"), .command), K(.numpad("+"), .command)]) { ctx in
                 guard let p = pane() else { return }
                 p.model.selectAllFiles()
                 ctx.announce("Selected, \(itemCount(p.model.selected.count))")
             },
             C(id: "select.none", title: "Deselect All",
-              defaultKeys: [K(.numpad("-")), K(.character("-"), [.command, .shift])]) { ctx in
+              defaultKeys: [K(.numpad("-"), .command), K(.character("-"), [.command, .shift])]) { ctx in
                 pane()?.model.deselectAll()
                 ctx.announce("Deselected")
             },
+            // Total Commander's numpad keys.
+            C(id: "select.group", title: "Select Group...", defaultKeys: [K(.numpad("+"))]) { _ in w?.selectGroup(true) },
+            C(id: "select.ungroup", title: "Deselect Group...", defaultKeys: [K(.numpad("-"))]) { _ in w?.selectGroup(false) },
+            C(id: "select.invert", title: "Invert Selection", defaultKeys: [K(.numpad("*"))]) { _ in w?.invertSelection() },
+            C(id: "select.restore", title: "Restore Selection", defaultKeys: [K(.numpad("/"))]) { _ in w?.restoreSelection() },
+            C(id: "select.sameExtension", title: "Select Files with Same Extension",
+              defaultKeys: [K(.numpad("+"), .option)]) { _ in w?.selectSameExtension(true) },
+            C(id: "select.deselectSameExtension", title: "Deselect Files with Same Extension",
+              defaultKeys: [K(.numpad("-"), .option)]) { _ in w?.selectSameExtension(false) },
 
             // Sorting (TC: Ctrl+F3-F6 -> Cmd+F3-F6).
-            C(id: "sort.name", title: "Sort by Name", defaultKeys: [K(.function(3), .command)]) { _ in pane()?.setSort(.name) },
-            C(id: "sort.ext", title: "Sort by Extension", defaultKeys: [K(.function(4), .command)]) { _ in pane()?.setSort(.ext) },
-            C(id: "sort.date", title: "Sort by Date", defaultKeys: [K(.function(5), .command)]) { _ in pane()?.setSort(.modified) },
-            C(id: "sort.size", title: "Sort by Size", defaultKeys: [K(.function(6), .command)]) { _ in pane()?.setSort(.size) },
+            C(id: "sort.name", title: "Sort by Name", defaultKeys: [K(.function(3), .command)], isChecked: sorted(.name)) { _ in pane()?.setSort(.name) },
+            C(id: "sort.ext", title: "Sort by Extension", defaultKeys: [K(.function(4), .command)], isChecked: sorted(.ext)) { _ in pane()?.setSort(.ext) },
+            C(id: "sort.date", title: "Sort by Date", defaultKeys: [K(.function(5), .command)], isChecked: sorted(.modified)) { _ in pane()?.setSort(.modified) },
+            C(id: "sort.size", title: "Sort by Size", defaultKeys: [K(.function(6), .command)], isChecked: sorted(.size)) { _ in pane()?.setSort(.size) },
 
             // Views (TC: Ctrl+F1 brief, Ctrl+F2 full; custom views from Ctrl+F3).
-            C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), .control)]) { _ in pane()?.setView(ListView.brief.id) },
-            C(id: "view.full", title: "Full View", defaultKeys: [K(.function(2), .control)]) { _ in pane()?.setView(ListView.full.id) },
+            C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), .control)], isChecked: showing(ListView.brief.id)) { _ in pane()?.setView(ListView.brief.id) },
+            C(id: "view.full", title: "Full View", defaultKeys: [K(.function(2), .control)], isChecked: showing(ListView.full.id)) { _ in pane()?.setView(ListView.full.id) },
 
             C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
@@ -148,7 +165,9 @@ enum BuiltinCommands {
         for n in 1...9 {
             commands.append(C(id: CommandID(rawValue: "view.custom\(n)"), title: "Custom View \(n)",
                               defaultKeys: [K(.function(n + 2), .control)],
-                              isEnabled: { _ in w?.customViewID(n) != nil }) { _ in
+                              isEnabled: { _ in w?.customViewID(n) != nil },
+                              menuTitle: { _ in w?.customViewID(n).flatMap { id in w?.settings.settings.view(id: id).name } },
+                              isChecked: { _ in w?.customViewID(n).map { pane()?.viewID == $0 } ?? false }) { _ in
                 if let id = w?.customViewID(n) { pane()?.setView(id) }
             })
         }

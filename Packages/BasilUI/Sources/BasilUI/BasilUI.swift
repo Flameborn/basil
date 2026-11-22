@@ -13,11 +13,11 @@ import BasilVFS
 /// `WorkspaceContext` that commands (built-in and plugin) operate on.
 @MainActor
 public final class MainWindowController: NSWindowController, WorkspaceContext {
-    private let commands: CommandRegistry
+    let commands: CommandRegistry
     let settings: SettingsStore
     let providers: ProviderRegistry
     let feedbackPlayer = EventFeedbackPlayer()
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     /// The single global operation queue (in memory only; it does not survive restarts).
     public let queue: FileOperationQueue
     private var queueWindow: QueueWindowController?
@@ -25,6 +25,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     let left: PaneViewController
     let right: PaneViewController
     private var functionBar: FunctionKeyBar!
+    var menuBuilder: CommandMenuBuilder?
     private(set) var activeSide: PaneSide = .left
     /// False when start folders were forced (UI tests), so test folders never become the user's saved start folders.
     private let persistsDirectories: Bool

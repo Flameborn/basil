@@ -197,14 +197,31 @@ import Testing
 }
 
 @Suite struct ColumnTests {
-    let ctx = ColumnDefinition.Context(formatters: DisplayFormatters(size: SizeFormat(), date: DateFormatSettings()), viewHasExtColumn: true)
+    let ctx = ColumnDefinition.Context(formatters: DisplayFormatters(size: SizeFormat(), date: DateFormatSettings()))
 
-    @Test func nameIncludesExtensionOnlyWithoutExtColumn() throws {
+    @Test func nameAlwaysIncludesTheExtension() throws {
         let file = FileItem(path: .local("/t/song.mp3"), kind: .file, size: 1)
         let name = try #require(ColumnCatalog.definition(.name))
-        #expect(name.text(file, ctx) == "song")
-        let briefCtx = ColumnDefinition.Context(formatters: ctx.formatters, viewHasExtColumn: false)
-        #expect(name.text(file, briefCtx) == "song.mp3")
+        #expect(name.text(file, ctx) == "song.mp3")
+        let ext = try #require(ColumnCatalog.definition(.ext))
+        #expect(ext.text(file, ctx) == "mp3")
+        // Ext is optional: Full lists it, hidden.
+        #expect(ListView.full.columns.first { $0.id == .ext }?.isVisible == false)
+    }
+
+    @Test func savedFullViewLosesItsExtColumnOnce() throws {
+        var old = BasilSettings()
+        old.views[1].columns[1].isVisible = true
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as! [String: Any]
+        json.removeValue(forKey: "viewsVersion")
+        let migrated = try JSONDecoder().decode(BasilSettings.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(migrated.view(id: "full").columns.first { $0.id == .ext }?.isVisible == false)
+        #expect(migrated.viewsVersion == BasilSettings.currentViewsVersion)
+        // Shown again by the user later, it stays.
+        var current = migrated
+        current.views[1].columns[1].isVisible = true
+        let again = try JSONDecoder().decode(BasilSettings.self, from: JSONEncoder().encode(current))
+        #expect(again.view(id: "full").columns.first { $0.id == .ext }?.isVisible == true)
     }
 
     @Test func directorySizeShowsDirAndSpeaksDir() throws {

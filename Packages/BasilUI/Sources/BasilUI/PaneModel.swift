@@ -186,12 +186,68 @@ final class PaneModel {
     }
 
     func selectAllFiles() {
+        rememberSelection()
         for item in rows where !item.isDirectoryLike { selected.insert(item.path) }
         onEvent?(.selectionChanged)
     }
 
     func deselectAll() {
+        rememberSelection()
         selected.removeAll()
+        onEvent?(.selectionChanged)
+    }
+
+    /// The names selected before the last change of many items at once (select or deselect all,
+    /// a group, invert, the clearing after a file operation). Num/ selects them again, like TC,
+    /// also in another folder that has items with the same names.
+    private(set) var previousSelection: Set<String> = []
+
+    private func rememberSelection() {
+        guard !selected.isEmpty else { return }
+        previousSelection = Set(selected.map(\.name))
+    }
+
+    /// Num+ / Num-: selects or deselects the visible items whose names match `filter`
+    /// (files only unless `includeFolders`). Returns how many items changed.
+    @discardableResult
+    func setSelection(_ select: Bool, matching filter: NameFilter, includeFolders: Bool) -> Int {
+        setSelection(select) { item in
+            (includeFolders || !item.isDirectoryLike) && filter.matches(item.name)
+        }
+    }
+
+    /// Option+Num+ / Option+Num-: every file with this extension (no case; "" means files without one).
+    @discardableResult
+    func setSelection(_ select: Bool, extension ext: String) -> Int {
+        setSelection(select) { item in
+            !item.isDirectoryLike && item.nameAndExtension.ext.caseInsensitiveCompare(ext) == .orderedSame
+        }
+    }
+
+    private func setSelection(_ select: Bool, where matches: (FileItem) -> Bool) -> Int {
+        rememberSelection()
+        var changed = 0
+        for item in rows where matches(item) {
+            if select ? selected.insert(item.path).inserted : selected.remove(item.path) != nil { changed += 1 }
+        }
+        onEvent?(.selectionChanged)
+        return changed
+    }
+
+    /// Num*: inverts the selection of the visible files (TC); selected folders stay selected.
+    func invertSelection() {
+        rememberSelection()
+        for item in rows where !item.isDirectoryLike {
+            if selected.remove(item.path) == nil { selected.insert(item.path) }
+        }
+        onEvent?(.selectionChanged)
+    }
+
+    /// Num/: selects the visible items whose names were selected before the last bulk change.
+    func restoreSelection() {
+        let names = previousSelection
+        rememberSelection()
+        selected = Set(rows.filter { names.contains($0.name) }.map(\.path))
         onEvent?(.selectionChanged)
     }
 

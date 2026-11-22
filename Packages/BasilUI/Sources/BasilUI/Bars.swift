@@ -257,7 +257,7 @@ final class FunctionKeyBar: ThemedBox {
 
         for id in ids {
             guard let command = commands.command(id) else { continue }
-            let chord = commands.chords(for: id).first?.description ?? ""
+            let chord = commands.primaryChord(for: id)?.description ?? ""
             let button = NSButton(title: "\(chord) \(command.title)", target: self, action: #selector(clicked(_:)))
             button.bezelStyle = .accessoryBarAction
             button.font = Theme.barFont

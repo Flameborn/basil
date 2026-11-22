@@ -74,7 +74,7 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.rowLabels().count == 1 }, "\(rowLabels())")
         XCTAssertTrue(waitFor { self.rowLabels().first?.hasPrefix("Test operation 2, running") == true }, "\(rowLabels())")
 
-        try app.performAccessibilityAudit { issue in
+        try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element, !element.isEnabled {
                 return true // disabled buttons (e.g. "Remove Finished" with nothing finished)
             }

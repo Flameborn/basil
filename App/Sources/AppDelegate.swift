@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
                                               queue: queue, defaults: defaults, startDirectories: start,
                                               dataDirectory: dataDirectory)
+        // App menu and Edit menu, then the command menus, then Window and Help.
+        if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()
@@ -66,7 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Minimal programmatic main menu. Commands will come from CommandRegistry (M1).
+/// The app, Edit, Window and Help menus. The command menus come from the registry
+/// (`MainWindowController.installCommandMenus`).
 @MainActor
 enum MainMenu {
     static func build(settingsTarget: AnyObject) -> NSMenu {
@@ -82,9 +85,29 @@ enum MainMenu {
         settingsItem.target = settingsTarget
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Basil", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others",
+                                         action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Basil", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
+
+        // Text editing in dialogs and settings fields. In the panes, registry keys win
+        // (Cmd+A selects all files there).
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        main.addItem(editItem)
 
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
@@ -94,6 +117,13 @@ enum MainMenu {
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
         NSApp.windowsMenu = windowMenu
+
+        // macOS adds its menu search field here, which also finds every command in the menus.
+        let helpItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+        helpItem.submenu = helpMenu
+        main.addItem(helpItem)
+        NSApp.helpMenu = helpMenu
 
         return main
     }

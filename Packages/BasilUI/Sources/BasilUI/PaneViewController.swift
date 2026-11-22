@@ -57,7 +57,7 @@ final class PaneViewController: NSViewController {
         self.driveBar = DriveBar(side: side)
         viewID = defaults.string(forKey: "pane.\(side.identifier).view") ?? ListView.full.id
         lastDirectoryByVolume = defaults.dictionary(forKey: "pane.\(side.identifier).volumeDirectories") as? [String: String] ?? [:]
-        columnContext = ColumnDefinition.Context(formatters: settings.formatters, viewHasExtColumn: true)
+        columnContext = ColumnDefinition.Context(formatters: settings.formatters)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -201,10 +201,7 @@ final class PaneViewController: NSViewController {
         }
         let order = model.sortOrder
         table.sortDescriptors = [NSSortDescriptor(key: order.key.rawValue, ascending: order.ascending)]
-        columnContext = ColumnDefinition.Context(
-            formatters: settings.formatters,
-            viewHasExtColumn: specs.contains { $0.id == .ext }
-        )
+        columnContext = ColumnDefinition.Context(formatters: settings.formatters)
     }
 
     private func settingsChanged() {
@@ -220,8 +217,7 @@ final class PaneViewController: NSViewController {
                     column.width = spec.width
                 }
             }
-            columnContext = ColumnDefinition.Context(formatters: settings.formatters,
-                                                     viewHasExtColumn: wanted.contains(ColumnID.ext.rawValue))
+            columnContext = ColumnDefinition.Context(formatters: settings.formatters)
         }
         table.reloadData()
         updateStatus()

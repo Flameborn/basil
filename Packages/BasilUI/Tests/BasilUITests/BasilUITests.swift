@@ -74,3 +74,59 @@ import Testing
         model.stop()
     }
 }
+
+/// Total Commander's numpad selection: groups, same extension, invert, restore.
+@MainActor
+@Suite struct PaneSelectionTests {
+    func poll(_ condition: () -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return false
+    }
+
+    @Test func groupsInvertAndRestore() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-select-\(UUID())")
+        try FileManager.default.createDirectory(at: url.appendingPathComponent("Music.d"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url) }
+        for name in ["a.mp3", "b.MP3", "c.flac", "d.txt", "readme"] {
+            try Data().write(to: url.appendingPathComponent(name))
+        }
+        let registry = ProviderRegistry()
+        registry.register(LocalProvider())
+        let dir = VFSPath.local(url.path)
+        let model = PaneModel(registry: registry, directory: dir)
+        model.load(dir)
+        #expect(await poll { model.rows.count == 6 })
+        func names() -> [String] { model.selectedItems.map(\.name).sorted() }
+
+        #expect(model.setSelection(true, matching: try NameFilter("*.mp3;*.flac"), includeFolders: false) == 3)
+        #expect(names() == ["a.mp3", "b.MP3", "c.flac"])
+        #expect(model.setSelection(false, matching: try NameFilter("*.flac"), includeFolders: false) == 1)
+        #expect(names() == ["a.mp3", "b.MP3"])
+        // Folders count only when asked for.
+        #expect(model.setSelection(true, matching: try NameFilter("*.d"), includeFolders: false) == 0)
+        #expect(model.setSelection(true, matching: try NameFilter("*.d"), includeFolders: true) == 1)
+        #expect(names() == ["Music.d", "a.mp3", "b.MP3"])
+
+        // Invert touches files only.
+        model.invertSelection()
+        #expect(names() == ["Music.d", "c.flac", "d.txt", "readme"])
+
+        // Same extension, without case; a file without one matches files without one.
+        model.deselectAll()
+        #expect(model.setSelection(true, extension: "mp3") == 2)
+        #expect(model.setSelection(true, extension: "") == 1)
+        #expect(names() == ["a.mp3", "b.MP3", "readme"])
+        #expect(model.setSelection(false, extension: "MP3") == 2)
+        #expect(names() == ["readme"])
+
+        // Num/ brings back what was selected before the last bulk change.
+        model.deselectAll()
+        #expect(names().isEmpty)
+        model.restoreSelection()
+        #expect(names() == ["readme"])
+        model.stop()
+    }
+}
