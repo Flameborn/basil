@@ -11,3 +11,7 @@ DEVELOPMENT_TEAM =
 ENABLE_HARDENED_RUNTIME = NO
 
 #include? "Signing.local.xcconfig"
+
+// Dropbox app key, set in Config/Dropbox.local.xcconfig (gitignored). Empty: Dropbox is not offered.
+BASIL_DROPBOX_APP_KEY =
+#include? "Dropbox.local.xcconfig"
