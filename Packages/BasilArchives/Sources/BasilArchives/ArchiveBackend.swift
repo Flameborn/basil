@@ -23,10 +23,15 @@ public struct ArchiveEntry: Sendable, Equatable {
     public var dataOrdinal: Int
     /// AppleDouble data with the entry's extended attributes (Finder tags, resource fork), if stored.
     public var macMetadata: Data?
+    /// The name exactly as the archive stores it, for backends that select entries by name (7-Zip).
+    public var storedName: String?
+    /// CRC32 of the data, when the archive records one; checked while the data is read.
+    public var crc32: UInt32?
 
     public init(path: String, kind: Kind, size: Int64? = nil, modified: timespec? = nil,
                 permissions: UInt16? = nil, symlinkTarget: String? = nil, isEncrypted: Bool = false,
-                ordinal: Int, dataOrdinal: Int? = nil, macMetadata: Data? = nil) {
+                ordinal: Int, dataOrdinal: Int? = nil, macMetadata: Data? = nil,
+                storedName: String? = nil, crc32: UInt32? = nil) {
         self.path = path
         self.kind = kind
         self.size = size
@@ -37,6 +42,8 @@ public struct ArchiveEntry: Sendable, Equatable {
         self.ordinal = ordinal
         self.dataOrdinal = dataOrdinal ?? ordinal
         self.macMetadata = macMetadata
+        self.storedName = storedName
+        self.crc32 = crc32
     }
 
     public static func == (a: Self, b: Self) -> Bool {
@@ -65,7 +72,8 @@ public protocol ArchiveBackend: Sendable {
     /// is not a format this backend reads. `byContent` allows any name (Cmd+PageDown).
     func entries(of url: URL, byContent: Bool) throws -> [ArchiveEntry]?
     /// Opens a session for reading entry data of `url`, opened earlier with the same `byContent`.
-    func session(for url: URL, byContent: Bool) -> any ArchiveReadSession
+    /// `entries` is the list `entries(of:byContent:)` returned.
+    func session(for url: URL, byContent: Bool, entries: [ArchiveEntry]) -> any ArchiveReadSession
     /// Reads every entry's data and reports problems (bad checksums, damaged data).
     /// `progress` gets the fraction done and the entry name; when it returns false, stop with CancellationError.
     func test(_ url: URL, byContent: Bool, progress: (Double, String) -> Bool) throws -> [String]

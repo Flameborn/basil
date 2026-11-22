@@ -1,0 +1,17 @@
+7-Zip 26.06 (2026-11-06), the sources of the 7zz command-line tool. Unmodified and complete.
+
+Source      https://github.com/ip7z/7zip/releases/download/26.06/7z2606-src.tar.xz
+            (linked from https://www.7-zip.org/download.html)
+            sha256 a4e374c8f864f51df48c2cfd0e1413ec3b2ea030deae852d6a655402ebb61ac4
+            src/ is the unpacked tarball (Asm, C, CPP, DOC).
+
+Ours:       build.sh, this file.
+Build:      build.sh runs the upstream makefile CPP/7zip/Bundles/Alone2 with cmpl_mac_arm64.mak,
+            objects and 7zz in Vendor/build/7zip (gitignored). It overrides only the warning flags
+            (-Wall instead of -Werror -Weverything, so a newer clang does not stop the build), the
+            object folder and the deployment target (macOS 27). The Basil app target runs it
+            before compiling, copies 7zz into Contents/MacOS and signs it with the app's identity.
+Licence:    GNU LGPL 2.1 or later, with the unRAR restriction for the RAR decoder and BSD parts;
+            see src/DOC/License.txt, src/DOC/copying.txt and src/DOC/unRarLicense.txt.
+To update:  replace src/ with a newer source tarball, update this file, run build.sh and
+            swift test --package-path Packages/BasilArchives --filter SevenZip.

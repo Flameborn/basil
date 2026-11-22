@@ -63,7 +63,7 @@ public struct LibArchiveBackend: ArchiveBackend {
         return entries
     }
 
-    public func session(for url: URL, byContent: Bool) -> any ArchiveReadSession {
+    public func session(for url: URL, byContent: Bool, entries: [ArchiveEntry]) -> any ArchiveReadSession {
         LibArchiveSession(url: url)
     }
 

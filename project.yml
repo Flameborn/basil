@@ -40,6 +40,24 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil
         PRODUCT_NAME: Basil
+        # The 7zz phase builds into Vendor/build, outside what a sandboxed script may write.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    preBuildScripts:
+      - name: Build 7zz
+        basedOnDependencyAnalysis: false
+        script: |
+          "$SRCROOT/Vendor/7zip/build.sh"
+    postCompileScripts:
+      - name: Copy and sign 7zz
+        inputFiles:
+          - $(SRCROOT)/Vendor/build/7zip/7zz
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/7zz
+        script: |
+          set -e
+          dest="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/7zz"
+          cp -f "$SRCROOT/Vendor/build/7zip/7zz" "$dest"
+          codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --timestamp=none "$dest"
     dependencies:
       - package: BasilCore
       - package: BasilVFS

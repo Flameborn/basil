@@ -1,0 +1,2 @@
+# Vendored upstream sources are stored exactly as released (7-Zip uses CRLF line endings).
+Vendor/7zip/src/** -text

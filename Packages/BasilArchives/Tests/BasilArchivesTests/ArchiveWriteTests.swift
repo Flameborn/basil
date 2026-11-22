@@ -19,7 +19,6 @@ final class WriteMonitor: ContainerWriteMonitor {
 }
 
 extension Fixture {
-    var opener: ArchiveOpener { ArchiveOpener(temporaryRoot: url.appendingPathComponent("tmp")) }
     var src: VFSPath { .local(url.appendingPathComponent("src").path) }
 
     /// Adds for every item in src, at the archive root.

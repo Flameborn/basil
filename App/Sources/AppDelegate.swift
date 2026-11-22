@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         providers.register(LocalProvider())
         let archives = ArchiveOpener()
+        // 7z through the 7zz built from Vendor/7zip and copied into Contents/MacOS.
+        if let sevenZip = SevenZipBackend.bundled() { archives.register(sevenZip) }
         providers.register(opener: archives)
         providers.register(writer: archives)
         var start: (left: VFSPath, right: VFSPath)?

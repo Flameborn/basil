@@ -9,6 +9,7 @@ import Testing
 final class Fixture: Sendable {
     let url: URL
     let registry = ProviderRegistry()
+    let opener: ArchiveOpener
 
     init() throws {
         url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-archive-\(UUID().uuidString)")
@@ -21,7 +22,8 @@ final class Fixture: Sendable {
         try Data("hidden".utf8).write(to: src.appendingPathComponent(".hidden"))
         try FileManager.default.createSymbolicLink(atPath: src.appendingPathComponent("link").path, withDestinationPath: "folder")
         registry.register(LocalProvider())
-        registry.register(opener: ArchiveOpener(temporaryRoot: url.appendingPathComponent("tmp")))
+        opener = ArchiveOpener(temporaryRoot: url.appendingPathComponent("tmp"))
+        registry.register(opener: opener)
     }
 
     deinit { try? FileManager.default.removeItem(at: url) }

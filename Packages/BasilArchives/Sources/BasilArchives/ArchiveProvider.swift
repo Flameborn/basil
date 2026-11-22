@@ -29,6 +29,10 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     private let state: Mutex<(index: ArchiveIndex, stamp: Stamp?)>
     /// Only touched on `queue`.
     private var session: (any ArchiveReadSession)?
+    /// Counts reads, so an idle session can be closed (only touched on `queue`).
+    private var reads = 0
+    /// A session unused this long is closed: it may hold a 7zz process or an open file.
+    static let sessionIdleTimeout: DispatchTimeInterval = .seconds(10)
 
     struct Stamp: Equatable { var size: Int64; var mtime: Int; var mtimeNanos: Int; var inode: UInt64 }
 
@@ -176,7 +180,15 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
 
     fileprivate func read(_ entry: ArchiveEntry, name: String, at offset: Int64, count: Int) async throws -> Data {
         try await run { [self] in
-            if session == nil { session = backend.session(for: url, byContent: byContent) }
+            if session == nil {
+                session = backend.session(for: url, byContent: byContent, entries: state.withLock { $0.index.list })
+            }
+            reads += 1
+            let mark = reads
+            queue.asyncAfter(deadline: .now() + Self.sessionIdleTimeout) { [weak self] in
+                guard let self, self.reads == mark else { return }
+                self.session = nil
+            }
             do {
                 return try session!.read(entry, at: offset, count: count)
             } catch ArchiveError.encrypted {

@@ -10,9 +10,13 @@ struct ArchiveIndex: Sendable {
     /// Child names of each folder, in archive order.
     private(set) var children: [String: [String]] = ["/": []]
 
+    /// Every entry as the backend listed it, in archive order (read sessions need it).
+    let list: [ArchiveEntry]
+
     var count: Int { entries.count }
 
     init(_ list: [ArchiveEntry]) {
+        self.list = list
         for entry in list where entry.path != "/" {
             add(entry)
         }
