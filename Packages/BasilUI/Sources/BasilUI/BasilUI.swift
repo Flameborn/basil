@@ -37,6 +37,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     let copies: TemporaryCopies
     /// Where app leftovers are searched (AppLeftoversSheet.swift); UI tests point it at the fixture.
     public var leftoverRoots: AppLeftoverFinder.Roots = .system
+    /// Sign-ins on a website open the browser (UI tests turn it off).
+    public var opensBrowser = true
     /// True while the "was changed, update it?" sheets are up (ArchiveEditing.swift).
     var offeringEditedCopies = false
     /// Host key and password questions of remote connections (`RemoteConnections.swift`).

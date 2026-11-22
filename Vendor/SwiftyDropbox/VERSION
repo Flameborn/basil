@@ -1,0 +1,18 @@
+SwiftyDropbox 10.2.4 (git tag 10.2.4, commit e315e0b14edb83f022134aef389deb4e8bee6bbf, 2025-11-21),
+the official Dropbox Swift SDK. Unmodified.
+
+Source      https://github.com/dropbox/SwiftyDropbox (tag 10.2.4)
+Kept:       LICENSE, README.md, Package.swift, Source/ (SwiftyDropbox, SwiftyDropboxObjC and
+            SwiftyDropboxUnitTests, as in the tag).
+Left out:   the generator and API spec (stone, spec, generate_base_client.py, Format), the
+            CocoaPods podspecs, the TestSwiftyDropbox apps, Images and the release scripts.
+            None of them is needed to build.
+Ours:       this file.
+Use:        Packages/BasilRemote depends on the SwiftyDropbox product (Swift 5 language mode, no
+            dependencies of its own). Basil uses its generated API routes and DropboxClient;
+            sign-in (OAuth 2 with PKCE), token storage and ranged downloads are Basil's own
+            (Packages/BasilRemote/Sources/BasilRemote/Dropbox*.swift), so the SDK's
+            DropboxClientsManager and its keychain storage are not used.
+Licence:    MIT, see LICENSE.
+To update:  clone the new tag, replace LICENSE, README.md, Package.swift and Source, update this
+            file, then run swift test --package-path Packages/BasilRemote --filter Dropbox.

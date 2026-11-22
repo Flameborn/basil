@@ -109,6 +109,21 @@ public struct CertificateQuestion: Sendable, Equatable {
     }
 }
 
+/// A sign-in on the service's website (Dropbox): the page to open in the browser.
+public struct BrowserSignIn: Sendable, Equatable {
+    /// "Dropbox"
+    public var service: String
+    public var url: URL
+    /// The account a saved connection used before ("erion@example.com"), or nil.
+    public var account: String?
+
+    public init(service: String, url: URL, account: String? = nil) {
+        self.service = service
+        self.url = url
+        self.account = account
+    }
+}
+
 /// The UI's side of connecting: questions only the user can answer. Every call may wait for the
 /// user; nil or `.cancel` stops the connection.
 public protocol RemotePrompts: Sendable {
@@ -120,12 +135,18 @@ public protocol RemotePrompts: Sendable {
     func secretWorked(_ request: SecretRequest, _ answer: SecretAnswer) async
     /// Something the user should know about the connection (unsupported ssh config keys, ...).
     func note(_ message: String) async
+    /// Opens `request.url` in the browser and shows that Basil waits for the sign-in there.
+    /// Returns when the user gives up; the connector cancels the task once the sign-in came
+    /// back to Basil, and the UI then stops waiting.
+    func browserSignIn(_ request: BrowserSignIn) async
 }
 
 extension RemotePrompts {
     public func certificate(_ question: CertificateQuestion) async -> HostKeyAnswer { .cancel }
     public func secretWorked(_ request: SecretRequest, _ answer: SecretAnswer) async {}
     public func note(_ message: String) async {}
+    /// Without a UI there is nobody to sign in: give up at once.
+    public func browserSignIn(_ request: BrowserSignIn) async {}
 }
 
 /// The connection was stopped by the user (a cancelled prompt).
@@ -200,6 +221,15 @@ public protocol RemoteConnector: Sendable {
     var userPlaceholder: String { get }
     /// The service's own settings, shown in the editor below the common fields.
     var options: [RemoteOption] { get }
+    /// False for services that are an account rather than a server (Dropbox): the editor shows
+    /// no Host, Port, User or login fields, and Quick Connect does not offer the service.
+    var usesServerAddress: Bool { get }
+    /// A sentence the editor shows about logging in (Dropbox: signing in on its website).
+    var loginNote: String? { get }
+    /// A saved connection is being deleted: forget what only it needed (Dropbox: revoke the
+    /// account's token and remove it from the Keychain, unless one of `remaining`, the
+    /// connections still saved, uses the same account).
+    func forget(_ target: RemoteTarget, remaining: [RemoteTarget]) async
     /// Opens a connection. The provider's location identifies it (same server and user: same
     /// location); `start` is the folder to show first.
     func connect(_ target: RemoteTarget, prompts: any RemotePrompts) async throws
@@ -213,6 +243,9 @@ extension RemoteConnector {
     public var hostPlaceholder: String { "Name or address" }
     public var userPlaceholder: String { NSUserName() }
     public var options: [RemoteOption] { [] }
+    public var usesServerAddress: Bool { true }
+    public var loginNote: String? { nil }
+    public func forget(_ target: RemoteTarget, remaining: [RemoteTarget]) async {}
 }
 
 /// A provider that holds a connection. Disconnect closes it.
@@ -221,7 +254,14 @@ public protocol ConnectedProvider: FileSystemProvider {
     var connectionTitle: String { get }
     /// The folder the server starts in (the user's home there).
     var homeDirectory: VFSPath { get }
+    /// What a saved connection should hold after this connection was made, when that changed
+    /// (Dropbox: the account that signed in). nil: keep it as it is.
+    var signedInTarget: RemoteTarget? { get }
     func disconnect() async
+}
+
+extension ConnectedProvider {
+    public var signedInTarget: RemoteTarget? { nil }
 }
 
 extension ProviderRegistry {

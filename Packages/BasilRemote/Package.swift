@@ -12,6 +12,8 @@ let package = Package(
         .package(path: "../BasilVFS"),
         // Needs Vendor/libssh2/build.sh to have run (scripts/bootstrap.sh).
         .package(path: "../../Vendor/libssh2"),
+        // The official Dropbox SDK, vendored unmodified.
+        .package(path: "../../Vendor/SwiftyDropbox"),
         // Tests only: copies to and from SFTP go through the copy engine.
         .package(path: "../BasilOperations"),
     ],
@@ -23,6 +25,7 @@ let package = Package(
                 .product(name: "BasilVFS", package: "BasilVFS"),
                 .product(name: "CLibSSH2", package: "LibSSH2"),
                 .product(name: "CBasilTLS", package: "LibSSH2"),
+                .product(name: "SwiftyDropbox", package: "SwiftyDropbox"),
             ]
         ),
         .testTarget(name: "BasilRemoteTests", dependencies: [

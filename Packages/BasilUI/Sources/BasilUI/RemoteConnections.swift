@@ -55,6 +55,10 @@ final class RemotePromptsUI: RemotePrompts, @unchecked Sendable {
     func note(_ message: String) async {
         await MainActor.run { controller?.activePane.report(message) }
     }
+
+    func browserSignIn(_ request: BrowserSignIn) async {
+        await MainActor.run { controller }?.waitForBrowserSignIn(request)
+    }
 }
 
 extension MainWindowController {
@@ -178,13 +182,45 @@ extension MainWindowController {
         return SecretAnswer(secret: field.stringValue, remember: request.keychainKey != nil && remember.state == .on)
     }
 
+    /// Opens the service's sign-in page in the browser and shows a sheet until the sign-in
+    /// comes back (the connector cancels this task, which ends the sheet) or the user cancels.
+    func waitForBrowserSignIn(_ request: BrowserSignIn) async {
+        guard let window else { return }
+        if opensBrowser { NSWorkspace.shared.open(request.url) }
+        let alert = NSAlert()
+        alert.messageText = "Sign in to \(request.service) in your browser"
+        let account = request.account.map { " as \($0)" } ?? ""
+        alert.informativeText = """
+        Basil opened the \(request.service) sign-in page in your browser. Sign in there\(account) and choose Allow, and Basil goes on by itself. Basil never sees your password.
+        """
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Open Browser Again")
+        nonisolated(unsafe) let sheet = alert.window
+        await withTaskCancellationHandler {
+            while !Task.isCancelled {
+                let answer = await present(alert, in: window)
+                if Task.isCancelled || answer != 1 { break }
+                if opensBrowser { NSWorkspace.shared.open(request.url) }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                if sheet.sheetParent != nil { window.endSheet(sheet) }
+            }
+        }
+        if alert.window.sheetParent != nil { window.endSheet(alert.window) }
+    }
+
     // MARK: Connecting
 
     /// Connects in the active pane and shows the start folder. Spoken: "Connecting to ..." when it
     /// takes longer than a second, then "Connected to erion@example.com".
-    func connect(_ target: RemoteTarget) {
+    func connect(_ target: RemoteTarget, saved id: UUID? = nil) {
         let pane = activePane
-        let name = target.address
+        // "Connecting to erion@example.com", "Connecting to Dropbox".
+        var name = target.address
+        if let connector = providers.connector(for: target.service), !connector.usesServerAddress {
+            name = target.user.map { "\(connector.displayName) (\($0))" } ?? connector.displayName
+        }
         guard providers.connector(for: target.service) != nil else {
             return pane.report("Basil cannot connect with \(target.service.rawValue.uppercased()) yet")
         }
@@ -198,7 +234,13 @@ extension MainWindowController {
             do {
                 let start = try await providers.connect(target, prompts: remotePrompts)
                 slow.cancel()
-                let title = (try? providers.provider(for: start.location) as? any ConnectedProvider)?.connectionTitle ?? name
+                let connected = try? providers.provider(for: start.location) as? any ConnectedProvider
+                let title = connected?.connectionTitle ?? name
+                // A sign-in tells the saved connection which account it is (Dropbox).
+                if let id, let updated = connected?.signedInTarget,
+                   let index = settings.settings.connections.firstIndex(where: { $0.id == id }) {
+                    settings.settings.connections[index].target = updated
+                }
                 pane.navigate(to: start)
                 announce("Connected to \(title)")
             } catch is RemoteCancelled {
@@ -248,6 +290,24 @@ extension MainWindowController {
         }
     }
 
+    /// A saved connection's title: its name, the address, or for an account service
+    /// ("Dropbox") the service and the account's email.
+    func connectionTitle(_ connection: SavedConnection) -> String {
+        ConnectionsModel.title(connection, service: providers.connector(for: connection.target.service).map(ConnectionsModel.Service.init))
+    }
+
+    /// A saved connection was deleted: the connector forgets the account when no other saved
+    /// connection uses it (Dropbox revokes its sign-in), after its open connection is closed.
+    func forgetConnection(_ target: RemoteTarget, remaining: [RemoteTarget]) {
+        guard let connector = providers.connector(for: target.service) else { return }
+        if !connector.usesServerAddress, let user = target.user,
+           !remaining.contains(where: { $0.service == target.service && $0.host == target.host }),
+           let open = providers.openConnections.first(where: { $0.location.provider == target.service && $0.location.instance == user }) {
+            disconnect(open)
+        }
+        Task { await connector.forget(target, remaining: remaining) }
+    }
+
     // MARK: Cmd+K
 
     func showConnections() {
@@ -266,10 +326,11 @@ extension MainWindowController {
         model.onClose = { [weak window, weak sheet] in
             if let sheet { window?.endSheet(sheet) }
         }
-        model.onConnect = { [weak self, weak window, weak sheet] target in
+        model.onConnect = { [weak self, weak window, weak sheet] target, id in
             if let sheet { window?.endSheet(sheet) }
-            self?.connect(target)
+            self?.connect(target, saved: id)
         }
+        model.onForget = { [weak self] target, remaining in self?.forgetConnection(target, remaining: remaining) }
         model.announce = { [weak self] message in self?.announce(message) }
         window.beginSheet(sheet) { [weak window] _ in
             window?.makeFirstResponder(pane.tableView)
@@ -303,6 +364,9 @@ final class ConnectionsModel {
         let hostPlaceholder: String
         let userPlaceholder: String
         let options: [RemoteOption]
+        /// False for an account rather than a server (Dropbox): no Host, Port, User or login.
+        let usesServerAddress: Bool
+        let loginNote: String?
 
         init(_ connector: any RemoteConnector) {
             id = connector.service
@@ -313,8 +377,27 @@ final class ConnectionsModel {
             hostPlaceholder = connector.hostPlaceholder
             userPlaceholder = connector.userPlaceholder
             options = connector.options
+            usesServerAddress = connector.usesServerAddress
+            loginNote = connector.loginNote
         }
     }
+
+    /// The name, else the address, else for an account service "Dropbox (erion@example.com)".
+    static func title(_ connection: SavedConnection, service: Service?) -> String {
+        let name = connection.name.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty { return name }
+        return subtitle(connection, service: service)
+    }
+
+    /// What the list shows under a named connection: the address, or the account.
+    static func subtitle(_ connection: SavedConnection, service: Service?) -> String {
+        guard let service, !service.usesServerAddress else { return connection.target.address }
+        let account = connection.target.user.map { "(\($0))" } ?? "(not signed in yet)"
+        return "\(service.name) \(account)"
+    }
+
+    func title(_ connection: SavedConnection) -> String { Self.title(connection, service: service(connection.target.service)) }
+    func subtitle(_ connection: SavedConnection) -> String { Self.subtitle(connection, service: service(connection.target.service)) }
 
     var saved: [SavedConnection]
     var selection: UUID?
@@ -326,7 +409,9 @@ final class ConnectionsModel {
     let services: [Service]
     let aliases: [String]
 
-    @ObservationIgnored var onConnect: ((RemoteTarget) -> Void)?
+    @ObservationIgnored var onConnect: ((RemoteTarget, UUID?) -> Void)?
+    /// A saved connection was deleted (target, the targets still saved).
+    @ObservationIgnored var onForget: ((RemoteTarget, [RemoteTarget]) -> Void)?
     @ObservationIgnored var onSave: (([SavedConnection]) -> Void)?
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var announce: ((String) -> Void)?
@@ -338,22 +423,29 @@ final class ConnectionsModel {
         selection = saved.first?.id
     }
 
-    var defaultService: ProviderID { services.first?.id ?? ProviderID("sftp") }
+    var defaultService: ProviderID { addressServices.first?.id ?? ProviderID("sftp") }
+
+    /// The services Quick Connect can reach by address.
+    var addressServices: [Service] { services.filter(\.usesServerAddress) }
 
     func service(_ id: ProviderID) -> Service? { services.first { $0.id == id } }
 
     var selected: SavedConnection? { saved.first { $0.id == selection } }
 
-    var quickTarget: RemoteTarget? { RemoteTarget.parse(quick, defaultService: defaultService) }
+    var quickTarget: RemoteTarget? {
+        guard let target = RemoteTarget.parse(quick, defaultService: defaultService),
+              service(target.service)?.usesServerAddress != false else { return nil }
+        return target
+    }
 
     func connectQuick() {
         guard let target = quickTarget else { return announce?("Type an address such as user@host") ?? () }
-        onConnect?(target)
+        onConnect?(target, nil)
     }
 
     func connectSelected() {
         guard let connection = selected else { return }
-        onConnect?(connection.target)
+        onConnect?(connection.target, connection.id)
     }
 
     func newConnection() {
@@ -374,7 +466,7 @@ final class ConnectionsModel {
         saved.insert(copy, at: index + 1)
         selection = copy.id
         onSave?(saved)
-        announce?("Duplicated \(connection.title)")
+        announce?("Duplicated \(title(connection))")
     }
 
     func deleteSelected() {
@@ -382,7 +474,8 @@ final class ConnectionsModel {
         saved.remove(at: index)
         selection = saved.indices.contains(index) ? saved[index].id : saved.last?.id
         onSave?(saved)
-        announce?("Deleted \(connection.title)")
+        onForget?(connection.target, saved.map(\.target))
+        announce?("Deleted \(title(connection))")
     }
 
     func move(by offset: Int) {
@@ -402,7 +495,7 @@ final class ConnectionsModel {
         }
         selection = connection.id
         onSave?(saved)
-        announce?("Saved \(connection.title)")
+        announce?("Saved \(title(connection))")
     }
 
     /// Escape: leaves the editor, or closes the manager.
@@ -444,6 +537,9 @@ struct ConnectionDraft {
     var keyFile: String
     /// The service's own options as set (missing: the default).
     var options: [String: String]
+    /// What the connection held before editing; an account service keeps its account
+    /// (host and user) only while its service stays the same.
+    let original: RemoteTarget
 
     init(_ connection: SavedConnection, isNew: Bool) {
         id = connection.id
@@ -460,6 +556,7 @@ struct ConnectionDraft {
         case .keyFile(let file): auth = .keyFile; keyFile = file
         }
         options = connection.target.options ?? [:]
+        original = connection.target
     }
 
     /// The login actually used: the chosen one when the service offers it, else its first.
@@ -473,6 +570,7 @@ struct ConnectionDraft {
     }
 
     func problem(_ service: ConnectionsModel.Service?) -> String? {
+        if service?.usesServerAddress == false { return nil }
         if host.trimmingCharacters(in: .whitespaces).isEmpty { return "Type the server's host name or address." }
         let trimmedPort = port.trimmingCharacters(in: .whitespaces)
         if !trimmedPort.isEmpty, Int(trimmedPort).map({ (1...65535).contains($0) }) != true { return "The port must be a number from 1 to 65535." }
@@ -491,6 +589,14 @@ struct ConnectionDraft {
         var target = RemoteTarget(service: service, host: trim(host), port: Int(trim(port)),
                                   user: trim(user).isEmpty ? nil : trim(user),
                                   path: trim(path).isEmpty ? nil : trim(path), authentication: authentication)
+        if info?.usesServerAddress == false {
+            // The account comes from signing in, never from typing.
+            let same = original.service == service
+            target.host = same ? original.host : ""
+            target.user = same ? original.user : nil
+            target.port = nil
+            target.authentication = .automatic
+        }
         // Only this service's options, and only those that differ from their defaults.
         var kept: [String: String] = [:]
         for option in info?.options ?? [] {
@@ -534,8 +640,8 @@ struct ConnectionList: View {
                 Button("Quick Connect") { model.connectQuick() }
                     .disabled(model.quickTarget == nil)
             }
-            if model.services.count > 1 {
-                Text("Addresses can start with \(model.services.map { "\($0.id.rawValue):// for \($0.name)" }.joined(separator: ", ")). Without one, \(model.services.first?.name ?? "") is used.")
+            if model.addressServices.count > 1 {
+                Text("Addresses can start with \(model.addressServices.map { "\($0.id.rawValue):// for \($0.name)" }.joined(separator: ", ")). Without one, \(model.addressServices.first?.name ?? "") is used.")
                     .font(.callout)
                     .foregroundStyle(Theme.secondaryTextColor)
             }
@@ -548,9 +654,9 @@ struct ConnectionList: View {
             List(selection: $model.selection) {
                 ForEach(model.saved) { connection in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(connection.title)
+                        Text(model.title(connection))
                         if !connection.name.isEmpty {
-                            Text(connection.target.address)
+                            Text(model.subtitle(connection))
                                 .font(.callout)
                                 .foregroundStyle(Theme.secondaryTextColor)
                         }
@@ -600,7 +706,7 @@ struct ConnectionEditor: View {
         let draft = model.draft
         let service = model.service(draft.service)
         VStack(alignment: .leading, spacing: 12) {
-            Text(draft.isNew ? "New Connection" : "Edit \(draft.name.isEmpty ? draft.host : draft.name)").font(.headline)
+            Text(draft.isNew ? "New Connection" : "Edit \(draft.name.isEmpty ? model.title(SavedConnection(name: "", target: draft.original)) : draft.name)").font(.headline)
             Form {
                 TextField("Name", text: binding.name, prompt: Text("Optional"))
                     .accessibilityLabel("Name")
@@ -610,23 +716,29 @@ struct ConnectionEditor: View {
                     }
                     .accessibilityLabel("Protocol")
                 }
-                TextField("Host", text: binding.host, prompt: Text(service?.hostPlaceholder ?? "Name or address"))
-                    .accessibilityLabel("Host")
-                    .focused($hostFocused)
-                TextField("Port", text: binding.port, prompt: Text(defaultPortText(draft.service)))
-                    .accessibilityLabel("Port")
-                TextField("User", text: binding.user, prompt: Text(service?.userPlaceholder ?? NSUserName()))
-                    .accessibilityLabel("User")
-                TextField("Start folder", text: binding.path, prompt: Text("Home folder on the server"))
+                let address = service?.usesServerAddress != false
+                if address {
+                    TextField("Host", text: binding.host, prompt: Text(service?.hostPlaceholder ?? "Name or address"))
+                        .accessibilityLabel("Host")
+                        .focused($hostFocused)
+                    TextField("Port", text: binding.port, prompt: Text(defaultPortText(draft.service)))
+                        .accessibilityLabel("Port")
+                    TextField("User", text: binding.user, prompt: Text(service?.userPlaceholder ?? NSUserName()))
+                        .accessibilityLabel("User")
+                } else {
+                    let account = draft.original.service == draft.service ? draft.original.user : nil
+                    Text("Account: \(account ?? "not signed in yet")")
+                }
+                TextField("Start folder", text: binding.path, prompt: Text(address ? "Home folder on the server" : "Top folder"))
                     .accessibilityLabel("Start folder")
                 let logins = ConnectionDraft.Auth.allCases.filter { service?.logins.contains($0.login) ?? true }
-                if logins.count > 1 {
+                if address, logins.count > 1 {
                     Picker("Log in with", selection: binding.auth) {
                         ForEach(logins) { Text($0.title(service)).tag($0) }
                     }
                     .accessibilityLabel("Log in with")
                 }
-                if draft.effectiveAuth(service) == .keyFile {
+                if address, draft.effectiveAuth(service) == .keyFile {
                     HStack {
                         TextField("Key file", text: binding.keyFile, prompt: Text("~/.ssh/id_ed25519"))
                             .accessibilityLabel("Key file")
@@ -643,7 +755,7 @@ struct ConnectionEditor: View {
                             .foregroundStyle(Theme.secondaryTextColor)
                     }
                 }
-                Text("Passwords and passphrases are asked for when connecting and can be remembered in the Keychain.")
+                Text(service?.loginNote ?? "Passwords and passphrases are asked for when connecting and can be remembered in the Keychain.")
                     .font(.callout)
                     .foregroundStyle(Theme.secondaryTextColor)
                 if let problem = draft.problem(service) {

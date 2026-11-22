@@ -229,8 +229,8 @@ enum BuiltinCommands {
             }
             commands.append(C(id: CommandID(rawValue: "net.saved\(n)"), title: "Saved Connection \(n)",
                               isEnabled: { _ in saved() != nil },
-                              menuTitle: { _ in saved()?.title }) { _ in
-                if let target = saved()?.target { w?.connect(target) }
+                              menuTitle: { _ in saved().map { w?.connectionTitle($0) ?? $0.title } }) { _ in
+                if let connection = saved() { w?.connect(connection.target, saved: connection.id) }
             })
         }
         commands.forEach(registry.register)
