@@ -14,7 +14,7 @@ Basil is a free, open-source dual-pane file manager for macOS. This policy expla
 
 ## Who is responsible
 
-Basil is written and maintained by an individual developer as an open-source project. Its source code is public, so anyone can check that it does what this policy says. Questions go through the project's issue tracker on GitHub (see "Contact" below).
+Basil is written and maintained by an individual developer as an open-source project. Its source code is public, so anyone can check that it does what this policy says. Questions go through the project's issue tracker on GitHub (see "Contact" below). The source code is at https://github.com/Flameborn/basil.
 
 ## What Basil accesses in your Dropbox
 
@@ -80,4 +80,4 @@ If Basil's handling of Dropbox data changes, this file is updated in the project
 
 ## Contact
 
-For questions about this policy or about how Basil handles your data, open an issue in the Basil repository on GitHub.
+For questions about this policy or about how Basil handles your data, open an issue at https://github.com/Flameborn/basil/issues.
