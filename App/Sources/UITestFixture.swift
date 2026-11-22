@@ -220,6 +220,7 @@ enum UITestSSHServer {
 }
 #endif
 
+#if DEBUG
 /// pure-ftpd for the FTP UI test (`BASIL_UITEST_FTPD` = the folder scripts/build-test-ftpd.sh
 /// builds into). Explicit TLS with a self-signed certificate, one account (`user`, `password`)
 /// without a chroot. Stopped by a watchdog when the app ends.
@@ -284,4 +285,4 @@ enum UITestFTPServer {
 
     private static func freePort() -> Int { UITestSSHServer.freePort() }
 }
-
+#endif
