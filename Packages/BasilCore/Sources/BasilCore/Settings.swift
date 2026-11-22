@@ -47,6 +47,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var packLevel = "normal"
     /// "Test archive after packing" in the pack dialog, remembered (off at first).
     public var packTestAfter = false
+    /// The progress window (like Total Commander's) for running operations; on by default.
+    public var showProgressWindow = true
     /// "Solid archive" (7z) in the pack dialog, remembered (on at first, like 7-Zip).
     public var packSolid = true
     /// "Encrypt file names" (7z, with a password) in the pack dialog, remembered (off at first).
@@ -81,6 +83,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         packFormat = try c.decodeIfPresent(String.self, forKey: .packFormat) ?? d.packFormat
         packLevel = try c.decodeIfPresent(String.self, forKey: .packLevel) ?? d.packLevel
         packTestAfter = try c.decodeIfPresent(Bool.self, forKey: .packTestAfter) ?? d.packTestAfter
+        showProgressWindow = try c.decodeIfPresent(Bool.self, forKey: .showProgressWindow) ?? d.showProgressWindow
         packSolid = try c.decodeIfPresent(Bool.self, forKey: .packSolid) ?? d.packSolid
         packEncryptNames = try c.decodeIfPresent(Bool.self, forKey: .packEncryptNames) ?? d.packEncryptNames
         checksumAlgorithm = try c.decodeIfPresent(String.self, forKey: .checksumAlgorithm) ?? d.checksumAlgorithm

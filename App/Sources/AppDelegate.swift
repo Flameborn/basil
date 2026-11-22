@@ -43,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             copiesDirectory = dataDirectory.appendingPathComponent("Copies", isDirectory: true)
             settings = SettingsStore(defaults: isolated)
             secrets = MemorySecretStore() // UI tests never touch the user's keychain
+            // The progress window takes focus, which would swallow the keys of other tests.
+            settings.settings.showProgressWindow = ProcessInfo.processInfo.environment["BASIL_UITEST_PROGRESS"] == "1"
             // UI tests run silently (no sounds, no system voice).
             for outcome in QueueOutcome.allCases {
                 settings.settings.feedback.defaults[outcome.rawValue] = EventFeedback(sound: .none, speak: false, text: "")

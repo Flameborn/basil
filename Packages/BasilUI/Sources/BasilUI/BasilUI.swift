@@ -21,6 +21,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// The single global operation queue (in memory only; it does not survive restarts).
     public let queue: FileOperationQueue
     private var queueWindow: QueueWindowController?
+    /// Total Commander's progress dialog for the running item (`ProgressWindow.swift`).
+    let progressWindow: ProgressWindowController
     let quickLook = QuickLookController()
     let left: PaneViewController
     let right: PaneViewController
@@ -57,6 +59,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 copiesDirectory: URL = MainWindowController.defaultCopiesDirectory) {
         self.dataDirectory = dataDirectory
         self.copies = TemporaryCopies(root: copiesDirectory, registry: providers)
+        self.progressWindow = ProgressWindowController(queue: queue)
         self.commands = commands
         self.settings = settings
         self.providers = providers
@@ -114,10 +117,26 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         window.makeFirstResponder(left.tableView)
         installPasswordPrompt(secrets: secrets)
         queue.onEvent = { [weak self] event in self?.handle(event) }
-        queue.promptHandler = { [weak self] _, prompt in
+        queue.promptHandler = { [weak self] item, prompt in
             guard let self else { return .conflict(.cancel) }
-            return await self.answer(prompt)
+            let answer = await self.answer(prompt)
+            progressWindow.promptAnswered(for: item)
+            return answer
         }
+        progressWindow.isAllowed = { [weak self] in
+            guard let self else { return false }
+            return settings.settings.showProgressWindow && queueWindow?.isOpen != true
+        }
+        progressWindow.returnFocus = { [weak self] in
+            guard let self, let window = self.window else { return }
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(activePane.tableView)
+        }
+        progressWindow.showQueue = { [weak self] in self?.toggleQueue() }
+        progressWindow.isQueueChord = { [weak self] chord in self?.commands.commandID(for: chord) == "queue.show" }
+        progressWindow.announce = { [weak self] message in self?.announce(message) }
+        queue.onItemStarted = { [weak self] item in self?.progressWindow.itemStarted(item) }
+        queue.onItemStopped = { [weak self] item in self?.progressWindow.itemStopped(item) }
     }
 
     @available(*, unavailable)
@@ -166,6 +185,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
             announce: { [weak self] message in self?.announce(message) }
         )
         queueWindow = controller
+        // The queue panel shows the same progress: send the progress window to the background.
+        if progressWindow.isOpen { progressWindow.background() }
         if controller.isOpen, controller.window?.isKeyWindow == true {
             controller.close()
         } else {

@@ -322,6 +322,11 @@ struct CopySettings: View {
 
     var body: some View {
         Form {
+            Toggle("Show a progress window for operations", isOn: $store.settings.showProgressWindow)
+                .accessibilityLabel("Show a progress window for operations")
+            Text("Like Total Commander: a running copy, move, delete, pack or test shows its progress in a window with Background, Pause and Cancel. Background hides it; the operation keeps running in the queue (Cmd+J).")
+                .font(.callout)
+                .foregroundStyle(Theme.secondaryTextColor)
             Toggle("Secure copy and move", isOn: $store.settings.secureCopy)
                 .accessibilityLabel("Secure copy and move")
             Text("On: Basil copies into a temporary file, checks afterwards whether the source changed during the copy and copies the changed parts again, flushes to disk, then renames the file into place. A move deletes the source only when its copy is complete. Off (default): copying works like Total Commander and writes straight to the target. A file that is still being written can then be copied incomplete.")

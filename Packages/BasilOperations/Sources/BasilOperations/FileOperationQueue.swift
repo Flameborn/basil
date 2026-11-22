@@ -162,6 +162,10 @@ public final class FileOperationQueue {
     public private(set) var current: QueueItem?
 
     @ObservationIgnored public var onEvent: ((QueueEvent) -> Void)?
+    /// Called when an item starts running (the progress window shows it).
+    @ObservationIgnored public var onItemStarted: ((QueueItem) -> Void)?
+    /// Called when the running item has finished, failed or been cancelled.
+    @ObservationIgnored public var onItemStopped: ((QueueItem) -> Void)?
     /// Shows a prompt to the user and returns the answer. Without a handler, conflicts are
     /// skipped, a changing source is skipped and a failed item fails the operation.
     @ObservationIgnored public var promptHandler: ((QueueItem, QueuePrompt) async -> QueuePromptAnswer)?
@@ -294,6 +298,7 @@ public final class FileOperationQueue {
         next.state = .running
         next.log.append("Started")
         Task { await self.run(next) }
+        onItemStarted?(next)
     }
 
     private func run(_ item: QueueItem) async {
@@ -329,6 +334,7 @@ public final class FileOperationQueue {
         item.whenDone?(item.state)
         if item.removeWhenStopped { items.removeAll { $0 === item } }
         current = nil
+        onItemStopped?(item)
         startNextIfIdle()
     }
 
