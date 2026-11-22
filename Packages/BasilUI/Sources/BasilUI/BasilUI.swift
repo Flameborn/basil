@@ -111,7 +111,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
 
     /// "Downloads - Basil": the active pane's folder name, then the product name.
     func updateTitle() {
-        window?.title = "\(activePane.model.directory.name) - Basil"
+        window?.title = "\(activePane.model.directory.displayName) - Basil"
     }
 
     /// Tab: VoiceOver already reads the focused list's label ("Left pane"/"Right pane"), so nothing extra is announced.
@@ -205,7 +205,11 @@ extension MainWindowController: PaneViewControllerDelegate {
     func paneDidChangeDirectory(_ pane: PaneViewController) {
         if pane.side == activeSide { updateTitle() }
         if persistsDirectories {
-            defaults.set(pane.model.directory.path, forKey: pane.side.defaultsKey)
+            // Inside an archive, the folder holding it is remembered: providers do not survive a restart.
+            let directory = pane.model.directory
+            let outermost = directory.outermostContainer
+            let local = outermost == directory ? directory : outermost.parent
+            if let local, local.location == .local { defaults.set(local.path, forKey: pane.side.defaultsKey) }
         }
     }
 

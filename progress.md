@@ -1,8 +1,8 @@
 # Progress
 
-## Current state (2026-11-18)
+## Current state (2026-11-22)
 
-M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Added on 2026-11-19: Cmd+G go to folder or file with suggestions, Finder Go keys, Cmd+Shift+S folder sizes, Cmd+I Info sheet with default-app change, Shift+F4 new file in the editor of choice, Shift+F6 opens Multi-Rename for several selected items, and a column grid in the Multi-Rename preview. M3 done for local files on 2026-11-19: F3 Quick Look (follows the cursor), F4 with per-pattern editor rules, Cmd+Shift+T open terminal here. Next: the user trying out the speech wording and dialogs with VoiceOver; the dark-mode contrast audit failures (open questions). M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
+M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is built from vendored sources in `Vendor/libarchive`; archives open as read-only folders (Enter, or Cmd+PageDown for any file by content), F5 extracts through the copy engine, Option+Shift+F9 tests archives in the queue. Next in M4: writing archives (pack, add, delete inside), then the 7-Zip and UnRAR backends (their open questions first) and passwords. M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shift+F6 rename, F7 new folder, F8 Trash / Shift+F8 delete as queue operations, with the TC conflict dialog, the changing-source prompt, a "Secure copy and move" setting (off = TC style, default) and customisable sounds and speech per operation and outcome. Item errors now ask Retry / Skip / Skip All / Cancel, and the Multi-Rename tool (Cmd+M) is done. Added on 2026-11-19: Cmd+G go to folder or file with suggestions, Finder Go keys, Cmd+Shift+S folder sizes, Cmd+I Info sheet with default-app change, Shift+F4 new file in the editor of choice, Shift+F6 opens Multi-Rename for several selected items, and a column grid in the Multi-Rename preview. M3 done for local files on 2026-11-19: F3 Quick Look (follows the cursor), F4 with per-pattern editor rules, Cmd+Shift+T open terminal here. Next: the user trying out the speech wording and dialogs with VoiceOver; the dark-mode contrast audit failures (open questions). M1 mostly done: working dual-pane browser (local files) with keyboard commands, selection, sorting, type-ahead, quick filter, live updates, configurable views/columns, settings window, locations menu with bookmarks, and VoiceOver labels. Remaining in M1: user verification with real VoiceOver, and explaining Full Disk Access in the app. `scripts/bootstrap.sh` waits on the vendoring open questions.
 
 ## Decisions log
 
@@ -83,6 +83,13 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 | 2026-11-19 | Decided by Claude, change if wrong: the Quick Look panel takes key focus and passes keys to the pane (Escape and F3 close it); the name of each newly previewed item is announced. F4 on a folder says "is a folder". The Editing settings tab is now "Editor and Terminal". Only installed terminals are offered |
 | 2026-11-19 | Main window title is the active pane's folder name, a dash, then the product: "Downloads - Basil". Decided by Claude, change if wrong: at a volume root it shows "/ - Basil" |
 | 2026-11-19 | Contrast fixes, decided by Claude, change if wrong: secondary text in dialogs, settings and the queue uses a theme token (AppKit `Theme.secondaryText`, SwiftUI `Theme.secondaryTextColor` = primary at 75 percent) instead of the system secondary colour, which is about 3.5:1 in light mode. Multi-Rename problem text uses `Theme.errorText` instead of system red. The queue progress bar is a themed outline-and-fill bar below the row's text element. The Multi-Rename preview columns share the window width. The View and Operation pickers in Settings have a separate visible label |
+| 2026-11-22 | Next milestone after M3: M4 Archives |
+| 2026-11-22 | libarchive is built from source: vendored in `Vendor/libarchive` as a SwiftPM package with zstd 1.5.7, lz4 1.11.1 and xz/liblzma 5.8.4 (macOS has no headers for these); zlib, bzip2, iconv, libxml2 and CommonCrypto come from the SDK |
+| 2026-11-22 | Git first version: status, commit, pull, push, checkout, branch, plus log and blame |
+| 2026-11-22 | Enter on an archive enters it as a folder (TC); Backspace at its root goes back with the cursor on the archive. Cmd+PageDown (TC Ctrl+PageDown) enters any file whose content is a readable archive (docx, jar, apk) |
+| 2026-11-22 | libarchive does not open 7z or RAR: they wait for the 7-Zip and UnRAR backends |
+| 2026-11-22 | Encrypted archive entries: no password prompt yet; reading one fails with "is encrypted. Encrypted archives are not supported yet." |
+| 2026-11-22 | Decided by Claude, change if wrong: Enter recognises zip, tar and tar.gz/bz2/xz/zst/lz4/lzma/Z (and tgz, tbz, txz, tzst, tlz, taz), single gz/bz2/xz/zst/lz4/lzma/Z files (one entry, the name without the suffix), cpio, iso, xar, cab, lha/lzh; zip-based formats (docx, jar, apk, odt) only with Cmd+PageDown. Archives are read-only for now: F5 out of them works, F6 (move out), F7, F8, Shift+F6, Shift+F4, Cmd+M inside say "pack.zip is read-only. Changing archives is not supported yet." Test archives: Option+Shift+F9 (TC Alt+Shift+F9), a queue operation of its own kind "Test Archive" (fails when problems are found, the log lists them). An archive inside an archive is copied to a temporary file first. Archives are not watched; a changed archive file is indexed again when it is listed (F2). A pane inside an archive is remembered at quit as the folder holding the archive. An absolute path typed in the F5 dialog while inside an archive means a local folder. Names without a charset flag are read as UTF-8 |
 | 2026-11-19 | Decided by Claude, change if wrong: Go-to suggestions list prefix matches then substring matches (max 200), hidden items only once something is typed, dot files only after a dot; the count is announced after a 0.7 s pause and only when it changed. Folder size result is spoken as "Alpha, 1.5 MB, 120 files, 8 folders", "Calculating" only after 1 s; symlinks are not followed. New files get rw-r--r--. Files no app opens go to TextEdit. Info shows the cursor item only (not every selected item). Finder's Cmd+Shift+C (Computer) goes to /Volumes |
 
 ## Open questions (ask before implementing the related part)
@@ -103,13 +110,15 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [x] Fixed 2026-11-18: panes never watched their start folder, and watcher changes never removed deleted or renamed-away items from a pane.
 - [ ] UI tests are timing-flaky in the full suite (2026-11-19: tests now wait for sheet field focus before typing; a full run still shows about one different flake per run, `testQuickFilterAndHiddenToggle` or `testSoundsAndSpeechTab`, each passing alone; typing in other apps during a run also injects keys) (`testQuickFilterAndHiddenToggle` failed once in a full run on 2026-11-18 and passes alone; `testFinishedItemsCanBeRemoved` failed again in a full run on 2026-11-18, test operation stuck at 2 percent; passes alone): `testFinishedItemsCanBeRemoved` and `testColumnsAreConfigurableInSettings` each failed once in a full run and pass when run alone. Once, `app.debugDescription` (full-app snapshot) hung for 10 minutes inside NSTableView's own cell mock elements of a pane table; it did not happen again. Watch for it: it could mean VoiceOver can hang on the panes too.
 
-- [ ] Git scope for the first version: status/commit/pull/push/checkout/branch. Also diff, stash, log, blame?
+- [x] Git scope for the first version (2026-11-22): status/commit/pull/push/checkout/branch plus log and blame.
+- [ ] `testInfoSheet` fails its contrast audit in dark mode on the Info sheet's "Created" value (seen 2026-11-22, also at commit 8feafcc, so not caused by the archive work). To look into.
+- [ ] Archive providers stay registered (and their index in memory) until the app quits; unregistering archives no pane shows any more is still to do.
 
 ## Milestones
 
 ### M0 - Foundation
 - [x] `git init`, `.gitignore`, `project.yml`, app target, package skeletons (Basil* packages)
-- [ ] `scripts/bootstrap.sh` for vendored deps (blocked: libssh2 crypto, 7-Zip, UnRAR, LuaJIT build questions). BLAKE3 needs none: vendored as sources in `Vendor/BLAKE3`
+- [ ] `scripts/bootstrap.sh` for vendored deps (blocked: libssh2 crypto, 7-Zip, UnRAR, LuaJIT build questions). BLAKE3 and libarchive need none: vendored as sources in `Vendor/BLAKE3` and `Vendor/libarchive`
 - [x] Signing with stable local identity `dev` (Config/Base.xcconfig)
 - [ ] Document / prompt for the Full Disk Access flow in-app
 - [x] Local build + test commands working (in CLAUDE.md)
@@ -149,10 +158,12 @@ M0 done. M2 in progress: queue, SecureCopyEngine, and now F5 copy, F6 move, Shif
 - [ ] F4 for files in archives or on remotes (temp copy, repack/upload prompt; needs M4/M5)
 
 ### M4 - Archives
-- [ ] ArchiveBackend protocol + libarchive backend; browse archives as directories
+- [x] ArchiveBackend protocol + libarchive backend (built from vendored sources); browse archives as read-only folders (Enter, Cmd+PageDown), nested archives, extract with F5 through the copy engine
+- [x] Test archive (Option+Shift+F9) as a queue operation
+- [ ] Write archives: pack (TC Alt+F5), copy into, delete and rename inside an archive (repack through a temporary file)
 - [ ] 7-Zip backend (create with options: solid, level, AES, header encryption)
 - [ ] UnRAR backend; password prompts + Keychain
-- [ ] Test archive; edit-in-archive -> repack prompt
+- [ ] Edit-in-archive -> repack prompt; F3 / F4 on files inside archives (temporary copy)
 
 ### M5 - Remote
 - [ ] SFTP (libssh2) - password, keys, agent, known_hosts

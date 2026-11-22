@@ -13,13 +13,17 @@ extension MainWindowController {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
         guard let window else { return }
+        if mode == .move, !ensureWritable(activePane.model.directory) { return }
         let verb = mode == .copy ? "Copy" : "Move"
         let what = items.count == 1 ? items[0].name : FeedbackText.items(items.count)
-        let initial = otherPane.model.directory.path
+        let other = otherPane.model.directory
+        let initial = other.location == .local ? other.path : other.description
         Task {
             guard let text = await askText(in: window, message: "\(verb) \(what) to:", initial: initial,
                                            confirm: verb, fieldLabel: "Target folder") else { return }
-            guard let target = resolve(text, relativeTo: activePane.model.directory) else { return }
+            let target = text == initial ? other : resolve(text, relativeTo: activePane.model.directory)
+            guard let target else { return }
+            guard ensureWritable(target) else { return }
             let s = settings.settings
             let options = SecureCopyOptions(verifyDestination: s.verifyCopies, unstableRetries: s.unstableSourceRetries,
                                             secure: s.secureCopy)
@@ -31,7 +35,7 @@ extension MainWindowController {
 
     func renameCursorItem() {
         guard let item = activePane.cursorItem, let parent = item.path.parent else { return announce("No items") }
-        guard let window else { return }
+        guard let window, ensureWritable(parent) else { return }
         let pane = activePane
         let baseLength = item.isDirectoryLike ? item.name.utf16.count
             : (item.name as NSString).deletingPathExtension.utf16.count
@@ -56,6 +60,7 @@ extension MainWindowController {
     func multiRename() {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
+        guard ensureWritable(activePane.model.directory) else { return }
         let pane = activePane
         let log = dataDirectory.appendingPathComponent("LastMultiRename.json")
         let model = MultiRenameModel(items: items, existingNames: pane.model.allItems.map(\.name), undoLog: log)
@@ -85,7 +90,7 @@ extension MainWindowController {
     }
 
     func makeDirectory() {
-        guard let window else { return }
+        guard let window, ensureWritable(activePane.model.directory) else { return }
         let pane = activePane
         let directory = pane.model.directory
         Task {
@@ -103,7 +108,7 @@ extension MainWindowController {
     /// Shift+F4 (Total Commander): asks for a name (prefilled with the cursor file's name), creates
     /// an empty file through the queue unless it exists, then opens it in the editor from Settings.
     func newFile() {
-        guard let window else { return }
+        guard let window, ensureWritable(activePane.model.directory) else { return }
         let pane = activePane
         let directory = pane.model.directory
         let initial = pane.cursorItem.flatMap { $0.isDirectoryLike ? nil : $0.name } ?? ""
@@ -177,7 +182,7 @@ extension MainWindowController {
     func delete(permanently: Bool) {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
-        guard let window else { return }
+        guard let window, ensureWritable(activePane.model.directory) else { return }
         let what = items.count == 1 ? items[0].name : FeedbackText.items(items.count)
         let canTrash = (try? providers.writableProvider(for: activePane.model.directory.location))?
             .capabilities.contains(.trash) ?? false
@@ -195,13 +200,39 @@ extension MainWindowController {
         }
     }
 
-    /// A typed path: absolute, "~/..." or relative to `directory`.
+    /// Option+Shift+F9 (Total Commander's Alt+Shift+F9): tests the selected archives, or the
+    /// cursor archive, in the queue.
+    func testArchives() {
+        let archives = targetItems.filter { item in
+            guard case .file = item.kind else { return false }
+            return providers.containerOpener(forFile: item.path) != nil
+        }
+        guard !archives.isEmpty else { return announce("No archives") }
+        queue.add(TestArchiveOperation(archives: archives.map(\.path), registry: providers))
+        activePane.model.deselectAll()
+    }
+
+    /// False, with a spoken and shown reason, when items in `directory` can't be changed
+    /// (inside an archive, for now).
+    func ensureWritable(_ directory: VFSPath) -> Bool {
+        let capabilities = (try? providers.provider(for: directory.location))?.capabilities ?? []
+        if capabilities.contains(.write) { return true }
+        if let archive = directory.location.container {
+            activePane.report("\(archive.name) is read-only. Changing archives is not supported yet.")
+        } else {
+            activePane.report("This folder is read-only.")
+        }
+        return false
+    }
+
+    /// A typed path: absolute, "~/..." or relative to `directory`. Inside an archive, an absolute
+    /// path means a local folder.
     func resolve(_ text: String, relativeTo directory: VFSPath) -> VFSPath? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let expanded = (trimmed as NSString).expandingTildeInPath
         if expanded.hasPrefix("/") {
-            return VFSPath(location: directory.location, path: expanded)
+            return VFSPath(location: directory.location.container == nil ? directory.location : .local, path: expanded)
         }
         var path = directory
         for part in expanded.split(separator: "/") {

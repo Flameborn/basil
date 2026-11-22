@@ -85,6 +85,18 @@ public struct VFSPath: Hashable, Sendable, Codable, CustomStringConvertible {
         self.path = normalisedPath
     }
 
+    /// The file this path is ultimately stored in: the outermost container (the archive file on
+    /// disk) for paths inside nested providers, otherwise the path itself.
+    public var outermostContainer: VFSPath {
+        location.container?.outermostContainer ?? self
+    }
+
+    /// The name to show for this folder: the archive's name at the root of an archive.
+    public var displayName: String {
+        if isRoot, let container = location.container { return container.name }
+        return name
+    }
+
     /// Whether `self` is `other` or lies below it in the same provider location.
     public func hasPrefix(_ other: VFSPath) -> Bool {
         guard location == other.location else { return false }

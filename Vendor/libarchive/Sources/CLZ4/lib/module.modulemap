@@ -1,0 +1,6 @@
+module CLZ4 [extern_c] {
+    header "lz4.h"
+    header "lz4hc.h"
+    header "lz4frame.h"
+    export *
+}

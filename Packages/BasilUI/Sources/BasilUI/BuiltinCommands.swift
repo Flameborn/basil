@@ -18,6 +18,9 @@ enum BuiltinCommands {
         var commands: [C] = [
             C(id: "pane.switch", title: "Switch Pane", defaultKeys: [K(.tab), K(.tab, .shift)]) { _ in w?.switchPane() },
             C(id: "pane.open", title: "Open", defaultKeys: [K(.enter), K(.down, .command)]) { _ in pane()?.openCursor() },
+            C(id: "pane.openArchive", title: "Open as Archive", defaultKeys: [K(.pageDown, .command)]) { _ in
+                pane()?.openCursorAsContainer()
+            },
             C(id: "pane.parent", title: "Parent Folder", defaultKeys: [K(.backspace), K(.up, .command)]) { _ in pane()?.goToParent() },
             C(id: "pane.reload", title: "Reread", defaultKeys: [K(.function(2))]) { ctx in
                 guard let p = pane() else { return }
@@ -131,6 +134,9 @@ enum BuiltinCommands {
             C(id: "file.edit", title: "Edit", defaultKeys: [K(.function(4))]) { _ in w?.editCursorItem() },
             C(id: "tools.terminal", title: "Open Terminal Here", defaultKeys: [K(.character("t"), [.command, .shift])]) { _ in
                 w?.openTerminal()
+            },
+            C(id: "file.testArchive", title: "Test Archives", defaultKeys: [K(.function(9), [.option, .shift])]) { _ in
+                w?.testArchives()
             },
             C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)]) { _ in
                 w?.multiRename()

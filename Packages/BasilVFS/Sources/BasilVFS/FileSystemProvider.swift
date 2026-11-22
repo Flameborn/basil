@@ -59,8 +59,15 @@ public protocol FileSystemProvider: Sendable {
 /// Built-in providers and plugins register here the same way.
 public final class ProviderRegistry: Sendable {
     private let providers = Mutex<[ProviderLocation: any FileSystemProvider]>([:])
+    let openers = Mutex<[any ContainerOpener]>([])
 
     public init() {}
+
+    /// Adds an opener for container files. Openers registered earlier are asked first,
+    /// unless `first` puts this one ahead (a dedicated backend over a general one).
+    public func register(opener: any ContainerOpener, first: Bool = false) {
+        openers.withLock { first ? $0.insert(opener, at: 0) : $0.append(opener) }
+    }
 
     public func register(_ provider: any FileSystemProvider) {
         providers.withLock { $0[provider.location] = provider }

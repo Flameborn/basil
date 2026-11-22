@@ -1,0 +1,9 @@
+module CArchive [extern_c] {
+    header "../libarchive/archive.h"
+    header "../libarchive/archive_entry.h"
+    link "z"
+    link "bz2"
+    link "iconv"
+    link "xml2"
+    export *
+}

@@ -8,7 +8,8 @@ final class PaneUITests: XCTestCase {
     override func setUp() async throws {
         continueAfterFailure = false
         // The app builds the fixture itself (Debug only), see App/Sources/UITestFixture.swift:
-        // Alpha/Inner/, Beta/, "apple pie.txt", song.mp3, track.flac, notes.md, .secret
+        // Alpha/Inner/pack.zip (docs/readme.txt, top.txt), Beta/, "apple pie.txt", song.mp3,
+        // track.flac, notes.md, .secret
         app = XCUIApplication()
         app.launchEnvironment["BASIL_UITEST_FIXTURE"] = "1"
         app.launch()
@@ -461,6 +462,52 @@ final class PaneUITests: XCTestCase {
             print("AUDIT editor settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
             return false
         }
+    }
+
+    func testArchiveBrowseExtractAndReadOnly() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        // The first test after a build can type before the cursor is placed.
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Enter enters the archive
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top"] }, "\(names(in: leftTable))")
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(waitFor { window.title == "pack.zip - Basil" }, window.title)
+        XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 1)).prefix(3), ["top", "txt", "3 B"])
+
+        leftTable.typeKey(.enter, modifierFlags: [])                     // docs
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["readme"] })
+        leftTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top"] })
+        leftTable.typeKey(.delete, modifierFlags: [])                    // leaves the archive, cursor on it
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack"] })
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
+
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top"] })
+        try app.performAccessibilityAudit { issue in
+            print("AUDIT archive: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        // Read-only: F7 explains instead of asking for a name.
+        leftTable.typeKey(.F7, modifierFlags: [])
+        let status = app.staticTexts["pane.left.status"]
+        XCTAssertTrue(waitFor { (status.value as? String)?.contains("pack.zip is read-only") == true }, "\(status.value ?? "")")
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+
+        // F5 extracts the cursor item into the other pane (Beta).
+        leftTable.typeKey(.end, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 1).isSelected })
+        leftTable.typeKey(.F5, modifierFlags: [])
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: sheet)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["top"] }, "\(names(in: rightTable))")
     }
 
     func testF2Rereads() {

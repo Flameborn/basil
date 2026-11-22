@@ -32,11 +32,28 @@ enum UITestFixture {
             for name in ["apple pie.txt", "song.mp3", "track.flac", "notes.md", ".secret"] {
                 try Data("x".utf8).write(to: root.appendingPathComponent(name))
             }
+            try makeZip(at: root.appendingPathComponent("Alpha/Inner/pack.zip"))
         } catch {
             return nil
         }
         createdRoot = root
         return (.local(root.path), .local(root.appendingPathComponent("Beta").path))
+    }
+
+    /// Alpha/Inner/pack.zip with docs/readme.txt and top.txt, made with the system zip tool.
+    private static func makeZip(at url: URL) throws {
+        let fm = FileManager.default
+        let staging = fm.temporaryDirectory.appendingPathComponent("basil-uitest-zip-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: staging) }
+        try fm.createDirectory(at: staging.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        try Data("readme".utf8).write(to: staging.appendingPathComponent("docs/readme.txt"))
+        try Data("top".utf8).write(to: staging.appendingPathComponent("top.txt"))
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.arguments = ["-q", "-r", url.path, "docs", "top.txt"]
+        zip.currentDirectoryURL = staging
+        try zip.run()
+        zip.waitUntilExit()
     }
 
     nonisolated(unsafe) private static var createdRoot: URL?

@@ -268,18 +268,51 @@ final class PaneViewController: NSViewController {
         model.load(directory, cursor: cursor)
     }
 
+    /// Backspace: the parent folder. At the root of an archive, the folder holding the archive,
+    /// with the cursor on it.
     func goToParent() {
-        guard let parent = model.directory.parent else { return }
-        navigate(to: parent, cursor: model.directory)
+        if let parent = model.directory.parent {
+            navigate(to: parent, cursor: model.directory)
+        } else if let container = model.directory.location.container, let folder = container.parent {
+            navigate(to: folder, cursor: container)
+        }
     }
 
-    /// Enter: open directories, open files with their default app.
+    /// Enter: open directories, enter archives (Total Commander), open other files with their default app.
     func openCursor() {
         guard let item = cursorItem else { return }
         if item.isDirectoryLike {
             navigate(to: item.path)
+        } else if model.registry.isContainer(item) {
+            openContainer(item, byContent: false)
         } else if item.path.location == .local {
             NSWorkspace.shared.open(URL(fileURLWithPath: item.path.path))
+        }
+    }
+
+    /// Cmd+PageDown (Total Commander's Ctrl+PageDown): enters the cursor file as an archive
+    /// whatever its name, when its content is a format Basil reads (docx, jar, apk are zip files).
+    func openCursorAsContainer() {
+        guard let item = cursorItem else { return }
+        guard case .file = item.kind else {
+            if item.isDirectoryLike { navigate(to: item.path) }
+            return
+        }
+        openContainer(item, byContent: true)
+    }
+
+    private func openContainer(_ item: FileItem, byContent: Bool) {
+        let registry = model.registry
+        Task {
+            do {
+                if let root = try await registry.openContainer(item, byContent: byContent) {
+                    navigate(to: root)
+                } else {
+                    report("\(item.name) is not an archive Basil can open")
+                }
+            } catch {
+                report(Self.describe(error))
+            }
         }
     }
 
@@ -505,17 +538,23 @@ final class PaneViewController: NSViewController {
             if shownDirectory == nil, let fallback = Self.fallbackDirectory(for: model.directory) {
                 model.load(fallback)
             }
-            NSSound.beep()
-            let message = Self.describe(error)
-            statusLabel.stringValue = message
-            statusLabel.textColor = Theme.errorText
-            delegate?.pane(self, announce: message)
+            report(Self.describe(error))
         }
+    }
+
+    /// Shows an error in the status line, beeps and announces it.
+    func report(_ message: String) {
+        NSSound.beep()
+        statusLabel.stringValue = message
+        statusLabel.textColor = Theme.errorText
+        delegate?.pane(self, announce: message)
     }
 
     private static func fallbackDirectory(for directory: VFSPath) -> VFSPath? {
         let home = VFSPath.local(FileManager.default.homeDirectoryForCurrentUser.path)
-        var candidate = directory.parent
+        // Inside an archive: start from the folder holding the outermost archive.
+        let outermost = directory.outermostContainer
+        var candidate = outermost == directory ? directory.parent : outermost.parent
         while let c = candidate, c.location == .local {
             if FileManager.default.isReadableFile(atPath: c.path), !c.isRoot { return c }
             candidate = c.parent

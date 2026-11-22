@@ -1,0 +1,4 @@
+module CLZMA [extern_c] {
+    header "lzma.h"
+    export *
+}

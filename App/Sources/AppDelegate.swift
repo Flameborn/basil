@@ -1,4 +1,5 @@
 import AppKit
+import BasilArchives
 import BasilCore
 import BasilOperations
 import BasilUI
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugMenu.install(queue: queue)
         #endif
         providers.register(LocalProvider())
+        providers.register(opener: ArchiveOpener())
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
         var dataDirectory = MainWindowController.defaultDataDirectory

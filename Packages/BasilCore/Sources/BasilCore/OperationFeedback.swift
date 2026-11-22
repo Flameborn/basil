@@ -14,6 +14,7 @@ public struct OperationKind: RawRepresentable, Hashable, Sendable, Codable, Expr
     public static let makeDirectory: OperationKind = "mkdir"
     public static let newFile: OperationKind = "newfile"
     public static let rename: OperationKind = "rename"
+    public static let testArchive: OperationKind = "testarchive"
     /// Operations without a kind of their own (for example the debug test operation).
     public static let other: OperationKind = "other"
 }
@@ -45,6 +46,7 @@ public enum OperationKindCatalog {
         OperationKindInfo(kind: .makeDirectory, name: "New Folder", pastTense: "created"),
         OperationKindInfo(kind: .newFile, name: "New File", pastTense: "created"),
         OperationKindInfo(kind: .rename, name: "Rename", pastTense: "renamed"),
+        OperationKindInfo(kind: .testArchive, name: "Test Archive", pastTense: "tested"),
         OperationKindInfo(kind: .other, name: "Other", pastTense: "done"),
     ]
 
