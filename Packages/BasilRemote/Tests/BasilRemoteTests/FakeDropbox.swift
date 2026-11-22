@@ -624,6 +624,8 @@ final class FakeBrowserPrompts: RemotePrompts {
     let dropbox: FakeDropbox
     let giveUp: Bool
     let signIns = Mutex<[BrowserSignIn]>([])
+    /// The pages the browser showed after signing in.
+    let returnPages = Mutex<[String]>([])
 
     init(_ dropbox: FakeDropbox, giveUp: Bool = false) {
         self.dropbox = dropbox
@@ -637,9 +639,12 @@ final class FakeBrowserPrompts: RemotePrompts {
         signIns.withLock { $0.append(request) }
         if giveUp { return }
         if let back = dropbox.authorize(request.url) {
+            // Like a browser: opens the return page Basil serves on this Mac.
             Task {
                 try? await Task.sleep(for: .milliseconds(20))
-                DropboxRedirects.handle(back)
+                if let (data, _) = try? await URLSession(configuration: .ephemeral).data(from: back) {
+                    returnPages.withLock { $0.append(String(decoding: data, as: UTF8.self)) }
+                }
             }
         }
         // Waits like the sheet does until the sign-in came back.

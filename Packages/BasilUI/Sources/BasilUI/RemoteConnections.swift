@@ -203,8 +203,11 @@ extension MainWindowController {
                 if opensBrowser { NSWorkspace.shared.open(request.url) }
             }
         } onCancel: {
+            // The sign-in came back from the browser: Basil comes to the front again.
             Task { @MainActor in
                 if sheet.sheetParent != nil { window.endSheet(sheet) }
+                NSApp.activate()
+                window.makeKeyAndOrderFront(nil)
             }
         }
         if alert.window.sheetParent != nil { window.endSheet(alert.window) }

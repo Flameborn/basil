@@ -94,14 +94,15 @@ struct DropboxAuth: Sendable {
     let hosts: DropboxHosts
     let session: URLSession
 
-    /// The address Dropbox sends the browser back to; the app registers the "db-<key>" scheme.
-    var redirectURI: String { "db-\(appKey)://2/token" }
+    /// The address Dropbox sends the browser back to: Basil's sign-in return page on this Mac
+    /// (`SignInReturnServer`). It must be listed under Redirect URIs in the App Console.
+    static func redirectURI(port: UInt16) -> String { "http://localhost:\(port)/dropbox" }
 
-    func authorizationURL(pkce: DropboxPKCE, state: String) -> URL {
+    func authorizationURL(pkce: DropboxPKCE, state: String, redirect: String) -> URL {
         var components = URLComponents(string: hosts.web + "/oauth2/authorize")!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: appKey),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "redirect_uri", value: redirect),
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "code_challenge", value: pkce.challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
@@ -112,9 +113,9 @@ struct DropboxAuth: Sendable {
         return components.url!
     }
 
-    func exchange(code: String, pkce: DropboxPKCE) async throws -> DropboxToken {
+    func exchange(code: String, pkce: DropboxPKCE, redirect: String) async throws -> DropboxToken {
         let json = try await post(["grant_type": "authorization_code", "code": code,
-                                   "code_verifier": pkce.verifier, "redirect_uri": redirectURI])
+                                   "code_verifier": pkce.verifier, "redirect_uri": redirect])
         guard let access = json["access_token"] as? String, let refresh = json["refresh_token"] as? String,
               let account = json["account_id"] as? String else {
             throw DropboxAuthError(invalidGrant: false, message: "Dropbox sent an incomplete sign-in answer")
@@ -179,16 +180,14 @@ struct DropboxAuth: Sendable {
     }
 }
 
-/// Redirects from the browser ("db-<key>://2/token?code=...&state=..."), handed over by the app
-/// (it receives the URL as an Apple event) to the sign-in waiting for that state.
-public enum DropboxRedirects {
+/// Redirects from the browser ("http://localhost:21745/dropbox?code=...&state=..."), handed
+/// over by the sign-in return page to the sign-in waiting for that state.
+enum DropboxRedirects {
     private static let waiting = Mutex<[String: CheckedContinuation<URL, Error>]>([:])
 
-    /// Called by the app for every URL it is asked to open. True when it was a Dropbox
-    /// sign-in coming back.
+    /// True when a sign-in was waiting for this address (its state).
     @discardableResult
-    public static func handle(_ url: URL) -> Bool {
-        guard url.scheme?.hasPrefix("db-") == true else { return false }
+    static func handle(_ url: URL) -> Bool {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let state = items.first { $0.name == "state" }?.value
         let continuations: [CheckedContinuation<URL, Error>] = waiting.withLock { map in
@@ -204,7 +203,7 @@ public enum DropboxRedirects {
         for continuation in continuations {
             if url.path == "/cancel" { continuation.resume(throwing: RemoteCancelled()) } else { continuation.resume(returning: url) }
         }
-        return true
+        return !continuations.isEmpty
     }
 
     /// Waits for the redirect with this state; cancelling the task stops waiting.

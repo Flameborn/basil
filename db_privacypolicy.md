@@ -49,7 +49,8 @@ Basil uses Dropbox's standard OAuth 2 sign-in with PKCE:
 
 1. When you connect, Basil opens Dropbox's sign-in page in your web browser.
 2. You sign in on Dropbox's website and choose whether to allow Basil. Your password and any two-factor codes go only to Dropbox.
-3. Dropbox sends Basil a token that lets it act on your behalf with the permissions listed above.
+3. Dropbox sends your browser back to a page that Basil shows from your Mac (`http://localhost:21745/dropbox`, which only your Mac can reach, and only while the sign-in is waiting). It tells you that you can close the tab.
+4. Basil exchanges the one-time code from that page for a token that lets it act on your behalf with the permissions listed above.
 
 Basil stores this token in the macOS Keychain on your Mac, one entry for each Dropbox account you connect. It is used only to talk to Dropbox for you, and it is never written to any other file, printed in logs or sent anywhere other than Dropbox.
 

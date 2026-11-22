@@ -40,11 +40,9 @@ targets:
         LSApplicationCategoryType: public.app-category.utilities
         NSHumanReadableCopyright: ""
         NSPrincipalClass: NSApplication
-        # Dropbox: the app key (Config/Dropbox.local.xcconfig) and the scheme its sign-in returns to.
+        # Dropbox: the app key (Config/Dropbox.local.xcconfig). The sign-in returns to
+        # http://localhost:21745/dropbox, served by Basil while it waits (SignInReturnServer).
         BasilDropboxAppKey: $(BASIL_DROPBOX_APP_KEY)
-        CFBundleURLTypes:
-          - CFBundleURLName: com.erion.basil.dropbox-sign-in
-            CFBundleURLSchemes: [db-$(BASIL_DROPBOX_APP_KEY)]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil

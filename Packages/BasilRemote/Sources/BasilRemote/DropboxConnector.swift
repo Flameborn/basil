@@ -11,9 +11,14 @@ import Foundation
 public struct DropboxConnector: RemoteConnector {
     let auth: DropboxAuth
     let secrets: any SecretStore
+    /// Where the browser comes back after signing in (`SignInReturnServer`); 0 picks a free
+    /// port (tests). The real port is registered in the App Console.
+    let returnPort: UInt16
 
     /// `appKey`: from the Dropbox App Console (the app's Info.plist has it, set at build time).
-    public init(appKey: String, secrets: any SecretStore, hosts: DropboxHosts = .dropbox) {
+    public init(appKey: String, secrets: any SecretStore, hosts: DropboxHosts = .dropbox,
+                returnPort: UInt16 = 21745) {
+        self.returnPort = returnPort
         // The SDK checks values with precondition (a crash in a release build) when a name or
         // answer does not match its patterns; Dropbox checks requests itself.
         Self.relaxValidation
@@ -95,7 +100,14 @@ public struct DropboxConnector: RemoteConnector {
     func signIn(prompts: any RemotePrompts, account: String?) async throws -> DropboxToken {
         let pkce = DropboxPKCE()
         let state = DropboxPKCE.state()
-        let request = BrowserSignIn(service: displayName, url: auth.authorizationURL(pkce: pkce, state: state),
+        // The page the browser comes back to, open only while this sign-in waits.
+        let server = try SignInReturnServer(port: returnPort, service: displayName) { url in
+            Self.returnPage(url, matched: url.path == "/dropbox" && DropboxRedirects.handle(url))
+        }
+        defer { server.stop() }
+        let redirect = DropboxAuth.redirectURI(port: server.port)
+        let request = BrowserSignIn(service: displayName,
+                                    url: auth.authorizationURL(pkce: pkce, state: state, redirect: redirect),
                                     account: account)
         enum Outcome: Sendable { case redirect(URL), cancelled, failed(String) }
         let outcome: Outcome = await withTaskGroup(of: Outcome.self) { group in
@@ -125,7 +137,25 @@ public struct DropboxConnector: RemoteConnector {
         guard let code = value("code") else {
             throw DropboxAuthError(invalidGrant: false, message: "Dropbox sent no sign-in code")
         }
-        return try await auth.exchange(code: code, pkce: pkce)
+        return try await auth.exchange(code: code, pkce: pkce, redirect: redirect)
+    }
+
+    /// What the browser shows when it comes back.
+    static func returnPage(_ url: URL, matched: Bool) -> SignInReturnServer.Page {
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let error = items.first { $0.name == "error" }?.value
+        if matched, error == "access_denied" {
+            return .init(title: "Basil was not allowed", message: "You chose not to allow Basil. You can close this tab.")
+        }
+        if matched, let error {
+            let detail = items.first { $0.name == "error_description" }?.value ?? error
+            return .init(title: "Dropbox did not sign in", message: "Dropbox said: \(detail). You can close this tab and try again in Basil.")
+        }
+        if matched {
+            return .init(title: "Signed in to Dropbox", message: "Basil is connecting. You can close this tab and go back to Basil.")
+        }
+        return .init(title: "This sign-in has ended",
+                     message: "Basil is no longer waiting for it. If you are not connected yet, connect again in Basil.")
     }
 
     /// Revokes the account's sign-in and removes it from the Keychain, unless another saved

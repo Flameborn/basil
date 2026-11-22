@@ -48,12 +48,12 @@ private final class Monitor: TransferMonitor {
 
     @Test func authorizationAddressAsksForCodeFlowWithOfflineAccess() throws {
         let auth = DropboxAuth(appKey: "k3y", hosts: .dropbox, session: .shared)
-        let url = auth.authorizationURL(pkce: DropboxPKCE(), state: "st")
+        let url = auth.authorizationURL(pkce: DropboxPKCE(), state: "st", redirect: DropboxAuth.redirectURI(port: 21745))
         let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
         #expect(url.host == "www.dropbox.com" && url.path == "/oauth2/authorize")
         #expect(query["client_id"] == "k3y")
-        #expect(query["redirect_uri"] == "db-k3y://2/token")
+        #expect(query["redirect_uri"] == "http://localhost:21745/dropbox")
         #expect(query["response_type"] == "code" && query["code_challenge_method"] == "S256")
         #expect(query["token_access_type"] == "offline")
         #expect(query["scope"] == "account_info.read files.metadata.read files.metadata.write files.content.read files.content.write sharing.read sharing.write")
@@ -83,11 +83,46 @@ private final class Monitor: TransferMonitor {
     @Test func redirectsGoToTheSignInWithTheirState() async throws {
         let waiting = Task { try await DropboxRedirects.wait(for: "abc") }
         try await Task.sleep(for: .milliseconds(20))
-        #expect(!DropboxRedirects.handle(URL(string: "https://example.com/x")!))
-        #expect(DropboxRedirects.handle(URL(string: "db-key://2/token?code=c1&state=other")!))
-        #expect(DropboxRedirects.handle(URL(string: "db-key://2/token?code=c2&state=abc")!))
+        #expect(!DropboxRedirects.handle(URL(string: "http://localhost:1/dropbox?code=c1&state=other")!))
+        #expect(DropboxRedirects.handle(URL(string: "http://localhost:1/dropbox?code=c2&state=abc")!))
         let url = try await waiting.value
         #expect(url.absoluteString.contains("code=c2"))
+    }
+
+    @Test func theReturnPageNamesTheOutcome() {
+        let base = "http://localhost:1/dropbox?state=s"
+        #expect(DropboxConnector.returnPage(URL(string: base + "&code=c")!, matched: true).title == "Signed in to Dropbox")
+        #expect(DropboxConnector.returnPage(URL(string: base + "&error=access_denied")!, matched: true).title == "Basil was not allowed")
+        let other = DropboxConnector.returnPage(URL(string: base + "&error=server_error&error_description=%3Cb%3E")!, matched: true)
+        #expect(other.message.contains("<b>"))
+        #expect(SignInReturnServer.html(other).contains("&lt;b&gt;") && !SignInReturnServer.html(other).contains("<b>"))
+        #expect(DropboxConnector.returnPage(URL(string: base + "&code=c")!, matched: false).title == "This sign-in has ended")
+    }
+
+    @Test func aTakenPortSaysWhichAppHasIt() throws {
+        let first = try SignInReturnServer(port: 0, service: "Dropbox") { _ in .init(title: "t", message: "m") }
+        defer { first.stop() }
+        #expect(throws: SignInReturnError.portInUse(port: first.port, app: SignInReturnServer.owner(of: first.port), service: "Dropbox")) {
+            _ = try SignInReturnServer(port: first.port, service: "Dropbox") { _ in .init(title: "t", message: "m") }
+        }
+        // lsof names this test process.
+        let message = SignInReturnError.portInUse(port: 21745, app: "Other", service: "Dropbox").errorDescription ?? ""
+        #expect(message == "Basil signs in to Dropbox through port 21745 on this Mac, but Other is using it. Quit Other and connect again.")
+        #expect(SignInReturnServer.owner(of: first.port) != nil)
+    }
+
+    @Test func theReturnServerAnswersOverHTTPAndStops() async throws {
+        let server = try SignInReturnServer(port: 0, service: "Dropbox") { url in
+            .init(title: "Got \(url.path)", message: url.query ?? "")
+        }
+        let (data, response) = try await URLSession.shared.data(from: URL(string: "http://localhost:\(server.port)/dropbox?code=1")!)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        let page = String(decoding: data, as: UTF8.self)
+        #expect(page.contains("<title>Basil: Got /dropbox</title>") && page.contains("code=1"))
+        server.stop()
+        await #expect(throws: (any Error).self) {
+            _ = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:\(server.port)/dropbox")!)
+        }
     }
 
     @Test func cancellingStopsWaitingForARedirect() async {
@@ -109,22 +144,24 @@ private final class Monitor: TransferMonitor {
         let provider: DropboxProvider
         let root: VFSPath
         let folder: URL
+        let prompts: FakeBrowserPrompts
     }
 
     func setUp(prompts: FakeBrowserPrompts? = nil, path: String? = nil) async throws -> Setup {
         let fake = try FakeDropbox()
         let secrets = MemorySecretStore()
-        let connector = DropboxConnector(appKey: FakeDropbox.appKey, secrets: secrets, hosts: fake.hosts)
+        let connector = DropboxConnector(appKey: FakeDropbox.appKey, secrets: secrets, hosts: fake.hosts, returnPort: 0)
         let registry = ProviderRegistry()
         registry.register(LocalProvider())
         registry.register(connector: connector)
+        let browser = prompts ?? FakeBrowserPrompts(fake)
         let start = try await registry.connect(RemoteTarget(service: .dropbox, host: "", path: path),
-                                               prompts: prompts ?? FakeBrowserPrompts(fake))
+                                               prompts: browser)
         let provider = try #require(try registry.provider(for: start.location) as? DropboxProvider)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-dropbox-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return Setup(fake: fake, secrets: secrets, connector: connector, registry: registry, provider: provider,
-                     root: provider.homeDirectory, folder: folder)
+                     root: provider.homeDirectory, folder: folder, prompts: browser)
     }
 
     func engine(_ registry: ProviderRegistry, secure: Bool = true, verify: Bool = false,
@@ -145,6 +182,13 @@ private final class Monitor: TransferMonitor {
 
     @Test func signsInInTheBrowserAndKeepsTheTokenInTheKeychain() async throws {
         let s = try await setUp()
+        let prompts = s.prompts
+        // The browser came back to Basil's page on this Mac.
+        let request = try #require(prompts.signIns.withLock { $0.first })
+        let redirect = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "redirect_uri" }?.value
+        #expect(redirect?.hasPrefix("http://localhost:") == true && redirect?.hasSuffix("/dropbox") == true)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(prompts.returnPages.withLock { $0.first?.contains("Signed in to Dropbox") } == true)
         #expect(s.secrets.secret(for: "dropbox:\(s.fake.accountID)")?.hasPrefix("refresh-") == true)
         #expect(s.provider.connectionTitle == "Dropbox (tester@example.com)")
         // The saved connection learns the account.
@@ -178,7 +222,7 @@ private final class Monitor: TransferMonitor {
 
     @Test func givingUpInTheBrowserCancels() async throws {
         let fake = try FakeDropbox()
-        let connector = DropboxConnector(appKey: FakeDropbox.appKey, secrets: MemorySecretStore(), hosts: fake.hosts)
+        let connector = DropboxConnector(appKey: FakeDropbox.appKey, secrets: MemorySecretStore(), hosts: fake.hosts, returnPort: 0)
         await #expect(throws: RemoteCancelled.self) {
             _ = try await connector.connect(RemoteTarget(service: .dropbox, host: ""),
                                             prompts: FakeBrowserPrompts(fake, giveUp: true))

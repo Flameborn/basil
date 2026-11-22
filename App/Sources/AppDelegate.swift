@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             providers.register(connector: FTPConnector(kind, trustFile: trustFile))
         }
         // Dropbox, when the build has an app key (Config/Dropbox.local.xcconfig). Its sign-in comes
-        // back as a db-<key> address (application(_:open:)).
+        // back to http://localhost:21745/dropbox, which Basil serves while it waits.
         if let key = Bundle.main.object(forInfoDictionaryKey: "BasilDropboxAppKey") as? String,
            !key.isEmpty, !key.hasPrefix("$(") {
             providers.register(connector: DropboxConnector(appKey: key, secrets: remoteSecrets))
@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         // UI tests see Dropbox in every build; its sign-in never leaves the sheet.
         if UITestFixture.isActive, providers.connector(for: .dropbox) == nil {
-            providers.register(connector: DropboxConnector(appKey: "uitest", secrets: remoteSecrets))
+            providers.register(connector: DropboxConnector(appKey: "uitest", secrets: remoteSecrets, returnPort: 0))
         }
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
@@ -116,13 +116,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()
-    }
-
-    /// Addresses macOS hands to Basil: a Dropbox sign-in coming back from the browser.
-    func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where DropboxRedirects.handle(url) {
-            NSApp.activate()
-        }
     }
 
     @objc func showSettings(_ sender: Any?) {
