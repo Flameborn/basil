@@ -160,3 +160,46 @@ func collect(_ stream: AsyncThrowingStream<[FileItem], Error>) async throws -> [
         #expect(try registry.provider(for: .local).location == .local)
     }
 }
+
+/// A provider that only has a location, for registry bookkeeping tests.
+private struct StubProvider: FileSystemProvider {
+    let location: ProviderLocation
+    var capabilities: ProviderCapabilities { [] }
+    func list(_ directory: VFSPath) -> AsyncThrowingStream<[FileItem], Error> { AsyncThrowingStream { $0.finish() } }
+    func item(at path: VFSPath) async throws -> FileItem { throw VFSError.notFound(path) }
+    func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? { nil }
+}
+
+@Suite struct CloseContainersTests {
+    let outer = ProviderLocation(provider: ProviderID("archive"), container: .local("/tmp/outer.zip"))
+    var inner: ProviderLocation { ProviderLocation(provider: ProviderID("archive"), container: VFSPath(location: outer, path: "/inner.7z")) }
+    let other = ProviderLocation(provider: ProviderID("archive"), container: .local("/tmp/other.zip"))
+
+    func registry() -> ProviderRegistry {
+        let registry = ProviderRegistry()
+        registry.register(LocalProvider())
+        for location in [outer, inner, other] { registry.register(StubProvider(location: location)) }
+        return registry
+    }
+
+    @Test func keepsShownContainersAndTheOnesAroundThem() throws {
+        let registry = registry()
+        let closed = registry.closeContainers(keeping: [inner])
+        #expect(closed == [other])
+        #expect(try registry.provider(for: outer).location == outer)
+        #expect(try registry.provider(for: inner).location == inner)
+        #expect(throws: VFSError.self) { try registry.provider(for: other) }
+    }
+
+    @Test func keepingTheOuterClosesTheNested() throws {
+        let registry = registry()
+        #expect(Set(registry.closeContainers(keeping: [outer, .local])) == [inner, other])
+        #expect(try registry.provider(for: outer).location == outer)
+    }
+
+    @Test func neverClosesLocal() throws {
+        let registry = registry()
+        #expect(registry.closeContainers(keeping: []).count == 3)
+        #expect(try registry.provider(for: .local).location == .local)
+    }
+}

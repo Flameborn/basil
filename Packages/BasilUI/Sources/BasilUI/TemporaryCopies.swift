@@ -37,6 +37,8 @@ final class TemporaryCopies {
     private var previews: [VFSPath: (copy: VFSPath, size: Int64?, modified: Date?)] = [:]
     private var extracting: [VFSPath: Task<VFSPath, any Error>] = [:]
     private(set) var edits: [EditedCopy] = []
+    /// Extractions in progress, by the location they read from.
+    private var reading: [ProviderLocation: Int] = [:]
 
     init(root: URL, registry: ProviderRegistry) {
         self.root = root
@@ -130,6 +132,11 @@ final class TemporaryCopies {
 
     // MARK: Cleanup
 
+    /// Locations the copies still need: watched F4 copies are put back there, extractions read from them.
+    var locationsInUse: [ProviderLocation] {
+        edits.map(\.entry.location) + Array(reading.keys)
+    }
+
     /// Removes every copy (at launch and at quit).
     func removeAll() {
         for task in extracting.values { task.cancel() }
@@ -147,6 +154,11 @@ final class TemporaryCopies {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let target = VFSPath.local(folder.appendingPathComponent(source.name).path)
         let engine = SecureCopyEngine(registry: registry, options: SecureCopyOptions(secure: false), monitor: QuietMonitor())
+        reading[source.location, default: 0] += 1
+        defer {
+            reading[source.location, default: 1] -= 1
+            if reading[source.location] == 0 { reading[source.location] = nil }
+        }
         do {
             _ = try await engine.transfer(source, to: target, mode: .copy)
         } catch {

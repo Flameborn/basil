@@ -138,7 +138,11 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         progressWindow.isQueueChord = { [weak self] chord in self?.commands.commandID(for: chord) == "queue.show" }
         progressWindow.announce = { [weak self] message in self?.announce(message) }
         queue.onItemStarted = { [weak self] item in self?.progressWindow.itemStarted(item) }
-        queue.onItemStopped = { [weak self] item in self?.progressWindow.itemStopped(item) }
+        queue.onItemStopped = { [weak self] item in
+            self?.progressWindow.itemStopped(item)
+            // Wait until the queue has started what comes next (whenDone may have queued it).
+            Task { @MainActor in self?.closeUnusedContainers() }
+        }
     }
 
     @available(*, unavailable)
@@ -255,6 +259,7 @@ extension MainWindowController: PaneViewControllerDelegate {
     func paneDidChangeDirectory(_ pane: PaneViewController) {
         if pane.side == activeSide { updateTitle() }
         copies.dropPreviews(keeping: shownContainers)
+        closeUnusedContainers()
         if persistsDirectories {
             // Inside an archive, the folder holding it is remembered: providers do not survive a restart.
             let directory = pane.model.directory

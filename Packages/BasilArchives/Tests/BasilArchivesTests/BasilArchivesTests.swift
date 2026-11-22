@@ -172,6 +172,30 @@ final class Fixture: Sendable {
         #expect(try await f.read(inner.appending("hello.txt")) == Data("hello".utf8))
     }
 
+    @Test func closedContainersAreReleased() async throws {
+        let f = try Fixture()
+        #expect(try f.make("/usr/bin/zip", ["-q", "../inner.zip", "hello.txt"]) == 0)
+        #expect(try f.make("/usr/bin/zip", ["-q", "outer.zip", "inner.zip"], in: ".") == 0)
+        let outer = try await f.open("outer.zip")
+        let innerItem = try await f.registry.provider(for: outer.location).item(at: outer.appending("inner.zip"))
+        let inner = try #require(try await f.registry.openContainer(innerItem))
+        #expect(try await f.read(inner.appending("hello.txt")) == Data("hello".utf8))
+        weak var innerProvider = try f.registry.provider(for: inner.location) as? ArchiveProvider
+        weak var outerProvider = try f.registry.provider(for: outer.location) as? ArchiveProvider
+        #expect(innerProvider != nil)
+
+        // Showing the outer archive keeps it; the nested one (and its temporary copy) goes.
+        #expect(f.registry.closeContainers(keeping: [outer.location]) == [inner.location])
+        #expect(innerProvider == nil)
+        #expect(outerProvider != nil)
+
+        // Opening it again makes a fresh provider.
+        let again = try #require(try await f.registry.openContainer(innerItem))
+        #expect(try await f.read(again.appending("hello.txt")) == Data("hello".utf8))
+        #expect(Set(f.registry.closeContainers(keeping: [ProviderLocation.local])) == [outer.location, inner.location])
+        #expect(outerProvider == nil)
+    }
+
     @Test func byContentOpensOtherNames() async throws {
         let f = try Fixture()
         #expect(try f.make("/usr/bin/zip", ["-q", "../doc.docx", "hello.txt"]) == 0)

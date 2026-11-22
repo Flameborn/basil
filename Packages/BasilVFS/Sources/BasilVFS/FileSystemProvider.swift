@@ -85,6 +85,16 @@ public final class ProviderRegistry: Sendable {
         _ = providers.withLock { $0.removeValue(forKey: location) }
     }
 
+    /// Removes every provider whose location matches; the providers are released outside the lock.
+    func removeProviders(where matches: (ProviderLocation) -> Bool) -> [ProviderLocation] {
+        let removed: [any FileSystemProvider] = providers.withLock { map in
+            let gone = map.filter { matches($0.key) }
+            for key in gone.keys { map[key] = nil }
+            return Array(gone.values)
+        }
+        return removed.map(\.location)
+    }
+
     public func provider(for location: ProviderLocation) throws -> any FileSystemProvider {
         guard let p = providers.withLock({ $0[location] }) else { throw VFSError.noProvider(location) }
         return p

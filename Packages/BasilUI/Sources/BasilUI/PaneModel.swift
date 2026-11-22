@@ -23,6 +23,8 @@ final class PaneModel {
     private(set) var rows: [FileItem] = []
     private(set) var selected: Set<VFSPath> = []
     private(set) var isLoading = false
+    /// The folder a load in progress is going to (it may be in an archive that was just opened).
+    private(set) var loadingTarget: VFSPath?
     private(set) var sortOrder = ListSortOrder.default
     private(set) var showHidden = false
     private(set) var filter: NameFilter?
@@ -64,6 +66,7 @@ final class PaneModel {
         let gen = generation
         loadTask?.cancel()
         isLoading = true
+        loadingTarget = target
         onEvent?(.loadingChanged)
 
         let order = sortOrder
@@ -92,11 +95,13 @@ final class PaneModel {
                 self.pendingLoadCursor = .some(cursor)
                 await self.rebuildRows(cursor: cursor)
                 self.isLoading = false
+                if gen == self.generation { self.loadingTarget = nil }
                 self.onEvent?(.loadingChanged)
             } catch is CancellationError {
             } catch {
                 guard let self, gen == self.generation else { return }
                 self.isLoading = false
+                self.loadingTarget = nil
                 self.onEvent?(.loadingChanged)
                 self.onEvent?(.failed(error))
             }

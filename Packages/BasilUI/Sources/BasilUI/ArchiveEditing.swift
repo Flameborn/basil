@@ -22,6 +22,21 @@ extension MainWindowController {
         return shown
     }
 
+    /// Closes the archives and file lists nothing uses any more, so their index, open files and
+    /// temporary copies go. Kept: what the panes and their tabs show or are loading, and what the
+    /// temporary copies need. Nothing is closed while the queue has items to run: an operation
+    /// may read or change any container.
+    func closeUnusedContainers() {
+        guard queue.items.allSatisfy(\.state.isDone) else { return }
+        var keep = copies.locationsInUse
+        for pane in [left, right] {
+            keep.append(pane.model.directory.location)
+            if let loading = pane.model.loadingTarget { keep.append(loading.location) }
+            keep += pane.tabs.map(\.directory.location)
+        }
+        providers.closeContainers(keeping: keep)
+    }
+
     func editInArchive(_ entry: VFSPath, app: String?) {
         guard let archive = entry.location.container else { return }
         let refusal: String? = if let writer = providers.containerWriter(for: entry.location) {

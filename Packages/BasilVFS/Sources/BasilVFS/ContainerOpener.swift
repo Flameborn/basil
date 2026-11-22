@@ -68,6 +68,21 @@ extension ProviderRegistry {
         return list.first { (try? provider(for: ProviderLocation(provider: $0.provider, container: file))) != nil }
     }
 
+    /// Closes the opened containers (archives, file lists) that none of `keeping` is in, directly
+    /// or nested. Their index, open files and temporary copies go once nothing else holds the
+    /// provider. Opening the file again makes a fresh provider. Returns the closed locations.
+    @discardableResult
+    public func closeContainers(keeping: some Sequence<ProviderLocation>) -> [ProviderLocation] {
+        var kept = Set<ProviderLocation>()
+        for location in keeping {
+            var next: ProviderLocation? = location
+            while let current = next, current.container != nil, kept.insert(current).inserted {
+                next = current.container?.location
+            }
+        }
+        return removeProviders { $0.container != nil && !kept.contains($0) }
+    }
+
     /// The opener that made the provider at `location`, if it is a container.
     public func containerOpener(for location: ProviderLocation) -> (any ContainerOpener)? {
         guard location.container != nil else { return nil }

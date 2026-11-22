@@ -540,8 +540,8 @@ final class PaneViewController: NSViewController {
                 shownDirectory = model.directory
                 sizeTask?.cancel()
                 rememberVolumeDirectory()
-                delegate?.paneDidChangeDirectory(self)
                 tabsDirectoryChanged()
+                delegate?.paneDidChangeDirectory(self)
             }
             if filterBar.isEditing {
                 filterBar.matchCount = model.rows.count
