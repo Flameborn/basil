@@ -13,6 +13,8 @@ public enum VFSError: Error, Sendable, Equatable {
     case directoryNotEmpty(VFSPath)
     /// The provider or volume can't do this (for example clone on a non-APFS volume).
     case unsupported(String)
+    /// Any other failure, already in words (a server's error message).
+    case failed(String)
 }
 
 extension VFSError: LocalizedError {
@@ -26,6 +28,7 @@ extension VFSError: LocalizedError {
         case .alreadyExists(let p): "\(p) already exists"
         case .directoryNotEmpty(let p): "\(p) is not empty"
         case .unsupported(let what): "Not supported: \(what)"
+        case .failed(let message): message
         }
     }
 }
@@ -61,6 +64,7 @@ public final class ProviderRegistry: Sendable {
     private let providers = Mutex<[ProviderLocation: any FileSystemProvider]>([:])
     let openers = Mutex<[any ContainerOpener]>([])
     let writers = Mutex<[any ContainerWriter]>([])
+    let connectors = Mutex<[any RemoteConnector]>([])
     private let passwordSource = Mutex<(any ContainerPasswords)?>(nil)
 
     /// Where encrypted containers get their passwords (the UI's prompt). nil: none can be opened.
@@ -83,6 +87,10 @@ public final class ProviderRegistry: Sendable {
 
     public func unregister(_ location: ProviderLocation) {
         _ = providers.withLock { $0.removeValue(forKey: location) }
+    }
+
+    func allProviders() -> [any FileSystemProvider] {
+        providers.withLock { Array($0.values) }
     }
 
     /// Removes every provider whose location matches; the providers are released outside the lock.
