@@ -33,7 +33,7 @@ enum BuiltinMenus {
                 + c("pane.parent", "cursor.first", "cursor.last")),
             .submenu("Locations", c("pane.locations", "pane.locationsLeft", "pane.locationsRight")),
             .separator,
-        ] + c("pane.switch", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show"))
+        ] + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show"))
 
         layout.addMenu("Net", placeholder: "No connections yet")
 
@@ -45,7 +45,7 @@ enum BuiltinMenus {
         ] + c("pane.toggleHidden", "pane.readStatus"))
 
         layout.addMenu("Tabs", items:
-            c("tab.new", "tab.duplicate", "tab.close", "tab.closeOthers") + [.separator]
+            c("tab.new", "tab.duplicate", "tab.openCursorFolder", "tab.close", "tab.closeOthers") + [.separator]
             + c("tab.next", "tab.previous") + [.separator]
             + c("tab.rename", "tab.lock"))
     }

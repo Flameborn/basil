@@ -39,6 +39,9 @@ enum BuiltinCommands {
                 p.model.setShowHidden(!p.model.showHidden, cursor: p.cursorPath)
                 ctx.announce(p.model.showHidden ? "Showing hidden files" : "Hiding hidden files")
             },
+            C(id: "pane.focusPath", title: "Go to Path Bar", defaultKeys: [K(.character("l"), .command)]) { _ in
+                pane()?.focusPathBar()
+            },
             C(id: "pane.quickFilter", title: "Quick Filter", defaultKeys: [K(.character("s"), .command)]) { _ in pane()?.showQuickFilter() },
             C(id: "pane.readStatus", title: "Read Status Bar", defaultKeys: [K(.character("i"), .option)]) { ctx in
                 guard let p = pane() else { return }
@@ -162,6 +165,36 @@ enum BuiltinCommands {
                 w?.multiRename()
             },
         ]
+
+        // Folder tabs (TC set, Mac keys).
+        let multipleTabs: @MainActor (any WorkspaceContext) -> Bool = { _ in (pane()?.tabCount ?? 0) > 1 }
+        commands += [
+            C(id: "tab.new", title: "New Tab", defaultKeys: [K(.character("t"), .command)]) { _ in pane()?.newTab() },
+            C(id: "tab.duplicate", title: "Duplicate Tab") { _ in pane()?.newTab(duplicate: true) },
+            C(id: "tab.openCursorFolder", title: "Open Folder in New Tab", defaultKeys: [K(.up, [.command, .option])]) { ctx in
+                guard let p = pane(), let item = p.cursorItem else { return }
+                guard item.isDirectoryLike else { return ctx.announce("Not a folder") }
+                p.newTab(at: item.path)
+            },
+            C(id: "tab.close", title: "Close Tab", defaultKeys: [K(.character("w"), .command)], isEnabled: multipleTabs) { _ in
+                pane()?.closeTab()
+            },
+            C(id: "tab.closeOthers", title: "Close Other Tabs", isEnabled: multipleTabs) { _ in pane()?.closeOtherTabs() },
+            C(id: "tab.next", title: "Next Tab", defaultKeys: [K(.tab, .control)], isEnabled: multipleTabs) { _ in
+                pane()?.cycleTab(by: 1)
+            },
+            C(id: "tab.previous", title: "Previous Tab", defaultKeys: [K(.tab, [.control, .shift])], isEnabled: multipleTabs) { _ in
+                pane()?.cycleTab(by: -1)
+            },
+            C(id: "tab.rename", title: "Rename Tab...") { _ in w?.renameTab() },
+            C(id: "tab.lock", title: "Lock Tab", isChecked: { _ in pane()?.activeTab.locked ?? false }) { _ in
+                pane()?.toggleTabLock()
+            },
+        ]
+        for n in 1...9 {
+            commands.append(C(id: CommandID(rawValue: "tab.goto\(n)"), title: "Go to Tab \(n)",
+                              defaultKeys: [K(.character("\(n)"), .command)]) { _ in pane()?.goToTab(n) })
+        }
 
         // Custom views 1-9 in settings order; 1-5 on Ctrl+Shift+F8 ... F12, 6-9 without a default key.
         for n in 1...9 {

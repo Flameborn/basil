@@ -107,6 +107,11 @@ final class PaneModel {
 
     // MARK: Sorting / filtering / hidden
 
+    /// The order the next load sorts by, without sorting what is shown now (switching tabs).
+    func prepareSortOrder(_ order: ListSortOrder) {
+        sortOrder = order
+    }
+
     func setSortOrder(_ order: ListSortOrder, cursor: VFSPath?) {
         sortOrder = order
         // The listing order is gone once sorted, so unsorted lists the folder again.

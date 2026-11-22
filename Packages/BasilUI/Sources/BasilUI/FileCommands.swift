@@ -374,7 +374,7 @@ extension MainWindowController {
     }
 
     /// A sheet with one text field. Returns nil when cancelled.
-    private func askText(in window: NSWindow, message: String, initial: String, selection: NSRange? = nil,
+    func askText(in window: NSWindow, message: String, initial: String, selection: NSRange? = nil,
                          confirm: String, fieldLabel: String) async -> String? {
         let alert = NSAlert()
         alert.messageText = message

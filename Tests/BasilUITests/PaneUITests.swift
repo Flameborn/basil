@@ -165,7 +165,9 @@ final class PaneUITests: XCTestCase {
         let algorithm = sheet.popUpButtons["Algorithm"]
         XCTAssertTrue(algorithm.waitForExistence(timeout: 2), sheet.debugDescription)
         algorithm.click()
-        app.menuItems["SHA-256"].click()
+        let sha256 = app.menuItems["SHA-256"]
+        XCTAssertTrue(sha256.waitForExistence(timeout: 3))
+        sha256.click()
         let field = sheet.textFields["Checksum file"]
         XCTAssertTrue(waitFor { (field.value as? String) == "song.mp3.sha256" }, "\(field.value ?? "")")
         try audit(app) { issue in
@@ -232,8 +234,94 @@ final class PaneUITests: XCTestCase {
     func testFinderGoKeys() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey("c", modifierFlags: [.command, .shift])
-        let path = app.staticTexts["pane.left.path"]
+        let path = app.groups["pane.left.path"]
         XCTAssertTrue(waitFor { (path.value as? String) == "/Volumes" }, "\(path.value ?? "")")
+    }
+
+    func testPaneTabs() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let path = app.groups["pane.left.path"]
+        let fixture = try XCTUnwrap(path.value as? String)
+        let tabs = app.tabGroups["pane.left.tabs"]
+        XCTAssertFalse(tabs.exists)                                      // one tab: no tab row
+        leftTable.typeKey("t", modifierFlags: .command)
+        XCTAssertTrue(tabs.waitForExistence(timeout: 3), app.debugDescription)
+        XCTAssertEqual(tabs.radioButtons.count, 2)
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha, in the new tab
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture + "/Alpha" })
+        XCTAssertTrue(waitFor { tabs.radioButtons.element(boundBy: 1).label == "Alpha" })
+        try audit(app) { issue in
+            print("AUDIT tabs: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        leftTable.typeKey(.tab, modifierFlags: .control)                 // next tab wraps to the first
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture }, "\(path.value ?? "")")
+        XCTAssertTrue(waitFor { (tabs.radioButtons.element(boundBy: 0).value as? Int) == 1 })
+        leftTable.typeKey("2", modifierFlags: .command)
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture + "/Alpha" })
+        leftTable.typeKey("w", modifierFlags: .command)                  // closes Alpha's tab
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture }, "\(path.value ?? "")")
+        XCTAssertTrue(waitFor { !tabs.exists })
+
+        // A locked tab keeps its folder: Enter on a folder opens it in a new tab.
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Tabs"].click()
+        menuBar.menuItems["Lock Tab"].click()
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(tabs.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture + "/Alpha" })
+        XCTAssertEqual(tabs.radioButtons.element(boundBy: 0).label, "\(URL(fileURLWithPath: fixture).lastPathComponent) (locked)")
+        leftTable.typeKey(.tab, modifierFlags: [.control, .shift])
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture })
+    }
+
+    func testPathBarGoesToAnyPartOfThePath() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let path = app.groups["pane.left.path"]
+        XCTAssertTrue(path.exists, app.debugDescription)
+        let fixture = try XCTUnwrap(path.value as? String)
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture + "/Alpha/Inner" }, "\(path.value ?? "")")
+        // One button per part, the last is the current folder.
+        let parts = path.buttons
+        XCTAssertEqual(parts.element(boundBy: parts.count - 1).label, "Inner")
+        XCTAssertEqual(parts.element(boundBy: parts.count - 2).label, "Alpha")
+        try audit(app) { issue in
+            print("AUDIT path bar: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        // Clicking a part goes there, with the cursor on the folder leading back.
+        parts.element(boundBy: parts.count - 3).click()
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture }, "\(path.value ?? "")")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
+
+        // Cmd+L, Left, Return: the parent folder by keyboard; the list has focus again.
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture + "/Alpha" })
+        leftTable.typeKey("l", modifierFlags: .command)
+        let last = parts.element(boundBy: parts.count - 1)
+        XCTAssertTrue(waitFor { (last.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeKey(.leftArrow, modifierFlags: [])
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { (path.value as? String) == fixture }, "\(path.value ?? "")")
+        // The list has focus again (after a cursor move, its cursor row is the focused element).
+        func listHasFocus() -> Bool {
+            (leftTable.value(forKey: "hasKeyboardFocus") as? Bool) == true
+                || (leftTable.tableRows.element(boundBy: 0).value(forKey: "hasKeyboardFocus") as? Bool) == true
+        }
+        XCTAssertTrue(waitFor { listHasFocus() })
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
+        // Escape leaves the bar without going anywhere.
+        leftTable.typeKey("l", modifierFlags: .command)
+        let current = parts.element(boundBy: parts.count - 1)
+        XCTAssertTrue(waitFor { (current.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { listHasFocus() })
+        XCTAssertEqual(path.value as? String, fixture)
     }
 
     func testInfoSheet() throws {

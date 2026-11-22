@@ -87,6 +87,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
 
         quickLook.announce = { [weak self] message in self?.announce(message) }
         for pane in [left, right] {
+            pane.persistsTabs = persistsDirectories
+            if persistsDirectories { pane.restoreTabs() }
             pane.delegate = self
             (pane.tableView as? PaneTableView)?.quickLook = quickLook
             pane.navigate(to: pane.model.directory)

@@ -108,6 +108,8 @@ M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is buil
 | 2026-11-22 | Decided by Claude, change if wrong: Unsorted keeps folders first (like every other order) and has no reverse; choosing it rereads the folder to get the listing order back |
 | 2026-11-22 | xxHash 0.8.4 vendored unmodified in `Vendor/xxHash` (BSD 2-Clause library only, not the GPL CLI) |
 | 2026-11-22 | Decided by Claude, change if wrong: checksum lines use the sha256sum/b3sum two-space format (so command-line tools can check them); XXH3 lines use xxhsum's XXH3_ prefix; SHA3 files are .sha3-256/.sha3-512; the create dialog starts with SHA-256, then the last algorithm used; per-file checksum files replace existing ones without asking, a single file asks; symlinks to files are hashed, other non-files skipped and logged; unreadable files are left out and fail the item; Create and Verify have no default keys and are not allowed inside archives (Create) |
+| 2026-11-22 | Decided by Claude, change if wrong: path bar parts start with the volume name (Macintosh HD, or a /Volumes volume); separators are drawn slashes; going to a part puts the cursor on the folder that leads back and focus on the list; the current folder's part rereads; "Go to Path Bar" is in the Commands menu |
+| 2026-11-22 | Decided by Claude, change if wrong: the tab row appears only with two or more tabs; new tabs open right after the current one; "New Tab" is the current folder, "Duplicate Tab" also keeps the custom name and lock; a locked tab shows "(locked)" after its name; each tab keeps its own sort and view; Cmd+W on the only tab says "This is the only tab"; closing a tab switches to the one after it |
 | 2026-11-22 | Decided by Claude, change if wrong: "Test archive after packing" is off by default and remembered like the format; the test is a separate Test Archive queue item added when packing finished (not after a failed or cancelled pack) |
 | 2026-11-19 | Decided by Claude, change if wrong: Go-to suggestions list prefix matches then substring matches (max 200), hidden items only once something is typed, dot files only after a dot; the count is announced after a 0.7 s pause and only when it changed. Folder size result is spoken as "Alpha, 1.5 MB, 120 files, 8 folders", "Calculating" only after 1 s; symlinks are not followed. New files get rw-r--r--. Files no app opens go to TextEdit. Info shows the cursor item only (not every selected item). Finder's Cmd+Shift+C (Computer) goes to /Volumes |
 
@@ -192,8 +194,8 @@ M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is buil
 - [x] Ctrl+Shift+F views and sorting, spoken (2026-11-22)
 - [x] Checksums: create and verify (2026-11-22)
 - [x] Test archive after packing (2026-11-22)
-- [ ] Path bar
-- [ ] Pane tabs
+- [x] Path bar (2026-11-22)
+- [x] Pane tabs (2026-11-22)
 
 ### M5 - Remote
 - [ ] SFTP (libssh2) - password, keys, agent, known_hosts

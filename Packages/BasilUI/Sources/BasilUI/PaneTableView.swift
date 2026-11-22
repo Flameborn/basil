@@ -42,8 +42,9 @@ final class PaneTableView: NSTableView {
     /// Command-key chords bound in the CommandRegistry win over menu items, including the ones
     /// AppKit adds by itself (the standard Window menu's Minimize takes Cmd+M, which is Multi-Rename).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Ctrl chords too: AppKit takes Ctrl+Tab for moving between controls before keyDown sees it.
         if window?.firstResponder === self, event.type == .keyDown,
-           event.modifierFlags.contains(.command),
+           !event.modifierFlags.isDisjoint(with: [.command, .control]),
            let chord = KeyChord(event: event), keyDelegate?.paneTable(self, perform: chord) == true {
             return true
         }

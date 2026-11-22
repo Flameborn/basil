@@ -18,14 +18,20 @@ final class PaneViewController: NSViewController {
     let side: PaneSide
     let model: PaneModel
     let settings: SettingsStore
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
     weak var delegate: PaneViewControllerDelegate?
+
+    /// Folder tabs (`PaneTabs.swift`). The active tab's live state is in `model`.
+    var tabs: [PaneTab] = []
+    var activeTabIndex = 0
+    lazy var tabBar = TabBar(side: side)
+    /// False when start folders were forced (UI tests): tabs are then neither restored nor saved.
+    var persistsTabs = true
 
     private let table = PaneTableView()
     private let scrollView = NSScrollView()
     private let driveBar: DriveBar
-    private let header = NSTextField(labelWithString: "")
-    private let headerBox = ThemedBox()
+    private lazy var pathBar = PathBar(identifier: "pane.\(side.identifier).path")
     private let statusLabel = NSTextField(labelWithString: "")
     private let filterBar = QuickFilterBar()
     /// The directory currently displayed (after a load completes).
@@ -59,6 +65,7 @@ final class PaneViewController: NSViewController {
         lastDirectoryByVolume = defaults.dictionary(forKey: "pane.\(side.identifier).volumeDirectories") as? [String: String] ?? [:]
         columnContext = ColumnDefinition.Context(formatters: settings.formatters)
         super.init(nibName: nil, bundle: nil)
+        tabs = [PaneTab(directory: model.directory, sort: model.sortOrder, viewID: viewID)]
     }
 
     @available(*, unavailable)
@@ -84,11 +91,11 @@ final class PaneViewController: NSViewController {
             }
         }
 
-        header.font = Theme.barFont
-        header.lineBreakMode = .byTruncatingHead
-        header.setAccessibilityLabel("Path")
-        header.setAccessibilityIdentifier("pane.\(side.identifier).path")
-        headerBox.addSubview(header)
+        pathBar.onSelect = { [weak self] segment, next in self?.goToPathSegment(segment, next: next) }
+        pathBar.onLeave = { [weak self] in
+            guard let self else { return }
+            view.window?.makeFirstResponder(table)
+        }
 
         configureTable()
         scrollView.documentView = table
@@ -110,7 +117,10 @@ final class PaneViewController: NSViewController {
         statusBox.fillColor = Theme.barBackground
         statusBox.addSubview(statusLabel)
 
-        let stack = NSStackView(views: [driveBar, headerBox, scrollView, filterBar, statusBox])
+        tabBar.onSelect = { [weak self] index in self?.switchToTab(index) }
+        tabBar.isHidden = true
+        let stack = NSStackView(views: [driveBar, tabBar, pathBar, scrollView, filterBar, statusBox])
+        stack.detachesHiddenViews = true
         stack.orientation = .vertical
         stack.spacing = 0
         stack.alignment = .leading
@@ -118,21 +128,19 @@ final class PaneViewController: NSViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
 
-        for v in [header, statusLabel] { v.translatesAutoresizingMaskIntoConstraints = false }
+        for v in [statusLabel] { v.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             stack.topAnchor.constraint(equalTo: root.topAnchor),
             stack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             driveBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            headerBox.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            pathBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            tabBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             filterBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
             statusBox.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            headerBox.heightAnchor.constraint(equalToConstant: 22),
-            header.leadingAnchor.constraint(equalTo: headerBox.leadingAnchor, constant: 6),
-            header.trailingAnchor.constraint(equalTo: headerBox.trailingAnchor, constant: -6),
-            header.centerYAnchor.constraint(equalTo: headerBox.centerYAnchor),
+            pathBar.heightAnchor.constraint(equalToConstant: 22),
             statusBox.heightAnchor.constraint(equalToConstant: 20),
             statusLabel.leadingAnchor.constraint(equalTo: statusBox.leadingAnchor, constant: 6),
             statusLabel.trailingAnchor.constraint(equalTo: statusBox.trailingAnchor, constant: -6),
@@ -178,6 +186,17 @@ final class PaneViewController: NSViewController {
         applyColumns()
         table.reloadData()
         delegate?.pane(self, announce: "\(currentView.name) view")
+    }
+
+    /// Switching tabs: the tab's view and sort order, without speech (the tab is announced).
+    func applyTabView(_ id: String, sort: ListSortOrder) {
+        if settings.settings.views.contains(where: { $0.id == id }) {
+            viewID = id
+            defaults.set(id, forKey: "pane.\(side.identifier).view")
+        }
+        model.prepareSortOrder(sort)
+        applyColumns()
+        table.reloadData()
     }
 
     /// Rebuilds the table columns from the current view.
@@ -261,6 +280,10 @@ final class PaneViewController: NSViewController {
     var cursorItem: FileItem? { cursorRow.map { model.rows[$0] } }
 
     func navigate(to directory: VFSPath, cursor: VFSPath? = nil) {
+        // A locked tab keeps its folder: another folder opens in a new tab (TC).
+        if activeTab.locked, directory != model.directory, shownDirectory != nil {
+            return newTab(at: directory, cursor: cursor)
+        }
         model.load(directory, cursor: cursor)
     }
 
@@ -428,8 +451,8 @@ final class PaneViewController: NSViewController {
             self.delegate?.paneRequestsSettings(self)
         }
 
-        let anchor = NSPoint(x: 4, y: headerBox.bounds.height)
-        menu.popUp(positioning: menu.items.first, at: anchor, in: headerBox)
+        let anchor = NSPoint(x: 4, y: pathBar.bounds.height)
+        menu.popUp(positioning: menu.items.first, at: anchor, in: pathBar)
     }
 
     private func bookmarkCurrentFolder() {
@@ -518,6 +541,7 @@ final class PaneViewController: NSViewController {
                 sizeTask?.cancel()
                 rememberVolumeDirectory()
                 delegate?.paneDidChangeDirectory(self)
+                tabsDirectoryChanged()
             }
             if filterBar.isEditing {
                 filterBar.matchCount = model.rows.count
@@ -570,9 +594,26 @@ final class PaneViewController: NSViewController {
     }
 
     private func updateHeader() {
-        header.stringValue = model.directory.description
-        headerBox.fillColor = isActive ? Theme.headerActiveBackground : Theme.headerInactiveBackground
-        header.textColor = isActive ? Theme.headerActiveText : Theme.headerInactiveText
+        pathBar.isActive = isActive
+        pathBar.show(model.directory)
+    }
+
+    /// Cmd+L: keyboard focus on the path bar's last part (the current folder).
+    func focusPathBar() {
+        pathBar.focusLast()
+    }
+
+    /// A path bar part was chosen: go there, with the cursor on the folder (or archive) that leads
+    /// back towards where the pane was, like Backspace. Focus returns to the list.
+    private func goToPathSegment(_ segment: PathBar.Segment, next: PathBar.Segment?) {
+        var cursor: VFSPath?
+        if let next {
+            cursor = next.path.location == segment.path.location ? next.path : next.path.location.container
+        } else {
+            cursor = cursorPath
+        }
+        navigate(to: segment.path, cursor: cursor)
+        view.window?.makeFirstResponder(table)
     }
 
     /// The status line text; also what Option+I reads.
