@@ -288,11 +288,11 @@ final class ArchiveRewrite: @unchecked Sendable {
         let isRaw = spec.container == .raw
         let displayName = rawName
         try await run {
-            let problems = try backend.test(output, byContent: true) { _, _ in true }
+            let problems = try backend.test(output, byContent: true, password: nil) { _, _ in true }
             if let first = problems.first {
                 throw ArchiveError.damaged("The new archive did not read back correctly (\(first))", archive: displayName)
             }
-            let entries = try backend.entries(of: output, byContent: true) ?? []
+            let entries = try backend.entries(of: output, byContent: true, password: nil) ?? []
             if isRaw {
                 guard entries.count == 1 else {
                     throw ArchiveError.damaged("The new archive did not read back correctly", archive: displayName)

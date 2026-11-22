@@ -198,7 +198,7 @@ final class Fixture: Sendable {
         let f = try Fixture()
         #expect(try f.make("/usr/bin/zip", ["-q", "-P", "secret", "../e.zip", "hello.txt"]) == 0)
         let root = try await f.open("e.zip")
-        await #expect(throws: ArchiveError.encrypted(entry: "hello.txt")) {
+        await #expect(throws: ArchiveError.passwordNeeded(archive: "e.zip")) {
             try await f.read(root.appending("hello.txt"))
         }
     }

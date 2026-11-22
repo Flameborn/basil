@@ -35,10 +35,12 @@ public final class ArchiveOpener: ContainerOpener {
         let location = ProviderLocation(provider: .archive, container: file.path)
         do {
             for backend in candidates {
-                let entries = try await Self.blocking { try backend.entries(of: url, byContent: byContent) }
+                let (entries, password) = try await Self.list(url, with: backend, byContent: byContent,
+                                                              archive: file.path, passwords: registry.passwords)
                 if let entries {
                     return ArchiveProvider(location: location, backend: backend, url: url, byContent: byContent,
-                                           entries: entries, temporaryCopy: temporary)
+                                           entries: entries, temporaryCopy: temporary,
+                                           passwords: registry.passwords, password: password)
                 }
             }
         } catch {
@@ -62,6 +64,32 @@ public final class ArchiveOpener: ContainerOpener {
             throw ArchiveError.damaged("Not an archive Basil can read", archive: file.name)
         }
         return try await provider.test(progress: progress)
+    }
+
+    /// Lists an archive, asking for its password when the names are encrypted (until one works
+    /// or the prompt is cancelled). Returns the password that opened it, if one was needed.
+    static func list(_ url: URL, with backend: any ArchiveBackend, byContent: Bool, archive: VFSPath,
+                     passwords: (any ContainerPasswords)?) async throws -> ([ArchiveEntry]?, String?) {
+        var password: String?
+        while true {
+            do {
+                let given = password
+                let entries = try await blocking { try backend.entries(of: url, byContent: byContent, password: given) }
+                if let given { passwords?.accepted(given, for: archive) }
+                return (entries, given)
+            } catch let error as ArchiveError {
+                switch error {
+                case .passwordNeeded, .wrongPassword:
+                    guard let passwords else { throw ArchiveError.passwordNeeded(archive: archive.name) }
+                    guard let next = await passwords.password(for: archive, retry: password != nil) else {
+                        throw ArchiveError.noPassword(archive: archive.name)
+                    }
+                    password = next
+                default:
+                    throw error
+                }
+            }
+        }
     }
 
     /// A local file for `path`: the file itself, or a temporary copy read through its provider.

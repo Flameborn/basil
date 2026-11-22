@@ -70,13 +70,18 @@ public protocol ArchiveBackend: Sendable {
     func recognizes(name: String) -> Bool
     /// Lists the entries of the local file `url`, in archive order. Returns nil when the file
     /// is not a format this backend reads. `byContent` allows any name (Cmd+PageDown).
-    func entries(of url: URL, byContent: Bool) throws -> [ArchiveEntry]?
+    /// Archives whose names are encrypted throw `.passwordNeeded` without a password and
+    /// `.wrongPassword` with a wrong one.
+    func entries(of url: URL, byContent: Bool, password: String?) throws -> [ArchiveEntry]?
     /// Opens a session for reading entry data of `url`, opened earlier with the same `byContent`.
-    /// `entries` is the list `entries(of:byContent:)` returned.
-    func session(for url: URL, byContent: Bool, entries: [ArchiveEntry]) -> any ArchiveReadSession
+    /// `entries` is the list `entries(of:byContent:password:)` returned.
+    func session(for url: URL, byContent: Bool, entries: [ArchiveEntry], password: String?) -> any ArchiveReadSession
+    /// Whether `password` opens the encrypted entries, checked on as little data as possible
+    /// before any of it is handed out (a wrong password must never reach a copy).
+    func checkPassword(_ password: String, url: URL, byContent: Bool, entries: [ArchiveEntry]) throws -> Bool
     /// Reads every entry's data and reports problems (bad checksums, damaged data).
     /// `progress` gets the fraction done and the entry name; when it returns false, stop with CancellationError.
-    func test(_ url: URL, byContent: Bool, progress: (Double, String) -> Bool) throws -> [String]
+    func test(_ url: URL, byContent: Bool, password: String?, progress: (Double, String) -> Bool) throws -> [String]
 }
 
 public enum ArchiveError: Error, Sendable, Equatable {
@@ -84,14 +89,22 @@ public enum ArchiveError: Error, Sendable, Equatable {
     case damaged(String, archive: String)
     case encrypted(entry: String)
     case entryNotFound(String)
+    /// The archive's names are encrypted and no password was given.
+    case passwordNeeded(archive: String)
+    case wrongPassword(archive: String)
+    /// The password prompt was cancelled.
+    case noPassword(archive: String)
 }
 
 extension ArchiveError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .damaged(let message, let archive): "\(archive): \(message)"
-        case .encrypted(let entry): "\(entry) is encrypted. Encrypted archives are not supported yet."
+        case .encrypted(let entry): "\(entry) is encrypted and no password was given."
         case .entryNotFound(let entry): "\(entry) is no longer in the archive"
+        case .passwordNeeded(let archive): "\(archive) is encrypted and needs a password."
+        case .wrongPassword(let archive): "Wrong password for \(archive)."
+        case .noPassword(let archive): "No password was given for \(archive)."
         }
     }
 }

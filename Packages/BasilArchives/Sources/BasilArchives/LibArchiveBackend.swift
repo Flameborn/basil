@@ -40,8 +40,8 @@ public struct LibArchiveBackend: ArchiveBackend {
         return String(name[..<dot])
     }
 
-    public func entries(of url: URL, byContent: Bool) throws -> [ArchiveEntry]? {
-        let reader = try LibArchiveReader(url: url, raw: Self.allowsRaw(url))
+    public func entries(of url: URL, byContent: Bool, password: String?) throws -> [ArchiveEntry]? {
+        let reader = try LibArchiveReader(url: url, raw: Self.allowsRaw(url), password: password)
         guard let reader else { return nil }
         var entries: [ArchiveEntry] = []
         var ordinalByPath: [String: Int] = [:]
@@ -63,12 +63,31 @@ public struct LibArchiveBackend: ArchiveBackend {
         return entries
     }
 
-    public func session(for url: URL, byContent: Bool, entries: [ArchiveEntry]) -> any ArchiveReadSession {
-        LibArchiveSession(url: url)
+    public func session(for url: URL, byContent: Bool, entries: [ArchiveEntry], password: String?) -> any ArchiveReadSession {
+        LibArchiveSession(url: url, password: password)
     }
 
-    public func test(_ url: URL, byContent: Bool, progress: (Double, String) -> Bool) throws -> [String] {
-        guard let reader = try LibArchiveReader(url: url, raw: Self.allowsRaw(url)) else {
+    /// libarchive checks the password as an encrypted entry's data starts (zip's check byte or
+    /// AES verifier), so reading one byte of the first encrypted entry is enough.
+    public func checkPassword(_ password: String, url: URL, byContent: Bool, entries: [ArchiveEntry]) throws -> Bool {
+        guard let reader = try LibArchiveReader(url: url, raw: Self.allowsRaw(url), password: password) else {
+            throw ArchiveError.damaged("The archive can no longer be read", archive: url.lastPathComponent)
+        }
+        var buffer = [UInt8](repeating: 0, count: 1)
+        while let header = try reader.nextHeader() {
+            guard header.isEncrypted, header.type == 0o100000, (header.size ?? 1) > 0 else { continue }
+            do {
+                _ = try reader.readData(into: &buffer)
+                return true
+            } catch ArchiveError.encrypted {
+                return false
+            }
+        }
+        return true
+    }
+
+    public func test(_ url: URL, byContent: Bool, password: String?, progress: (Double, String) -> Bool) throws -> [String] {
+        guard let reader = try LibArchiveReader(url: url, raw: Self.allowsRaw(url), password: password) else {
             throw ArchiveError.damaged("Not an archive libarchive reads", archive: url.lastPathComponent)
         }
         let total = max(1, (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 1)
@@ -78,7 +97,7 @@ public struct LibArchiveBackend: ArchiveBackend {
             let name = reader.isRaw ? Self.rawEntryName(for: url) : String(header.path.dropFirst())
             let fraction = min(1, Double(reader.compressedBytesRead) / Double(total))
             guard progress(fraction, name) else { throw CancellationError() }
-            if header.isEncrypted {
+            if header.isEncrypted, password == nil {
                 problems.append("\(name): encrypted, not tested")
                 continue
             }
@@ -102,17 +121,21 @@ public struct LibArchiveBackend: ArchiveBackend {
 /// archive order reads the file once.
 final class LibArchiveSession: ArchiveReadSession {
     private let url: URL
+    private let password: String?
     private var reader: LibArchiveReader?
     private var current = -1
     private var consumed: Int64 = 0
     private var scratch = [UInt8](repeating: 0, count: 1 << 16)
 
-    init(url: URL) { self.url = url }
+    init(url: URL, password: String? = nil) {
+        self.url = url
+        self.password = password
+    }
 
     func read(_ entry: ArchiveEntry, at offset: Int64, count: Int) throws -> Data {
         let target = entry.dataOrdinal
         if reader == nil || current > target || (current == target && consumed > offset) {
-            reader = try LibArchiveReader(url: url, raw: LibArchiveBackend.allowsRaw(url))
+            reader = try LibArchiveReader(url: url, raw: LibArchiveBackend.allowsRaw(url), password: password)
             current = -1
             guard reader != nil else { throw ArchiveError.damaged("The archive can no longer be read", archive: url.lastPathComponent) }
         }
@@ -124,7 +147,7 @@ final class LibArchiveSession: ArchiveReadSession {
             }
             current += 1
             consumed = 0
-            if current == target, header.isEncrypted { throw ArchiveError.encrypted(entry: String(entry.path.dropFirst())) }
+            if current == target, header.isEncrypted, password == nil { throw ArchiveError.encrypted(entry: String(entry.path.dropFirst())) }
         }
         while consumed < offset {
             let want = Int(min(Int64(scratch.count), offset - consumed))
@@ -185,7 +208,7 @@ final class LibArchiveReader {
     private(set) var currentEntry: OpaquePointer?
 
     /// nil when libarchive recognises no format in the file.
-    init?(url: URL, raw: Bool) throws {
+    init?(url: URL, raw: Bool, password: String? = nil) throws {
         guard let handle = archive_read_new() else { throw ArchiveError.damaged("Out of memory", archive: url.lastPathComponent) }
         self.handle = handle
         archiveName = url.lastPathComponent
@@ -200,6 +223,7 @@ final class LibArchiveReader {
         archive_read_support_format_lha(handle)
         archive_read_support_format_ar(handle)
         if raw { archive_read_support_format_raw(handle) }
+        if let password { archive_read_add_passphrase(handle, password) }
         UTF8Locale.use()
         guard archive_read_open_filename(handle, url.path, 1 << 16) == ARCHIVE_OK else {
             let message = Self.message(handle)

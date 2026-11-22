@@ -33,6 +33,9 @@ enum UITestFixture {
                 try Data("x".utf8).write(to: root.appendingPathComponent(name))
             }
             try makeZip(at: root.appendingPathComponent("Alpha/Inner/pack.zip"))
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_ENCRYPTED_7Z"] == "1" {
+                try makeEncrypted7z(at: root.appendingPathComponent("Alpha/Inner/secret.7z"))
+            }
         } catch {
             return nil
         }
@@ -54,6 +57,28 @@ enum UITestFixture {
         zip.currentDirectoryURL = staging
         try zip.run()
         zip.waitUntilExit()
+    }
+
+    /// Alpha/Inner/secret.7z with note.txt, names and data encrypted with the password "basil",
+    /// made with the bundled 7zz (the password goes in through stdin).
+    private static func makeEncrypted7z(at url: URL) throws {
+        let fm = FileManager.default
+        guard let tool = Bundle.main.url(forAuxiliaryExecutable: "7zz") else { throw CocoaError(.fileNoSuchFile) }
+        let staging = fm.temporaryDirectory.appendingPathComponent("basil-uitest-7z-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: staging) }
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        try Data("note".utf8).write(to: staging.appendingPathComponent("note.txt"))
+        let sevenZip = Process()
+        sevenZip.executableURL = tool
+        sevenZip.arguments = ["a", "-p", "-mhe=on", url.path, "note.txt"]
+        sevenZip.currentDirectoryURL = staging
+        let input = Pipe()
+        sevenZip.standardInput = input
+        sevenZip.standardOutput = FileHandle.nullDevice
+        try sevenZip.run()
+        try input.fileHandleForWriting.write(contentsOf: Data("basil\n".utf8))
+        try input.fileHandleForWriting.close()
+        sevenZip.waitUntilExit()
     }
 
     nonisolated(unsafe) private static var createdRoot: URL?

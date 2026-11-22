@@ -34,8 +34,10 @@ extension ArchiveOpener: ContainerWriter {
     public func updateRefusal(for container: VFSPath, registry: ProviderRegistry) -> String? {
         if container.location != .local { return "Archives inside archives cannot be changed yet." }
         let location = ProviderLocation(provider: .archive, container: container)
-        if let provider = try? registry.provider(for: location) as? ArchiveProvider, provider.isSingleCompressedFile {
-            return "\(container.name) is a single compressed file and cannot be changed."
+        if let provider = try? registry.provider(for: location) as? ArchiveProvider {
+            if provider.isSingleCompressedFile { return "\(container.name) is a single compressed file and cannot be changed." }
+            if !(provider.backendIs(LibArchiveBackend.self)) { return "\(container.name) cannot be changed yet." }
+            if provider.hasEncryptedEntries { return "\(container.name) is encrypted and cannot be changed yet." }
         }
         return nil
     }

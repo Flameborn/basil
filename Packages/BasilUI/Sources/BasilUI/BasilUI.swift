@@ -40,10 +40,12 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// - Parameter startDirectories: overrides the restored start folders (left, right).
     /// - Parameter dataDirectory: where Basil keeps its own files.
     /// - Parameter defaults: where pane state (folders, views) is remembered; UI tests pass an isolated domain.
+    /// - Parameter secrets: where archive passwords are remembered; UI tests pass one in memory.
     public init(providers: ProviderRegistry, commands: CommandRegistry, settings: SettingsStore,
                 queue: FileOperationQueue, defaults: UserDefaults = .standard,
                 startDirectories: (left: VFSPath, right: VFSPath)? = nil,
-                dataDirectory: URL = MainWindowController.defaultDataDirectory) {
+                dataDirectory: URL = MainWindowController.defaultDataDirectory,
+                secrets: any SecretStore = Keychain.archivePasswords) {
         self.dataDirectory = dataDirectory
         self.commands = commands
         self.settings = settings
@@ -95,6 +97,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         }
         setActive(.left)
         window.makeFirstResponder(left.tableView)
+        installPasswordPrompt(secrets: secrets)
         queue.onEvent = { [weak self] event in self?.handle(event) }
         queue.promptHandler = { [weak self] _, prompt in
             guard let self else { return .conflict(.cancel) }

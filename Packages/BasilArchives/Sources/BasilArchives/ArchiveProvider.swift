@@ -27,6 +27,12 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
 
     /// Index and the archive file's state when it was built. Read from any thread.
     private let state: Mutex<(index: ArchiveIndex, stamp: Stamp?)>
+    /// Asks for the password of encrypted entries (the UI's prompt), and the one that worked.
+    private let passwords: (any ContainerPasswords)?
+    private let password: Mutex<String?>
+    /// The password question in progress, so reads waiting at the same time share one prompt.
+    private let passwordQuestion = Mutex<Task<String, Error>?>(nil)
+
     /// Only touched on `queue`.
     private var session: (any ArchiveReadSession)?
     /// Counts reads, so an idle session can be closed (only touched on `queue`).
@@ -37,7 +43,10 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     struct Stamp: Equatable { var size: Int64; var mtime: Int; var mtimeNanos: Int; var inode: UInt64 }
 
     init(location: ProviderLocation, backend: any ArchiveBackend, url: URL, byContent: Bool,
-         entries: [ArchiveEntry], temporaryCopy: Bool) {
+         entries: [ArchiveEntry], temporaryCopy: Bool,
+         passwords: (any ContainerPasswords)? = nil, password: String? = nil) {
+        self.passwords = passwords
+        self.password = Mutex(password)
         self.location = location
         self.backend = backend
         self.url = url
@@ -53,6 +62,8 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
 
     /// A single compressed file (notes.txt.gz): one entry, nothing to change.
     public var isSingleCompressedFile: Bool { LibArchiveBackend.allowsRaw(url) && state.withLock { $0.index.count } == 1 }
+
+    func backendIs<T: ArchiveBackend>(_ type: T.Type) -> Bool { backend is T }
 
     /// The archive's display name, for logs and errors.
     var archiveName: String { location.container?.name ?? url.lastPathComponent }
@@ -81,7 +92,7 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
         let now = Self.stamp(url)
         guard now != stamp else { return index }
         guard now != nil else { throw VFSError.notFound(location.container ?? .local(url.path)) }
-        let entries = try backend.entries(of: url, byContent: byContent) ?? []
+        let entries = try backend.entries(of: url, byContent: byContent, password: password.withLock { $0 }) ?? []
         let fresh = ArchiveIndex(entries)
         session = nil
         state.withLock { $0 = (fresh, now) }
@@ -174,14 +185,15 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     public func openForReading(_ path: VFSPath, bypassCache: Bool) async throws -> any ReadableFile {
         let entry = try await entry(path)
         guard entry.kind == .file else { throw VFSError.unsupported("reading \(path.name): it is not a file") }
-        if entry.isEncrypted { throw ArchiveError.encrypted(entry: path.name) }
+        if entry.isEncrypted { _ = try await knownPassword() }
         return ArchiveFile(provider: self, entry: entry, name: path.name)
     }
 
     fileprivate func read(_ entry: ArchiveEntry, name: String, at offset: Int64, count: Int) async throws -> Data {
         try await run { [self] in
             if session == nil {
-                session = backend.session(for: url, byContent: byContent, entries: state.withLock { $0.index.list })
+                session = backend.session(for: url, byContent: byContent, entries: state.withLock { $0.index.list },
+                                          password: password.withLock { $0 })
             }
             reads += 1
             let mark = reads
@@ -219,14 +231,60 @@ public final class ArchiveProvider: WritableProvider, @unchecked Sendable {
     public func synchronize(_ path: VFSPath) async throws {}
     public func createSymlink(_ path: VFSPath, target: String) async throws { throw readOnly }
 
+    // MARK: Passwords
+
+    /// The archive's password: the one that opened it or worked before, else asked for (and
+    /// checked on the archive) until one works or the prompt is cancelled.
+    func knownPassword() async throws -> String {
+        if let known = password.withLock({ $0 }) { return known }
+        let question = passwordQuestion.withLock { current -> Task<String, Error> in
+            if let current { return current }
+            let task = Task { try await self.askForPassword() }
+            current = task
+            return task
+        }
+        do {
+            let answer = try await question.value
+            passwordQuestion.withLock { $0 = nil }
+            return answer
+        } catch {
+            passwordQuestion.withLock { $0 = nil } // a later read asks again (Retry after Cancel)
+            throw error
+        }
+    }
+
+    private func askForPassword() async throws -> String {
+        guard let passwords, let container = location.container else { throw ArchiveError.passwordNeeded(archive: archiveName) }
+        var retry = false
+        while true {
+            guard let given = await passwords.password(for: container, retry: retry) else {
+                throw ArchiveError.noPassword(archive: archiveName)
+            }
+            let backend = backend, url = url, byContent = byContent
+            let works = try await run { [self] in
+                try backend.checkPassword(given, url: url, byContent: byContent, entries: state.withLock { $0.index.list })
+            }
+            if works {
+                passwords.accepted(given, for: container)
+                password.withLock { $0 = given }
+                try await run { [self] in session = nil } // the next read starts with the password
+                return given
+            }
+            retry = true
+        }
+    }
+
+    var hasEncryptedEntries: Bool { state.withLock { $0.index.list.contains { $0.isEncrypted } } }
+
     // MARK: Test
 
     func test(progress: @escaping @Sendable (Double, String) -> Void) async throws -> [String] {
+        let password: String? = hasEncryptedEntries ? try await knownPassword() : self.password.withLock { $0 }
         let backend = backend, url = url, byContent = byContent
         let cancelled = Mutex(false)
         return try await withTaskCancellationHandler {
             try await run {
-                try backend.test(url, byContent: byContent) { fraction, entry in
+                try backend.test(url, byContent: byContent, password: password) { fraction, entry in
                     progress(fraction, entry)
                     return !cancelled.withLock { $0 }
                 }

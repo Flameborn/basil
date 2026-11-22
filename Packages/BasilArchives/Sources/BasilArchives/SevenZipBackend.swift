@@ -25,12 +25,11 @@ public struct SevenZipBackend: ArchiveBackend {
         ArchiveNames.suffixes(of: name).contains { Self.suffixes.contains($0) }
     }
 
-    public func entries(of url: URL, byContent: Bool) throws -> [ArchiveEntry]? {
-        let output = try tool.run(["l", "-slt", "-ba", "-bso1", "-bsp0", "-t7z", "--", url.path])
-        if output.askedForPassword {
-            throw ArchiveError.encrypted(entry: url.lastPathComponent)
-        }
+    public func entries(of url: URL, byContent: Bool, password: String?) throws -> [ArchiveEntry]? {
+        let output = try tool.run(["l", "-slt", "-ba", "-bso1", "-bsp0", "-t7z", "--", url.path], password: password)
         if output.status != 0 {
+            if output.stderr.contains("Wrong password") { throw ArchiveError.wrongPassword(archive: url.lastPathComponent) }
+            if output.askedForPassword { throw ArchiveError.passwordNeeded(archive: url.lastPathComponent) }
             let errors = output.errors
             if output.stderr.contains("Cannot open the file as") || output.stderr.contains("Is not archive") {
                 return nil
@@ -40,27 +39,42 @@ public struct SevenZipBackend: ArchiveBackend {
             }
         }
         var entries = SevenZipListing.entries(output.stdoutText)
-        try readSymlinkTargets(&entries, of: url)
+        try readSymlinkTargets(&entries, of: url, password: password)
         return entries
     }
 
     /// 7z stores a link's target as its data; read all of them in one run.
-    private func readSymlinkTargets(_ entries: inout [ArchiveEntry], of url: URL) throws {
-        let links = entries.indices.filter { entries[$0].kind == .symlink && !entries[$0].isEncrypted }
+    private func readSymlinkTargets(_ entries: inout [ArchiveEntry], of url: URL, password: String?) throws {
+        let links = entries.indices.filter { entries[$0].kind == .symlink && (password != nil || !entries[$0].isEncrypted) }
         guard !links.isEmpty else { return }
-        let session = SevenZipSession(tool: tool, url: url, entries: entries)
+        let session = SevenZipSession(tool: tool, url: url, entries: entries, password: password)
         for i in links {
             let data = try session.read(entries[i], at: 0, count: Int(entries[i].size ?? 0))
             entries[i].symlinkTarget = String(decoding: data, as: UTF8.self)
         }
     }
 
-    public func session(for url: URL, byContent: Bool, entries: [ArchiveEntry]) -> any ArchiveReadSession {
-        SevenZipSession(tool: tool, url: url, entries: entries)
+    public func session(for url: URL, byContent: Bool, entries: [ArchiveEntry], password: String?) -> any ArchiveReadSession {
+        SevenZipSession(tool: tool, url: url, entries: entries, password: password)
     }
 
-    public func test(_ url: URL, byContent: Bool, progress: (Double, String) -> Bool) throws -> [String] {
-        let running = try tool.start(["t", "-bso1", "-bsp1", "-t7z", "--", url.path])
+    /// 7z has no password check value: a wrong password shows only as a data or CRC error.
+    /// So the first encrypted file is tested; it is the first of its solid block, so this
+    /// decompresses no more than that one file.
+    public func checkPassword(_ password: String, url: URL, byContent: Bool, entries: [ArchiveEntry]) throws -> Bool {
+        guard let first = entries.first(where: { $0.isEncrypted && $0.kind == .file && ($0.size ?? 0) > 0 }),
+              let name = first.storedName else { return true }
+        let list = FileManager.default.temporaryDirectory.appendingPathComponent("basil-7z-\(UUID().uuidString).txt")
+        try Data(name.utf8).write(to: list)
+        defer { unlink(list.path) }
+        let output = try tool.run(["t", "-bso1", "-bsp0", "-spd", "-t7z", "-i@" + list.path, "--", url.path], password: password)
+        if output.status == 0 { return true }
+        if output.stderr.contains("Wrong password") || output.stderr.contains("in encrypted file") { return false }
+        throw ArchiveError.damaged(output.errors.first ?? "7-Zip could not test the archive", archive: url.lastPathComponent)
+    }
+
+    public func test(_ url: URL, byContent: Bool, password: String?, progress: (Double, String) -> Bool) throws -> [String] {
+        let running = try tool.start(["t", "-bso1", "-bsp1", "-t7z", "--", url.path], password: password)
         let stderr = running.drainStderr()
         let fd = running.stdout
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -85,8 +99,8 @@ public struct SevenZipBackend: ArchiveBackend {
         }
         let result = SevenZipTool.Output(status: running.wait(), stdout: Data(output.utf8), stderr: stderr.wait())
         _ = progress(1, "")
-        if result.askedForPassword { return ["Encrypted files were not tested: passwords are not supported yet"] }
         guard result.status != 0 else { return [] }
+        if password == nil, result.askedForPassword { return ["Encrypted files were not tested: no password was given"] }
         let problems = result.errors.map { line -> String in
             // "CRC Failed : folder/file.bin" -> "folder/file.bin: CRC Failed"
             let parts = line.components(separatedBy: " : ")
@@ -244,7 +258,8 @@ final class SevenZipSession: ArchiveReadSession {
             let output = SevenZipTool.Output(status: running.wait(), stdout: Data(), stderr: stderr?.wait() ?? "")
             let entry = entries[stream[position]]
             stop()
-            if output.askedForPassword { throw ArchiveError.encrypted(entry: String(entry.path.dropFirst())) }
+            if output.stderr.contains("Wrong password") { throw ArchiveError.wrongPassword(archive: url.lastPathComponent) }
+            if password == nil, output.askedForPassword { throw ArchiveError.encrypted(entry: String(entry.path.dropFirst())) }
             throw ArchiveError.damaged(output.errors.first ?? dataError(for: entry), archive: url.lastPathComponent)
         }
         return out

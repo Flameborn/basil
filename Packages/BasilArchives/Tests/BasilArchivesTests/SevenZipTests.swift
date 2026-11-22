@@ -160,23 +160,101 @@ extension Fixture {
         #expect(fractions.withLock { $0.last } == 1)
     }
 
-    @Test func encryptedArchivesFailClearly() async throws {
+    @Test func encryptedArchivesNeedAPasswordSource() async throws {
         let f = try Fixture.withSevenZip()
         #expect(try f.sevenZip(["a", "-p", "../files.7z", "hello.txt"], password: "secret") == 0)
         #expect(try f.sevenZip(["a", "-p", "-mhe=on", "../headers.7z", "hello.txt"], password: "secret") == 0)
         let root = try await f.open("files.7z")
         #expect(try await f.names(root) == ["hello.txt"])
-        await #expect(throws: ArchiveError.encrypted(entry: "hello.txt")) { try await f.read(root.appending("hello.txt")) }
-        await #expect(throws: ArchiveError.encrypted(entry: "headers.7z")) { try await f.open("headers.7z") }
+        await #expect(throws: ArchiveError.passwordNeeded(archive: "files.7z")) { try await f.read(root.appending("hello.txt")) }
+        await #expect(throws: ArchiveError.passwordNeeded(archive: "headers.7z")) { try await f.open("headers.7z") }
+    }
+
+    @Test func encryptedNamesAskUntilTheRightPassword() async throws {
+        let f = try Fixture.withSevenZip()
+        #expect(try f.sevenZip(["a", "-snl", "-p", "-mhe=on", "../headers.7z", "."], password: "sécret") == 0)
+        let passwords = ScriptedPasswords(["wrong", "sécret"])
+        f.registry.passwords = passwords
+        let root = try await f.open("headers.7z")
+        #expect(passwords.asked.withLock { $0 } == [false, true])
+        #expect(passwords.accepted.withLock { $0 } == ["sécret"])
+        #expect(try await f.names(root) == [".hidden", "Grüße änd ü.txt", "folder", "hello.txt", "link"])
+        // The password that opened the archive also reads it: no second prompt.
+        #expect(try await f.read(root.appending("folder/big.bin")) == Fixture.big)
+        #expect(try await f.registry.writableProvider(for: root.location).readSymlink(root.appending("link")) == "folder")
+        #expect(passwords.asked.withLock { $0 }.count == 2)
+    }
+
+    @Test func encryptedFilesAreCheckedBeforeAnyDataIsRead() async throws {
+        let f = try Fixture.withSevenZip()
+        #expect(try f.sevenZip(["a", "-p", "../files.7z", "."], password: "secret") == 0)
+        let passwords = ScriptedPasswords(["wrong", "also wrong", "secret"])
+        f.registry.passwords = passwords
+        let root = try await f.open("files.7z")
+        #expect(passwords.asked.withLock { $0 }.isEmpty) // names are readable without it
+        let engine = SecureCopyEngine(registry: f.registry, options: SecureCopyOptions(secure: true),
+                                      monitor: ArchiveExtractionTests.Monitor())
+        try FileManager.default.createDirectory(at: f.url.appendingPathComponent("out"), withIntermediateDirectories: true)
+        let summary = try await engine.transfer(root, to: f.path("out/all"), mode: .copy)
+        #expect(summary.failed.isEmpty)
+        #expect(try Data(contentsOf: f.url.appendingPathComponent("out/all/folder/big.bin")) == Fixture.big)
+        #expect(try Data(contentsOf: f.url.appendingPathComponent("out/all/hello.txt")) == Data("hello".utf8))
+        #expect(passwords.asked.withLock { $0 } == [false, true, true])
+        #expect(passwords.accepted.withLock { $0 } == ["secret"])
+        // Test (Option+Shift+F9) uses the known password and finds nothing wrong.
+        #expect(try await f.opener.test(f.path("files.7z"), registry: f.registry) { _, _ in }.isEmpty)
+        #expect(passwords.asked.withLock { $0 }.count == 3)
+    }
+
+    @Test func cancellingThePromptFailsTheReadAndAsksAgainLater() async throws {
+        let f = try Fixture.withSevenZip()
+        #expect(try f.sevenZip(["a", "-p", "../files.7z", "hello.txt"], password: "secret") == 0)
+        let passwords = ScriptedPasswords([nil, "secret"])
+        f.registry.passwords = passwords
+        let root = try await f.open("files.7z")
+        await #expect(throws: ArchiveError.noPassword(archive: "files.7z")) { try await f.read(root.appending("hello.txt")) }
+        #expect(try await f.read(root.appending("hello.txt")) == Data("hello".utf8))
+    }
+
+    @Test(arguments: ["ZipCrypto", "AES256"])
+    func encryptedZipThroughLibarchive(method: String) async throws {
+        let f = try Fixture.withSevenZip()
+        #expect(try f.sevenZip(["a", "-tzip", "-mem=\(method)", "-p", "../e.zip", "hello.txt", "folder"], password: "secret") == 0)
+        let passwords = ScriptedPasswords(["nope", "secret"])
+        f.registry.passwords = passwords
+        let root = try await f.open("e.zip")
+        #expect(try await f.read(root.appending("folder/big.bin")) == Fixture.big)
+        #expect(try await f.read(root.appending("hello.txt")) == Data("hello".utf8))
+        #expect(passwords.asked.withLock { $0 } == [false, true])
+        #expect(try await f.opener.test(f.path("e.zip"), registry: f.registry) { _, _ in }.isEmpty)
+        // Encrypted archives are not rewritten (yet).
+        #expect(f.opener.updateRefusal(for: f.path("e.zip"), registry: f.registry) != nil)
     }
 
     @Test func otherFormatsAreLeftToLibarchive() async throws {
         let f = try Fixture.withSevenZip()
         #expect(try f.make("/usr/bin/zip", ["-q", "../a.zip", "hello.txt"]) == 0)
         let backend = SevenZipBackend(executable: SevenZipBinary.url)
-        #expect(try backend.entries(of: f.url.appendingPathComponent("a.zip"), byContent: true) == nil)
-        #expect(try backend.entries(of: f.url.appendingPathComponent("src/hello.txt"), byContent: true) == nil)
+        #expect(try backend.entries(of: f.url.appendingPathComponent("a.zip"), byContent: true, password: nil) == nil)
+        #expect(try backend.entries(of: f.url.appendingPathComponent("src/hello.txt"), byContent: true, password: nil) == nil)
         #expect(!backend.recognizes(name: "a.zip"))
         #expect(backend.recognizes(name: "A.7Z"))
+    }
+}
+
+/// Gives scripted passwords (nil = cancel) and records each prompt's retry flag and what was accepted.
+final class ScriptedPasswords: ContainerPasswords {
+    let answers: Mutex<[String?]>
+    let asked = Mutex<[Bool]>([])
+    let accepted = Mutex<[String]>([])
+    init(_ answers: [String?]) { self.answers = Mutex(answers) }
+
+    func password(for container: VFSPath, retry: Bool) async -> String? {
+        asked.withLock { $0.append(retry) }
+        return answers.withLock { $0.isEmpty ? nil : $0.removeFirst() }
+    }
+
+    func accepted(_ password: String, for container: VFSPath) {
+        accepted.withLock { $0.append(password) }
     }
 }

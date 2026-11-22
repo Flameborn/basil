@@ -61,6 +61,13 @@ public final class ProviderRegistry: Sendable {
     private let providers = Mutex<[ProviderLocation: any FileSystemProvider]>([:])
     let openers = Mutex<[any ContainerOpener]>([])
     let writers = Mutex<[any ContainerWriter]>([])
+    private let passwordSource = Mutex<(any ContainerPasswords)?>(nil)
+
+    /// Where encrypted containers get their passwords (the UI's prompt). nil: none can be opened.
+    public var passwords: (any ContainerPasswords)? {
+        get { passwordSource.withLock { $0 } }
+        set { passwordSource.withLock { $0 = newValue } }
+    }
 
     public init() {}
 

@@ -661,6 +661,48 @@ final class PaneUITests: XCTestCase {
         }
     }
 
+    /// An encrypted 7z asks for its password in a sheet (secure field, "Remember in Keychain"),
+    /// says when it was wrong, and opens with the right one. UI tests keep passwords in memory.
+    func testEncrypted7zAsksForThePassword() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_ENCRYPTED_7Z"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
+        if !waitFor({ self.names(in: self.leftTable) == ["Inner"] }, timeout: 2) {
+            leftTable.typeKey(.enter, modifierFlags: [])
+        }
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack.zip", "secret.7z"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(.downArrow, modifierFlags: [])
+        leftTable.typeKey(.enter, modifierFlags: [])                     // the archive asks for its password
+
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        XCTAssertTrue(sheet.staticTexts["Password for secret.7z:"].exists, sheet.debugDescription)
+        let field = sheet.secureTextFields["Password"]
+        XCTAssertTrue(field.exists, sheet.debugDescription)
+        XCTAssertTrue(sheet.checkBoxes["Remember in Keychain"].exists)
+        XCTAssertEqual(sheet.checkBoxes["Remember in Keychain"].value as? Int, 0)
+        XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeKey(.tab, modifierFlags: [])                             // out of the field for the audit
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT password: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        field.click()
+        XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("wrong\r")
+        XCTAssertTrue(waitFor { sheet.staticTexts["Wrong password for secret.7z. Try again."].exists }, sheet.debugDescription)
+        let again = sheet.secureTextFields["Password"]
+        XCTAssertTrue(waitFor { (again.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("basil\r")
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["note.txt"] }, "\(names(in: leftTable))")
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+    }
+
     func testArchiveBrowseChangeAndExtract() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha

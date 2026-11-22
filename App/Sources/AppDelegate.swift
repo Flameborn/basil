@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
         var dataDirectory = MainWindowController.defaultDataDirectory
+        var secrets: any SecretStore = Keychain.archivePasswords
         #if DEBUG
         start = UITestFixture.makeIfRequested()
         if let isolated = UITestFixture.isolatedDefaults() {
@@ -35,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dataDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-data", isDirectory: true)
             try? FileManager.default.removeItem(at: dataDirectory)
             settings = SettingsStore(defaults: isolated)
+            secrets = MemorySecretStore() // UI tests never touch the user's keychain
             // UI tests run silently (no sounds, no system voice).
             for outcome in QueueOutcome.allCases {
                 settings.settings.feedback.defaults[outcome.rawValue] = EventFeedback(sound: .none, speak: false, text: "")
@@ -43,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
                                               queue: queue, defaults: defaults, startDirectories: start,
-                                              dataDirectory: dataDirectory)
+                                              dataDirectory: dataDirectory, secrets: secrets)
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
         controller.showWindow(nil)
