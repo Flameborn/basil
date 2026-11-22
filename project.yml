@@ -1,6 +1,6 @@
 name: Basil
 options:
-  bundleIdPrefix: com.erion
+  bundleIdPrefix: com.flameborn
   deploymentTarget:
     macOS: "27.0"
   createIntermediateGroups: true
@@ -45,7 +45,7 @@ targets:
         BasilDropboxAppKey: $(BASIL_DROPBOX_APP_KEY)
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil
+        PRODUCT_BUNDLE_IDENTIFIER: com.flameborn.basil
         PRODUCT_NAME: Basil
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The 7zz phase builds into Vendor/build, outside what a sandboxed script may write.
@@ -85,7 +85,7 @@ targets:
     sources: [Tests/BasilUITests]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.erion.basil.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.flameborn.basil.uitests
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: Basil
     dependencies:

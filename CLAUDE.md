@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**Basil** (bundle ID `com.erion.basil`) is a native macOS dual-pane file manager in the spirit of Total Commander, written in Swift. **VoiceOver accessibility is a hard requirement** (not a polish item), and the app must also look good. It is for personal use and won't be sold.
+**Basil** (bundle ID `com.flameborn.basil`) is a native macOS dual-pane file manager in the spirit of Total Commander, written in Swift. **VoiceOver accessibility is a hard requirement** (not a polish item), and the app must also look good. It is for personal use and won't be sold.
 
 Progress, completed milestones and open questions are tracked in **`progress.md`**. Read it at the start of every session. Update it whenever a milestone, decision or open question changes.
 
@@ -351,7 +351,7 @@ swift test --package-path Packages/BasilOperations --filter SecureCopyTests/sour
 for p in Packages/*/; do swift test --package-path "$p"; done   # all package tests
 ```
 
-- UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`), start both panes in it, and use an isolated preferences domain (`com.erion.basil.uitests`, wiped each launch). Tests must never touch the user's real settings. Pass `UserDefaults` in explicitly; don't use `UserDefaults.standard` in BasilUI.
+- UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`), start both panes in it, and use an isolated preferences domain (`com.flameborn.basil.uitests`, wiped each launch). Tests must never touch the user's real settings. Pass `UserDefaults` in explicitly; don't use `UserDefaults.standard` in BasilUI.
 - The accessibility audit has three documented exceptions in the tests: SwiftUI Picker and Menu pop-ups ("Action is missing", a false positive), disabled controls, and list cells labelled with a file name that has an extension ("Label not human-readable" for "notes.md"; handled app-wide by the `audit(app)` helper in PaneUITests.swift, which every test uses instead of calling `performAccessibilityAudit` directly). Anything else fails the test. A text field that is being edited makes the audit report "Parent/Child mismatch" (the AppKit field editor), so tests move focus out of the field (Tab) before auditing.
 - 200k-item benchmark (skipped unless `BASIL_PERF_DIR` is set): `BASIL_PERF_DIR=/path/to/big swift test -c release --package-path Packages/BasilUI --filter largeDirectory`. Last result: load and sort 0.87 s, re-sort 0.10 s, filter 0.04 s.
 - Package unit tests use **Swift Testing** (`import Testing`). App-level UI tests use XCTest/XCUITest.

@@ -18,7 +18,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 | 2026-11-18 | Plugins: LuaJIT |
 | 2026-11-18 | Unstable copy source: retry N times (default 3), then pause and ask the user |
 | 2026-11-18 | Remotes: SFTP, FTP/FTPS, Dropbox first, then WebDAV, SMB, S3-compatible, Google Drive, OneDrive |
-| 2026-11-18 | App name **Basil**, bundle ID `com.erion.basil` |
+| 2026-11-18 | App name **Basil**, bundle ID `com.flameborn.basil` |
 | 2026-11-18 | Secure copy redesigned for speed: same-volume move = `rename()`, same-APFS copy = `clonefile()`, cross-volume = single pass with per-chunk hashing + fingerprint recheck, delta re-copy only when the source changed (replaces the read-source-twice design) |
 | 2026-11-18 | Destination read-back verification off by default for copy and move (setting) |
 | 2026-11-18 | Search: Spotlight + own Everything-style index in a custom binary format, kept current via FSEvents event-ID replay |
@@ -152,6 +152,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 | 2026-11-22 | App icon (asked: a green basil leaf as a folder, with scrolls or parchment in it): a basil leaf folded along its midrib like a folder, with a rolled scroll and a curled parchment sheet tucked in, on a cream to sage background. An Icon Composer document (`App/Resources/AppIcon.icon`, SVG layers, Liquid Glass), compiled by Xcode; PNGs for the Dropbox App Console in `Branding/` |
 | 2026-11-22 | Dropbox sign-in return (asked): the browser comes back to a page Basil serves on this Mac, `http://localhost:21745/dropbox` (port 21745 chosen by the user), saying "Signed in to Dropbox. ... You can close this tab and go back to Basil."; Basil also comes to the front. Replaces the `db-<key>://2/token` URL scheme (removed from Info.plist). The server listens on 127.0.0.1 and ::1 only while a sign-in waits. When the port is taken, connecting fails with "Basil signs in to Dropbox through port 21745 on this Mac, but X is using it. Quit X and connect again." (X from lsof). Later, the planned small HTTP file server should use the same port and serve the sign-in pages too |
 | 2026-11-22 | Asked: Cmd+Shift+K disconnects (replaces "Disconnect has no default key" above). In the connection manager: Cmd+N New, Cmd+D Duplicate, Return Connect, Escape or Cmd+W Close, Delete asks for confirmation. Decided by Claude, change if wrong: also Cmd+E Edit, Forward Delete like Delete, Cmd+Up/Down move (as in the queue panel); the confirmation says the account is signed out too for Dropbox. The return page's first sentence is "Basil is now authorised." |
+| 2026-11-22 | Asked: bundle ID prefix changed from com.erion to com.flameborn (app, UI tests, Keychain services `com.flameborn.basil.archive-password` and `.remote-secret`). No migration: old preferences stay behind, old Keychain items were deleted, Full Disk Access must be granted again |
 
 ## Open questions (ask before implementing the related part)
 

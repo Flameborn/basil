@@ -12,7 +12,7 @@ enum UITestFixture {
     /// A separate preferences domain, wiped at each launch, so tests never touch the user's settings.
     static func isolatedDefaults() -> UserDefaults? {
         guard isActive else { return nil }
-        let suite = "com.erion.basil.uitests"
+        let suite = "com.flameborn.basil.uitests"
         UserDefaults().removePersistentDomain(forName: suite)
         return UserDefaults(suiteName: suite)
     }
