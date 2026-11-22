@@ -6,7 +6,8 @@ import Synchronization
 
 // Remote connections in the window: Cmd+K's connection manager (saved connections and Quick
 // Connect), the questions a connection asks (host keys, passwords, passphrases), connecting,
-// and Disconnect. The services themselves (SFTP now) are `RemoteConnector`s in the registry.
+// and Disconnect. The services themselves (SFTP, FTP, FTPS) are `RemoteConnector`s in the
+// registry; the editor shows each one's logins and options as the connector describes them.
 
 // MARK: Questions
 
@@ -23,6 +24,10 @@ final class RemotePromptsUI: RemotePrompts, @unchecked Sendable {
 
     func hostKey(_ question: HostKeyQuestion) async -> HostKeyAnswer {
         await MainActor.run { controller }?.askHostKey(question) ?? .cancel
+    }
+
+    func certificate(_ question: CertificateQuestion) async -> HostKeyAnswer {
+        await MainActor.run { controller }?.askCertificate(question) ?? .cancel
     }
 
     /// Keychain keys whose stored secret was just handed out (only touched from one connection's
@@ -82,6 +87,48 @@ extension MainWindowController {
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Connect Once")
             alert.addButton(withTitle: "Replace Key and Connect")
+            return switch await present(alert, in: window) {
+            case 1: .trustOnce
+            case 2: .trustAndRemember
+            default: .cancel
+            }
+        }
+    }
+
+    func askCertificate(_ question: CertificateQuestion) async -> HostKeyAnswer {
+        guard let window else { return .cancel }
+        let alert = NSAlert()
+        var details = "Issued to \(question.subject) by \(question.issuer)"
+        if !question.validity.isEmpty { details += ", \(question.validity)" }
+        details += ". Fingerprint \(question.fingerprint)."
+        switch question.reason {
+        case .untrusted(let why):
+            alert.messageText = "macOS does not trust the certificate of \(question.host). Connect anyway?"
+            alert.informativeText = """
+            \(why)
+            \(details)
+            Check the fingerprint with the server's administrator before you trust it. Remembered certificates are saved in \(question.trustFile).
+            """
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Trust and Remember")
+            alert.addButton(withTitle: "Trust Once")
+            alert.addButton(withTitle: "Cancel")
+            return switch await present(alert, in: window) {
+            case 0: .trustAndRemember
+            case 1: .trustOnce
+            default: .cancel
+            }
+        case .changed(let why):
+            alert.messageText = "Warning: the certificate of \(question.host) has changed."
+            alert.informativeText = """
+            Someone may be intercepting the connection, or the server got a new certificate. Do not connect unless you know why it changed.
+            \(why)
+            The new certificate: \(details)
+            """
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Connect Once")
+            alert.addButton(withTitle: "Replace Certificate and Connect")
             return switch await present(alert, in: window) {
             case 1: .trustOnce
             case 2: .trustAndRemember
@@ -206,7 +253,7 @@ extension MainWindowController {
     func showConnections() {
         guard let window else { return }
         let model = ConnectionsModel(saved: settings.settings.connections,
-                                     services: providers.remoteConnectors.map { ($0.service, $0.displayName, $0.defaultPort) },
+                                     services: providers.remoteConnectors.map(ConnectionsModel.Service.init),
                                      aliases: providers.remoteConnectors.flatMap { $0.knownHosts() })
         let hosting = NSHostingController(rootView: ConnectionsView(model: model))
         hosting.sizingOptions = [.preferredContentSize]
@@ -246,7 +293,28 @@ extension PaneViewController {
 
 @MainActor @Observable
 final class ConnectionsModel {
-    struct Service: Hashable { let id: ProviderID; let name: String; let defaultPort: Int }
+    /// What the editor shows for one connector.
+    struct Service: Equatable {
+        let id: ProviderID
+        let name: String
+        let defaultPort: Int
+        let logins: [RemoteLogin]
+        let automaticLoginTitle: String
+        let hostPlaceholder: String
+        let userPlaceholder: String
+        let options: [RemoteOption]
+
+        init(_ connector: any RemoteConnector) {
+            id = connector.service
+            name = connector.displayName
+            defaultPort = connector.defaultPort
+            logins = connector.logins
+            automaticLoginTitle = connector.automaticLoginTitle
+            hostPlaceholder = connector.hostPlaceholder
+            userPlaceholder = connector.userPlaceholder
+            options = connector.options
+        }
+    }
 
     var saved: [SavedConnection]
     var selection: UUID?
@@ -263,14 +331,16 @@ final class ConnectionsModel {
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var announce: ((String) -> Void)?
 
-    init(saved: [SavedConnection], services: [(ProviderID, String, Int)], aliases: [String]) {
+    init(saved: [SavedConnection], services: [Service], aliases: [String]) {
         self.saved = saved
-        self.services = services.map { Service(id: $0.0, name: $0.1, defaultPort: $0.2) }
+        self.services = services
         self.aliases = aliases
         selection = saved.first?.id
     }
 
     var defaultService: ProviderID { services.first?.id ?? ProviderID("sftp") }
+
+    func service(_ id: ProviderID) -> Service? { services.first { $0.id == id } }
 
     var selected: SavedConnection? { saved.first { $0.id == selection } }
 
@@ -324,7 +394,7 @@ final class ConnectionsModel {
     func finishEditing(save: Bool) {
         guard isEditing else { return }
         isEditing = false
-        guard save, let connection = draft.connection else { return }
+        guard save, let connection = draft.connection(service: service(draft.service)) else { return }
         if let index = saved.firstIndex(where: { $0.id == connection.id }) {
             saved[index] = connection
         } else {
@@ -346,9 +416,16 @@ struct ConnectionDraft {
     enum Auth: String, CaseIterable, Identifiable {
         case automatic, password, keyFile
         var id: String { rawValue }
-        var title: String {
+        var login: RemoteLogin {
             switch self {
-            case .automatic: "Automatic: ssh-agent, key files, then password"
+            case .automatic: .automatic
+            case .password: .password
+            case .keyFile: .keyFile
+            }
+        }
+        func title(_ service: ConnectionsModel.Service?) -> String {
+            switch self {
+            case .automatic: service?.automaticLoginTitle ?? "Automatic"
             case .password: "Password"
             case .keyFile: "Key file"
             }
@@ -365,6 +442,8 @@ struct ConnectionDraft {
     var path: String
     var auth: Auth
     var keyFile: String
+    /// The service's own options as set (missing: the default).
+    var options: [String: String]
 
     init(_ connection: SavedConnection, isNew: Bool) {
         id = connection.id
@@ -380,27 +459,46 @@ struct ConnectionDraft {
         case .password: auth = .password; keyFile = ""
         case .keyFile(let file): auth = .keyFile; keyFile = file
         }
+        options = connection.target.options ?? [:]
     }
 
-    var problem: String? {
+    /// The login actually used: the chosen one when the service offers it, else its first.
+    func effectiveAuth(_ service: ConnectionsModel.Service?) -> Auth {
+        guard let logins = service?.logins, !logins.contains(auth.login), let first = logins.first else { return auth }
+        return Auth.allCases.first { $0.login == first } ?? auth
+    }
+
+    func option(_ option: RemoteOption) -> String {
+        options[option.key] ?? option.value(in: RemoteTarget(service: service, host: ""))
+    }
+
+    func problem(_ service: ConnectionsModel.Service?) -> String? {
         if host.trimmingCharacters(in: .whitespaces).isEmpty { return "Type the server's host name or address." }
         let trimmedPort = port.trimmingCharacters(in: .whitespaces)
         if !trimmedPort.isEmpty, Int(trimmedPort).map({ (1...65535).contains($0) }) != true { return "The port must be a number from 1 to 65535." }
-        if auth == .keyFile, keyFile.trimmingCharacters(in: .whitespaces).isEmpty { return "Choose the private key file." }
+        if effectiveAuth(service) == .keyFile, keyFile.trimmingCharacters(in: .whitespaces).isEmpty { return "Choose the private key file." }
         return nil
     }
 
-    var connection: SavedConnection? {
-        guard problem == nil else { return nil }
+    func connection(service info: ConnectionsModel.Service?) -> SavedConnection? {
+        guard problem(info) == nil else { return nil }
         let trim = { (s: String) in s.trimmingCharacters(in: .whitespaces) }
-        let authentication: RemoteTarget.Authentication = switch auth {
+        let authentication: RemoteTarget.Authentication = switch effectiveAuth(info) {
         case .automatic: .automatic
         case .password: .password
         case .keyFile: .keyFile(trim(keyFile))
         }
-        let target = RemoteTarget(service: service, host: trim(host), port: Int(trim(port)),
+        var target = RemoteTarget(service: service, host: trim(host), port: Int(trim(port)),
                                   user: trim(user).isEmpty ? nil : trim(user),
                                   path: trim(path).isEmpty ? nil : trim(path), authentication: authentication)
+        // Only this service's options, and only those that differ from their defaults.
+        var kept: [String: String] = [:]
+        for option in info?.options ?? [] {
+            if let value = options[option.key], value != option.value(in: RemoteTarget(service: service, host: "")) {
+                kept[option.key] = value
+            }
+        }
+        target.options = kept.isEmpty ? nil : kept
         return SavedConnection(id: id, name: trim(name), target: target)
     }
 }
@@ -435,6 +533,11 @@ struct ConnectionList: View {
                     .onSubmit { model.connectQuick() }
                 Button("Quick Connect") { model.connectQuick() }
                     .disabled(model.quickTarget == nil)
+            }
+            if model.services.count > 1 {
+                Text("Addresses can start with \(model.services.map { "\($0.id.rawValue):// for \($0.name)" }.joined(separator: ", ")). Without one, \(model.services.first?.name ?? "") is used.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryTextColor)
             }
             if !model.aliases.isEmpty {
                 Text("Host aliases from ~/.ssh/config work too: \(model.aliases.prefix(8).joined(separator: ", ")).")
@@ -495,6 +598,7 @@ struct ConnectionEditor: View {
     var body: some View {
         let binding = $model.draft
         let draft = model.draft
+        let service = model.service(draft.service)
         VStack(alignment: .leading, spacing: 12) {
             Text(draft.isNew ? "New Connection" : "Edit \(draft.name.isEmpty ? draft.host : draft.name)").font(.headline)
             Form {
@@ -506,20 +610,23 @@ struct ConnectionEditor: View {
                     }
                     .accessibilityLabel("Protocol")
                 }
-                TextField("Host", text: binding.host, prompt: Text("Name, address or ssh alias"))
+                TextField("Host", text: binding.host, prompt: Text(service?.hostPlaceholder ?? "Name or address"))
                     .accessibilityLabel("Host")
                     .focused($hostFocused)
                 TextField("Port", text: binding.port, prompt: Text(defaultPortText(draft.service)))
                     .accessibilityLabel("Port")
-                TextField("User", text: binding.user, prompt: Text("From ~/.ssh/config, or \(NSUserName())"))
+                TextField("User", text: binding.user, prompt: Text(service?.userPlaceholder ?? NSUserName()))
                     .accessibilityLabel("User")
                 TextField("Start folder", text: binding.path, prompt: Text("Home folder on the server"))
                     .accessibilityLabel("Start folder")
-                Picker("Log in with", selection: binding.auth) {
-                    ForEach(ConnectionDraft.Auth.allCases) { Text($0.title).tag($0) }
+                let logins = ConnectionDraft.Auth.allCases.filter { service?.logins.contains($0.login) ?? true }
+                if logins.count > 1 {
+                    Picker("Log in with", selection: binding.auth) {
+                        ForEach(logins) { Text($0.title(service)).tag($0) }
+                    }
+                    .accessibilityLabel("Log in with")
                 }
-                .accessibilityLabel("Log in with")
-                if draft.auth == .keyFile {
+                if draft.effectiveAuth(service) == .keyFile {
                     HStack {
                         TextField("Key file", text: binding.keyFile, prompt: Text("~/.ssh/id_ed25519"))
                             .accessibilityLabel("Key file")
@@ -528,10 +635,18 @@ struct ConnectionEditor: View {
                         }
                     }
                 }
+                ForEach(service?.options ?? []) { option in
+                    optionControl(option, binding)
+                    if let help = option.help {
+                        Text(help)
+                            .font(.callout)
+                            .foregroundStyle(Theme.secondaryTextColor)
+                    }
+                }
                 Text("Passwords and passphrases are asked for when connecting and can be remembered in the Keychain.")
                     .font(.callout)
                     .foregroundStyle(Theme.secondaryTextColor)
-                if let problem = draft.problem {
+                if let problem = draft.problem(service) {
                     Text(problem)
                         .font(.callout)
                         .foregroundStyle(Theme.errorTextColor)
@@ -544,10 +659,28 @@ struct ConnectionEditor: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Save") { model.finishEditing(save: true) }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(draft.problem != nil)
+                    .disabled(draft.problem(service) != nil)
             }
         }
         .onAppear { hostFocused = true }
+    }
+
+    @ViewBuilder
+    private func optionControl(_ option: RemoteOption, _ binding: Binding<ConnectionDraft>) -> some View {
+        switch option.kind {
+        case .toggle:
+            Toggle(option.title, isOn: Binding(
+                get: { binding.wrappedValue.option(option) == "true" },
+                set: { binding.wrappedValue.options[option.key] = $0 ? "true" : "false" }))
+                .accessibilityLabel(option.title)
+        case .choice(let choices, _):
+            Picker(option.title, selection: Binding(
+                get: { binding.wrappedValue.option(option) },
+                set: { binding.wrappedValue.options[option.key] = $0 })) {
+                ForEach(choices, id: \.value) { Text($0.title).tag($0.value) }
+            }
+            .accessibilityLabel(option.title)
+        }
     }
 
     private func defaultPortText(_ service: ProviderID) -> String {

@@ -74,10 +74,47 @@ public struct SecretAnswer: Sendable, Equatable {
     }
 }
 
+/// A TLS certificate macOS does not trust (FTPS), or one that differs from the certificate the
+/// user trusted before.
+public struct CertificateQuestion: Sendable, Equatable {
+    public enum Reason: Sendable, Equatable {
+        /// Not trusted by the system; the text says why ("is self-signed", "has expired").
+        case untrusted(String)
+        /// The user trusted another certificate for this server before: possibly an attack.
+        case changed(String)
+    }
+
+    public var reason: Reason
+    /// "example.com:990" (the port only when it is not the service's default).
+    public var host: String
+    /// The certificate's common name or, without one, its whole subject.
+    public var subject: String
+    public var issuer: String
+    /// "until 22 November 2027"; empty when unknown.
+    public var validity: String
+    /// "SHA256:" and the hex SHA-256 of the certificate, in pairs separated by colons.
+    public var fingerprint: String
+    /// Where a remembered certificate is saved.
+    public var trustFile: String
+
+    public init(reason: Reason, host: String, subject: String, issuer: String, validity: String,
+                fingerprint: String, trustFile: String) {
+        self.reason = reason
+        self.host = host
+        self.subject = subject
+        self.issuer = issuer
+        self.validity = validity
+        self.fingerprint = fingerprint
+        self.trustFile = trustFile
+    }
+}
+
 /// The UI's side of connecting: questions only the user can answer. Every call may wait for the
 /// user; nil or `.cancel` stops the connection.
 public protocol RemotePrompts: Sendable {
     func hostKey(_ question: HostKeyQuestion) async -> HostKeyAnswer
+    /// A TLS certificate the system does not trust: trust and remember it, trust once, or stop.
+    func certificate(_ question: CertificateQuestion) async -> HostKeyAnswer
     func secret(_ request: SecretRequest) async -> SecretAnswer?
     /// A secret worked: save it if the user asked to.
     func secretWorked(_ request: SecretRequest, _ answer: SecretAnswer) async
@@ -86,6 +123,7 @@ public protocol RemotePrompts: Sendable {
 }
 
 extension RemotePrompts {
+    public func certificate(_ question: CertificateQuestion) async -> HostKeyAnswer { .cancel }
     public func secretWorked(_ request: SecretRequest, _ answer: SecretAnswer) async {}
     public func note(_ message: String) async {}
 }
@@ -96,7 +134,55 @@ public struct RemoteCancelled: Error, LocalizedError, Sendable {
     public var errorDescription: String? { "Connection cancelled" }
 }
 
-/// A remote service (SFTP now; FTP, Dropbox and others later, also from plugins). Registered in
+/// A setting of one service that the connection editor shows (FTP: active mode, name encoding).
+/// The value is kept in `RemoteTarget.options` under `key`.
+public struct RemoteOption: Sendable, Equatable, Identifiable {
+    public enum Kind: Sendable, Equatable {
+        /// A checkbox; the value is "true" or "false".
+        case toggle(default: Bool)
+        /// A pop-up of (value, title) pairs.
+        case choice([Choice], default: String)
+    }
+
+    public struct Choice: Sendable, Equatable, Hashable {
+        public var value: String
+        public var title: String
+        public init(value: String, title: String) {
+            self.value = value
+            self.title = title
+        }
+    }
+
+    public var key: String
+    public var title: String
+    public var kind: Kind
+    /// A sentence under the control, or nil.
+    public var help: String?
+    public var id: String { key }
+
+    public init(key: String, title: String, kind: Kind, help: String? = nil) {
+        self.key = key
+        self.title = title
+        self.kind = kind
+        self.help = help
+    }
+
+    /// The value as stored, or the default.
+    public func value(in target: RemoteTarget) -> String {
+        if let value = target.option(key) { return value }
+        switch kind {
+        case .toggle(let on): return on ? "true" : "false"
+        case .choice(_, let value): return value
+        }
+    }
+}
+
+/// How a service can log in, for the editor's "Log in with" pop-up.
+public enum RemoteLogin: Sendable, Equatable, Hashable {
+    case automatic, password, keyFile
+}
+
+/// A remote service (SFTP, FTP, FTPS; Dropbox and others later, also from plugins). Registered in
 /// `ProviderRegistry`; the UI only asks the registry.
 public protocol RemoteConnector: Sendable {
     var service: ProviderID { get }
@@ -105,6 +191,15 @@ public protocol RemoteConnector: Sendable {
     var defaultPort: Int { get }
     /// Host aliases the service knows on its own (SFTP: ~/.ssh/config), for suggestions.
     func knownHosts() -> [String]
+    /// The login choices the editor offers; with only one the editor shows none.
+    var logins: [RemoteLogin] { get }
+    /// What the editor's "Log in with" pop-up says for `.automatic`.
+    var automaticLoginTitle: String { get }
+    /// Placeholder texts for the editor's Host and User fields.
+    var hostPlaceholder: String { get }
+    var userPlaceholder: String { get }
+    /// The service's own settings, shown in the editor below the common fields.
+    var options: [RemoteOption] { get }
     /// Opens a connection. The provider's location identifies it (same server and user: same
     /// location); `start` is the folder to show first.
     func connect(_ target: RemoteTarget, prompts: any RemotePrompts) async throws
@@ -113,6 +208,11 @@ public protocol RemoteConnector: Sendable {
 
 extension RemoteConnector {
     public func knownHosts() -> [String] { [] }
+    public var logins: [RemoteLogin] { [.password] }
+    public var automaticLoginTitle: String { "Automatic" }
+    public var hostPlaceholder: String { "Name or address" }
+    public var userPlaceholder: String { NSUserName() }
+    public var options: [RemoteOption] { [] }
 }
 
 /// A provider that holds a connection. Disconnect closes it.

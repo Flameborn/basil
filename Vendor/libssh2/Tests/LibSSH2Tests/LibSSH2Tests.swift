@@ -1,4 +1,6 @@
+import CBasilTLS
 import CLibSSH2
+import Darwin
 import Testing
 
 @Suite struct LibSSH2Tests {
@@ -24,5 +26,20 @@ import Testing
         #expect(methods.contains("ssh-ed25519"))
         #expect(methods.contains("ecdsa-sha2-nistp256"))
         #expect(methods.contains("rsa-sha2-512"))
+    }
+
+    /// libssl is linked and fails cleanly when the peer does not speak TLS (the FTP client's
+    /// real handshakes are tested in BasilRemote against pure-ftpd).
+    @Test func tlsHandshakeWithAPlainPeerFails() throws {
+        var fds: [Int32] = [0, 0]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        defer { close(fds[0]); close(fds[1]) }
+        let reply = "220 not TLS\r\n"
+        _ = reply.withCString { write(fds[1], $0, strlen($0)) }
+        shutdown(fds[1], SHUT_WR)
+        var error = [CChar](repeating: 0, count: 256)
+        let tls = basil_tls_connect(fds[0], "example.com", nil, &error, error.count)
+        #expect(tls == nil)
+        #expect(String(cString: error).hasPrefix("The TLS handshake failed"))
     }
 }

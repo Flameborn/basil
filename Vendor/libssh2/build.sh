@@ -1,7 +1,9 @@
 #!/bin/sh
-# Builds libssh2 with OpenSSL's libcrypto from the unmodified sources in libssh2/ and openssl/
-# into build/LibSSH2.xcframework: one static library (libssh2 and libcrypto, arm64, macOS 27)
+# Builds libssh2 with OpenSSL from the unmodified sources in libssh2/ and openssl/ into
+# build/LibSSH2.xcframework: one static library (libssh2, libssl and libcrypto, arm64, macOS 27)
 # with libssh2's headers and a module map for the CLibSSH2 module. Package.swift wraps it.
+# libssl is for the FTPS client, through the CBasilTLS target (TLS/), which also needs the
+# OpenSSL headers this script installs into build/openssl/include.
 #
 # The xcframework has to exist before SwiftPM or Xcode resolve the packages, so run this once
 # after cloning (scripts/bootstrap.sh does). Later runs only rebuild what changed and replace the
@@ -17,7 +19,7 @@ mkdir -p "$out"
 unset MACOSX_DEPLOYMENT_TARGET SDKROOT CC CXX CFLAGS CXXFLAGS LDFLAGS CPATH LIBRARY_PATH 2>/dev/null || true
 minos="-mmacosx-version-min=27.0"
 
-# OpenSSL: only libcrypto is used. Configure runs again only when these options change.
+# OpenSSL: libcrypto (libssh2) and libssl (FTPS). Configure runs again only when these options change.
 options="darwin64-arm64-cc no-shared no-tests no-apps no-docs no-module no-dso no-engine no-ui-console $minos"
 ossl_obj="$out/openssl-obj"
 ossl="$out/openssl"
@@ -54,7 +56,7 @@ stage="$out/stage"
 rm -rf "$stage"
 mkdir -p "$stage/include"
 ZERO_AR_DATE=1 libtool -static -no_warning_for_no_symbols -o "$stage/libBasilSSH2.a" \
-    "$ssh_obj/src/libssh2.a" "$ossl/lib/libcrypto.a"
+    "$ssh_obj/src/libssh2.a" "$ossl/lib/libssl.a" "$ossl/lib/libcrypto.a"
 cp "$here/libssh2/include/libssh2.h" "$here/libssh2/include/libssh2_sftp.h" \
    "$here/libssh2/include/libssh2_publickey.h" "$stage/include/"
 cat > "$stage/include/module.modulemap" <<'EOF'

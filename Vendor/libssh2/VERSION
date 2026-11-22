@@ -10,11 +10,12 @@ OpenSSL    https://github.com/openssl/openssl/releases/download/openssl-3.5.9/op
            openssl/ is the unpacked tarball without test/ (90 MB, OpenSSL's own test suite) and
            demos/; both are only read by Configure when tests or demos are enabled, and they are not.
 
-Ours:      build.sh, Package.swift, Tests, this file.
+Ours:      build.sh, Package.swift, Tests, TLS/ (CBasilTLS: a small C API over libssl for the FTPS
+           client, since Swift cannot import OpenSSL's macros), this file.
 Build:     build.sh configures OpenSSL as darwin64-arm64-cc no-shared no-tests no-apps no-docs
            no-module no-dso no-engine no-ui-console (arm64 assembly on, macOS 27 minimum), builds
-           libcrypto only, then libssh2 with CMake (CRYPTO_BACKEND=OpenSSL, zlib compression from
-           the SDK, static, no examples or tests). libtool joins libssh2.a and libcrypto.a into
+           libcrypto and libssl (libssl for CBasilTLS), then libssh2 with CMake (CRYPTO_BACKEND=OpenSSL, zlib compression from
+           the SDK, static, no examples or tests). libtool joins libssh2.a, libssl.a and libcrypto.a into
            libBasilSSH2.a, which goes with libssh2's three headers and a CLibSSH2 module map
            (links zlib) into build/LibSSH2.xcframework. Outputs stay in build/ (gitignored).
            A first build takes about 20 s; later runs about 3 s and keep the xcframework when

@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileLists = FileListOpener()
         providers.register(opener: fileLists)
         providers.register(writer: fileLists)
-        // Remote services: SFTP (libssh2 with OpenSSL, from Vendor/libssh2).
+        // Remote services: SFTP (libssh2 with OpenSSL, from Vendor/libssh2); FTP below.
         providers.register(connector: SFTPConnector())
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
@@ -64,12 +64,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     target: RemoteTarget(service: .sftp, host: "127.0.0.1", port: server.port, user: NSUserName(),
                                          path: root.path, authentication: .keyFile(server.key)))]
             }
+            if let server = UITestFTPServer.startIfRequested(), let root = start?.left {
+                settings.settings.connections = [SavedConnection(
+                    name: "Test FTP server",
+                    target: RemoteTarget(service: .ftpes, host: "127.0.0.1", port: server.port, user: server.user,
+                                         path: root.path, authentication: .password))]
+            }
             // UI tests run silently (no sounds, no system voice).
             for outcome in QueueOutcome.allCases {
                 settings.settings.feedback.defaults[outcome.rawValue] = EventFeedback(sound: .none, speak: false, text: "")
             }
         }
         #endif
+        // FTP and FTPS: Basil's own client (OpenSSL's libssl for TLS). Certificates the user
+        // trusts are remembered in the data folder.
+        let trustFile = dataDirectory.appendingPathComponent("Trusted FTP certificates.txt")
+        for kind in [FTPConnector.Kind.plain, .explicitTLS, .implicitTLS] {
+            providers.register(connector: FTPConnector(kind, trustFile: trustFile))
+        }
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
                                               queue: queue, defaults: defaults, startDirectories: start,
                                               dataDirectory: dataDirectory, secrets: secrets,

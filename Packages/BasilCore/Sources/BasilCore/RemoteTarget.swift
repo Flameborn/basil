@@ -22,18 +22,34 @@ public struct RemoteTarget: Codable, Hashable, Sendable {
     /// Start folder; nil or empty: the server's home folder.
     public var path: String?
     public var authentication: Authentication
+    /// The service's own settings by key (FTP: "activeMode" "true", "encoding" "windows-1252").
+    /// Missing keys take the connector's defaults (`RemoteOption`). nil in connections saved
+    /// before options existed.
+    public var options: [String: String]?
 
     public init(service: ProviderID, host: String, port: Int? = nil, user: String? = nil,
-                path: String? = nil, authentication: Authentication = .automatic) {
+                path: String? = nil, authentication: Authentication = .automatic,
+                options: [String: String]? = nil) {
         self.service = service
         self.host = host
         self.port = port
         self.user = user
         self.path = path
         self.authentication = authentication
+        self.options = options
     }
 
-    /// Reads "user@host:port/path", with an optional "sftp://" prefix. nil when there is no host.
+    /// The value of a service option, nil when not set.
+    public func option(_ key: String) -> String? { options?[key] }
+
+    /// A yes/no option ("true" or "false"); `default` when not set.
+    public func flag(_ key: String, default value: Bool = false) -> Bool {
+        options?[key].map { $0 == "true" } ?? value
+    }
+
+    /// Reads "user@host:port/path", with an optional "sftp://" or "ftp://" prefix. nil when there
+    /// is no host. A password in the address ("user:secret@host") is dropped: secrets never go
+    /// into a target.
     /// IPv6 addresses go in brackets ("[::1]:2222").
     public static func parse(_ text: String, defaultService: ProviderID) -> RemoteTarget? {
         var rest = Substring(text.trimmingCharacters(in: .whitespaces))
@@ -49,7 +65,9 @@ public struct RemoteTarget: Codable, Hashable, Sendable {
         }
         var user: String?
         if let at = rest.lastIndex(of: "@") {
-            user = String(rest[..<at]).removingPercentEncoding ?? String(rest[..<at])
+            var account = rest[..<at]
+            if let colon = account.firstIndex(of: ":") { account = account[..<colon] }
+            user = String(account).removingPercentEncoding ?? String(account)
             rest = rest[rest.index(after: at)...]
         }
         var host = rest

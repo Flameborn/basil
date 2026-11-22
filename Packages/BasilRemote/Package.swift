@@ -22,6 +22,7 @@ let package = Package(
                 .product(name: "BasilCore", package: "BasilCore"),
                 .product(name: "BasilVFS", package: "BasilVFS"),
                 .product(name: "CLibSSH2", package: "LibSSH2"),
+                .product(name: "CBasilTLS", package: "LibSSH2"),
             ]
         ),
         .testTarget(name: "BasilRemoteTests", dependencies: [

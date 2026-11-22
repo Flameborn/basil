@@ -194,7 +194,7 @@ enum UITestSSHServer {
         process.waitUntilExit()
     }
 
-    private static func accepts(_ port: Int) -> Bool {
+    static func accepts(_ port: Int) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         defer { close(fd) }
         var address = sockaddr_in()
@@ -206,7 +206,7 @@ enum UITestSSHServer {
         }
     }
 
-    private static func freePort() -> Int {
+    static func freePort() -> Int {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         defer { close(fd) }
         var address = sockaddr_in()
@@ -219,3 +219,69 @@ enum UITestSSHServer {
     }
 }
 #endif
+
+/// pure-ftpd for the FTP UI test (`BASIL_UITEST_FTPD` = the folder scripts/build-test-ftpd.sh
+/// builds into). Explicit TLS with a self-signed certificate, one account (`user`, `password`)
+/// without a chroot. Stopped by a watchdog when the app ends.
+enum UITestFTPServer {
+    struct Server {
+        let port: Int
+        let user = "basil"
+        let password = "ftp secret"
+    }
+
+    static func startIfRequested() -> Server? {
+        guard UITestFixture.isActive, let tools = ProcessInfo.processInfo.environment["BASIL_UITEST_FTPD"] else { return nil }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-ftpd-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: folder)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let key = folder.appendingPathComponent("key.pem").path
+            let crt = folder.appendingPathComponent("crt.pem").path
+            try run("/usr/bin/openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
+                                         "-subj", "/CN=localhost", "-keyout", key, "-out", crt])
+            let certificate = folder.appendingPathComponent("cert.pem")
+            try (String(contentsOfFile: key, encoding: .utf8) + String(contentsOfFile: crt, encoding: .utf8))
+                .write(to: certificate, atomically: true, encoding: .utf8)
+            let server = Server(port: freePort())
+            let pdb = folder.appendingPathComponent("pureftpd.pdb").path
+            let pw = Process()
+            pw.executableURL = URL(fileURLWithPath: tools + "/pure-pw")
+            pw.arguments = ["useradd", server.user, "-u", "\(getuid())", "-g", "\(getgid())", "-D", folder.path,
+                            "-f", folder.appendingPathComponent("passwd").path, "-F", pdb, "-m"]
+            let input = Pipe()
+            pw.standardInput = input
+            pw.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
+            try pw.run()
+            input.fileHandleForWriting.write(Data("\(server.password)\n\(server.password)\n".utf8))
+            try input.fileHandleForWriting.close()
+            pw.waitUntilExit()
+            let ftpd = Process()
+            ftpd.executableURL = URL(fileURLWithPath: tools + "/pure-ftpd")
+            ftpd.arguments = ["-S", "127.0.0.1,\(server.port)", "-l", "puredb:\(pdb)", "-E", "-z", "-H", "-Y", "1",
+                              "-2", certificate.path, "-p", "42000:42999"]
+            ftpd.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            try ftpd.run()
+            let watchdog = Process()
+            watchdog.executableURL = URL(fileURLWithPath: "/bin/sh")
+            watchdog.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 1; done; kill \(ftpd.processIdentifier); rm -rf '\(folder.path)'"]
+            try watchdog.run()
+            for _ in 0..<100 where !UITestSSHServer.accepts(server.port) { usleep(50_000) }
+            return server
+        } catch {
+            return nil
+        }
+    }
+
+    private static func run(_ tool: String, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private static func freePort() -> Int { UITestSSHServer.freePort() }
+}
+

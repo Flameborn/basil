@@ -11,6 +11,10 @@ public struct SFTPConnector: RemoteConnector {
     public var service: ProviderID { .sftp }
     public var displayName: String { "SFTP" }
     public var defaultPort: Int { 22 }
+    public var logins: [RemoteLogin] { [.automatic, .password, .keyFile] }
+    public var automaticLoginTitle: String { "Automatic: ssh-agent, key files, then password" }
+    public var hostPlaceholder: String { "Name, address or ssh alias" }
+    public var userPlaceholder: String { "From ~/.ssh/config, or \(NSUserName())" }
 
     /// Where ~/.ssh lives and which agent socket to use (tests use their own).
     let home: URL

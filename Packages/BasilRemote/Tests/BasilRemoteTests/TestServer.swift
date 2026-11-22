@@ -27,7 +27,7 @@ final class TestServer: Sendable {
     let home: URL
 
     private static let children = Mutex<[pid_t]>([])
-    private static let folders = Mutex<[String]>([])
+    static let folders = Mutex<[String]>([])
 
     init() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-sshd-\(UUID().uuidString.prefix(8))")
