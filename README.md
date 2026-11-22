@@ -70,6 +70,19 @@ open build/DerivedData/Build/Products/Release/Basil.app
 
 You can also open `Basil.xcodeproj` in Xcode and run the Basil scheme.
 
+## Releases
+
+```sh
+scripts/build-dmg.sh          # Release build into build/dist/Basil-<version>.dmg (no version change)
+scripts/release.sh            # release the version in project.yml if it has no tag yet (the first one, 0.1.0)
+scripts/release.sh minor      # 0.1.0 -> 0.2.0 (also patch, major, or an exact x.y.z)
+scripts/release.sh patch --dry-run   # build the DMG and show the notes, change nothing
+```
+
+The version is `CFBundleShortVersionString` in `project.yml`; the build number goes up with each release. Write changes under `## Unreleased` in `docs/changelog.md` as you go. `release.sh` renames that section to the new version and date, builds the DMG, commits, tags `v<version>`, pushes, and publishes a GitHub release with the DMG and those entries as notes (needs `gh auth login`, a clean tree on master and in step with origin). The Dropbox app key, when set, is built into the DMG; that is fine, it is not a secret.
+
+The DMG is signed with your local identity, not notarized, so on another Mac Gatekeeper blocks the first launch: right-click Basil and choose Open, or run `xattr -dr com.apple.quarantine /Applications/Basil.app`.
+
 ## Tests
 
 Each module is a local Swift package under `Packages/` with its own tests (Swift Testing):

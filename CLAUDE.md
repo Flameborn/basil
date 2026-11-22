@@ -349,6 +349,8 @@ scripts/build-test-ftpd.sh                             # pure-ftpd for the FTP t
 # Dropbox: put BASIL_DROPBOX_APP_KEY = <app key> in Config/Dropbox.local.xcconfig (gitignored); without it the app offers no Dropbox
 swift test --package-path Packages/BasilOperations --filter SecureCopyTests/sourceAppendedDuringCopy   # single test
 for p in Packages/*/; do swift test --package-path "$p"; done   # all package tests
+scripts/build-dmg.sh                                   # Release build into build/dist/Basil-<version>.dmg
+scripts/release.sh [patch|minor|major|x.y.z] [--dry-run]   # version bump, changelog, DMG, tag, push, GitHub release
 ```
 
 - UI tests: Xcode sandboxes the test runner, so files it creates are unreadable by Basil. Debug builds launched with `BASIL_UITEST_FIXTURE=1` create the fixture themselves (`App/Sources/UITestFixture.swift`), start both panes in it, and use an isolated preferences domain (`com.flameborn.basil.uitests`, wiped each launch). Tests must never touch the user's real settings. Pass `UserDefaults` in explicitly; don't use `UserDefaults.standard` in BasilUI.
