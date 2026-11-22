@@ -1,0 +1,9 @@
+xxHash 0.8.4
+https://github.com/Cyan4973/xxHash
+tag v0.8.4, commit c87183a77d67f7d37e3d2d1b7eaac5e7c695e4f0
+release tarball sha256 5738270935e7c3d38a79b3adf7c9692566ce7895a25f67de43ad52ab504acd32
+
+Files: xxhash.c (Sources/CXXHash) and xxhash.h (Sources/CXXHash/include), unmodified.
+Left out: the CLI (cli/, GPL), xxh3.h (deprecated stub), the x86 dispatcher, tests and build files.
+Licence: BSD 2-Clause (LICENSE).
+To update: replace these two files from a newer tag and update this file and Package.swift.

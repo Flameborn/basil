@@ -152,6 +152,43 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { (status.value as? String)?.contains("2 of 4 files") == true }, "\(status.value ?? "")")
     }
 
+    func testCreateAndVerifyChecksums() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("so")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 4).isSelected })
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Files"].click()
+        menuBar.menuItems["Checksums"].click()
+        menuBar.menuItems["Create Checksum Files..."].click()
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        let algorithm = sheet.popUpButtons["Algorithm"]
+        XCTAssertTrue(algorithm.waitForExistence(timeout: 2), sheet.debugDescription)
+        algorithm.click()
+        app.menuItems["SHA-256"].click()
+        let field = sheet.textFields["Checksum file"]
+        XCTAssertTrue(waitFor { (field.value as? String) == "song.mp3.sha256" }, "\(field.value ?? "")")
+        try audit(app) { issue in
+            if issue.auditType == .action, issue.element?.elementType == .popUpButton { return true }
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT checksums: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        sheet.buttons["Create"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song.mp3.sha256") }, "\(names(in: leftTable))")
+
+        // The cursor lands on the new checksum file; Verify Checksums checks it in the queue.
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 5).isSelected })
+        menuBar.menuBarItems["Files"].click()
+        menuBar.menuItems["Checksums"].click()
+        menuBar.menuItems["Verify Checksums"].click()
+        leftTable.typeKey("j", modifierFlags: .command)
+        let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
+        XCTAssertTrue(waitFor {
+            rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).hasPrefix("Verify song.mp3.sha256, finished") }
+        }, "\(rows.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
+    }
+
     func testCalculateFolderSize() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         XCTAssertEqual(cellLabels(leftTable.tableRows.element(boundBy: 0)).prefix(2), ["Alpha", "dir"])

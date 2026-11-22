@@ -11,6 +11,7 @@ let package = Package(
         .package(path: "../BasilCore"),
         .package(path: "../BasilVFS"),
         .package(path: "../../Vendor/BLAKE3"),
+        .package(path: "../../Vendor/xxHash"),
     ],
     targets: [
         .target(
@@ -19,6 +20,7 @@ let package = Package(
                 .product(name: "BasilCore", package: "BasilCore"),
                 .product(name: "BasilVFS", package: "BasilVFS"),
                 .product(name: "BLAKE3", package: "BLAKE3"),
+                .product(name: "XXHash", package: "xxHash"),
             ]
         ),
         .testTarget(name: "BasilOperationsTests", dependencies: ["BasilOperations"]),

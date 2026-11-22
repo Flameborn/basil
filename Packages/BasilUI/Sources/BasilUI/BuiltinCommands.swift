@@ -155,6 +155,9 @@ enum BuiltinCommands {
             C(id: "file.testArchive", title: "Test Archives", defaultKeys: [K(.function(9), [.option, .shift])]) { _ in
                 w?.testArchives()
             },
+            // Checksum files like TC (no default keys there either).
+            C(id: "file.checksumCreate", title: "Create Checksum Files...") { _ in w?.createChecksums() },
+            C(id: "file.checksumVerify", title: "Verify Checksums") { _ in w?.verifyChecksums() },
             C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)]) { _ in
                 w?.multiRename()
             },

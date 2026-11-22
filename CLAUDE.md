@@ -184,6 +184,13 @@ Sync compares two directories (left and right panes), optionally including subdi
 - Menu items only show keys: `menuHasKeyEquivalent` returns false, so every key still goes through the panes and the registry, and Return or F5 typed in a dialog never fires a menu item.
 - The app target builds the Basil menu (About, Settings, Hide, Hide Others, Show All, Quit), an Edit menu for text fields (Undo, Redo, Cut, Copy, Paste, Select All; in the panes registry keys win, so Cmd+A still selects all files), Window, and Help (macOS adds its menu search there). `installCommandMenus(in:at:)` inserts the command menus after Edit.
 
+### Checksums (implemented)
+
+- BasilOperations `Checksums.swift`: `ChecksumAlgorithm` (CRC32 via zlib, MD5, SHA-1, SHA-256/384/512 and SHA3-256/512 via CryptoKit, BLAKE3 via `Vendor/BLAKE3`, XXH3 and XXH128 via `Vendor/xxHash`), `ChecksumHasher`, and `ChecksumFile` (writes `hash  name`, SFV `name HASH` with a `;` comment, XXH3 with xxhsum's `XXH3_` prefix; reads those plus `hash *name`, BSD `SHA256 (name) = hash` and comments). Extensions: sfv, md5, sha, sha256, sha384, sha512, sha3-256, sha3-512, blake3, xxh3, xxh128 (also read: sha1, b3, crc, crc32). Without a known extension the algorithm comes from BSD tags or the hash length.
+- `ChecksumOperations.swift`: `CreateChecksumsOperation` (one file for all, names relative to the current folder with `/`, folders walked; or `.perFile`, `name.ext` next to each file; written through a `.basil-partial-*` file renamed into place; unreadable files are left out, logged, and fail the item) and `VerifyChecksumsOperation` (logs each file that does not match, is missing or can't be read; fails with "2 of 12 files failed"). Kinds `.createChecksums` and `.verifyChecksums` (BasilCore).
+- UI (`ChecksumCommands.swift`): Files > Checksums. Create asks with an NSAlert sheet: Algorithm pop-up (last used, `BasilSettings.checksumAlgorithm`, SHA-256 at first), "One checksum file per file", and the file name (`item.ext` for one item, else `folder.ext`; the extension follows the algorithm). An existing single file asks "Replace it?". Verify works on the selected or cursor checksum files. No default keys (TC has none).
+- `Vendor/xxHash`: official xxhash.c/xxhash.h 0.8.4, unmodified (see its `VERSION`), with a small Swift wrapper `XXH3Hasher`; `swift test --package-path Vendor/xxHash`.
+
 ### Accessibility requirements
 
 - Every interactive element needs a correct accessibility role, label and value. Panes expose rows and cells as proper table rows and cells.

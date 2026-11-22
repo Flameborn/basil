@@ -16,6 +16,8 @@ public struct OperationKind: RawRepresentable, Hashable, Sendable, Codable, Expr
     public static let rename: OperationKind = "rename"
     public static let testArchive: OperationKind = "testarchive"
     public static let pack: OperationKind = "pack"
+    public static let createChecksums: OperationKind = "createchecksums"
+    public static let verifyChecksums: OperationKind = "verifychecksums"
     /// Operations without a kind of their own (for example the debug test operation).
     public static let other: OperationKind = "other"
 }
@@ -49,6 +51,8 @@ public enum OperationKindCatalog {
         OperationKindInfo(kind: .rename, name: "Rename", pastTense: "renamed"),
         OperationKindInfo(kind: .pack, name: "Pack", pastTense: "packed"),
         OperationKindInfo(kind: .testArchive, name: "Test Archive", pastTense: "tested"),
+        OperationKindInfo(kind: .createChecksums, name: "Create Checksums", pastTense: "checksummed"),
+        OperationKindInfo(kind: .verifyChecksums, name: "Verify Checksums", pastTense: "verified"),
         OperationKindInfo(kind: .other, name: "Other", pastTense: "done"),
     ]
 
