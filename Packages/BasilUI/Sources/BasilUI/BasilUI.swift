@@ -35,6 +35,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     let dataDirectory: URL
     /// Local copies of files inside archives for F3 and F4 (`TemporaryCopies.swift`).
     let copies: TemporaryCopies
+    /// Where app leftovers are searched (AppLeftoversSheet.swift); UI tests point it at the fixture.
+    public var leftoverRoots: AppLeftoverFinder.Roots = .system
     /// True while the "was changed, update it?" sheets are up (ArchiveEditing.swift).
     var offeringEditedCopies = false
 

@@ -16,6 +16,30 @@ enum UITestFixture {
         return UserDefaults(suiteName: suite)
     }
 
+    /// With BASIL_UITEST_LEFTOVERS=1: where the fake app's leftovers are (home, /Library, /var/folders, receipts).
+    nonisolated(unsafe) static var leftoverPlaces: URL?
+
+    /// Beta/Leftie.app (bundle ID com.example.BasilLeftie) and three leftovers of it in a fake home.
+    private static func makeLeftovers(app: URL, places: URL) throws {
+        let fm = FileManager.default
+        let contents = app.appendingPathComponent("Contents")
+        try fm.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+        let info: [String: Any] = ["CFBundleIdentifier": "com.example.BasilLeftie", "CFBundleName": "Leftie",
+                                   "CFBundleExecutable": "Leftie", "CFBundlePackageType": "APPL"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+        try Data().write(to: contents.appendingPathComponent("MacOS/Leftie"))
+        for path in ["home/Library/Preferences/com.example.BasilLeftie.plist",
+                     "home/Library/Caches/com.example.BasilLeftie/cache.db",
+                     "var/T/com.example.BasilLeftie/scratch"] {
+            let url = places.appendingPathComponent(path)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: url)
+        }
+        try fm.createDirectory(at: places.appendingPathComponent("var/C"), withIntermediateDirectories: true)
+        leftoverPlaces = places
+    }
+
     static func makeIfRequested() -> (left: VFSPath, right: VFSPath)? {
         guard ProcessInfo.processInfo.environment["BASIL_UITEST_FIXTURE"] == "1" else { return nil }
         let fm = FileManager.default
@@ -35,6 +59,10 @@ enum UITestFixture {
             try makeZip(at: root.appendingPathComponent("Alpha/Inner/pack.zip"))
             if ProcessInfo.processInfo.environment["BASIL_UITEST_ENCRYPTED_7Z"] == "1" {
                 try makeEncrypted7z(at: root.appendingPathComponent("Alpha/Inner/secret.7z"))
+            }
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_LEFTOVERS"] == "1" {
+                try makeLeftovers(app: root.appendingPathComponent("Beta/Leftie.app"),
+                                  places: temp.appendingPathComponent("basil-uitest-leftovers-\(ProcessInfo.processInfo.processIdentifier)"))
             }
             if ProcessInfo.processInfo.environment["BASIL_UITEST_RAR"] == "1" {
                 try Data(base64Encoded: rar4Archive.joined())!.write(to: root.appendingPathComponent("Alpha/Inner/old.rar"))

@@ -13,7 +13,7 @@ enum BuiltinMenus {
         layout.addMenu("Files", items:
             c("pane.open", "file.view", "file.edit", "file.newFile", "file.info") + [.separator]
             + c("file.copy", "file.move", "file.rename", "file.multiRename", "file.mkdir") + [
-                .submenu("Delete", c("file.delete", "file.deletePermanently")),
+                .submenu("Delete", c("file.delete", "file.deletePermanently") + [.separator] + c("file.appLeftovers")),
                 .separator,
                 .submenu("Archives", c("file.pack", "file.unpack", "file.testArchive", "pane.openArchive")),
                 .submenu("Checksums", c("file.checksumCreate", "file.checksumVerify")),

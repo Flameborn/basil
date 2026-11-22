@@ -1,6 +1,7 @@
 import AppKit
 import BasilArchives
 import BasilCore
+import BasilIntegrations
 import BasilOperations
 import BasilUI
 import BasilVFS
@@ -57,6 +58,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               copiesDirectory: copiesDirectory)
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
+        #if DEBUG
+        if let places = UITestFixture.leftoverPlaces {
+            controller.leftoverRoots = .init(home: places.appendingPathComponent("home"),
+                                             systemLibrary: places.appendingPathComponent("Library"),
+                                             userCache: places.appendingPathComponent("var/C"),
+                                             userTemp: places.appendingPathComponent("var/T"),
+                                             receipts: places.appendingPathComponent("receipts"))
+        }
+        #endif
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()

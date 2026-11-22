@@ -652,6 +652,45 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.app.windows.count == before }, app.debugDescription)
     }
 
+    /// Shift+F8 on an app offers its leftovers (found in a fake home); Space unchecks one, Return deletes the rest.
+    func testAppLeftoversAfterDeletingAnApp() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_LEFTOVERS"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.tab, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Leftie.app"] }, "\(names(in: rightTable))")
+        rightTable.typeKey(.F8, modifierFlags: .shift)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(sheet.buttons["Delete"].exists, sheet.debugDescription)
+        app.typeKey(.return, modifierFlags: [])
+
+        let table = app.tables["leftovers.table"]
+        XCTAssertTrue(table.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitFor { table.tableRows.count == 3 }, table.debugDescription)
+        let summary = sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH '3 of 3 checked'")).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 3), sheet.debugDescription)
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            print("AUDIT leftovers: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        XCTAssertTrue(waitFor { (table.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeKey(" ", modifierFlags: [])
+        let two = sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH '2 of 3 checked'")).firstMatch
+        XCTAssertTrue(two.waitForExistence(timeout: 3), sheet.debugDescription)
+        XCTAssertEqual(table.tableRows.element(boundBy: 0).checkBoxes.firstMatch.value as? Int, 0)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { !table.exists })
+
+        rightTable.typeKey("j", modifierFlags: .command)
+        let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
+        XCTAssertTrue(waitFor {
+            rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).hasPrefix("Delete 2 leftovers of Leftie, finished") }
+        }, "\(rows.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
+    }
+
     func testEditorAndTerminalSettingsTab() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(",", modifierFlags: .command)

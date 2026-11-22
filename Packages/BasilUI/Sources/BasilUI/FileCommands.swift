@@ -229,7 +229,11 @@ extension MainWindowController {
             if let archive {
                 queueArchiveUpdate(.delete(items.map(\.path)), reloading: [archive])
             } else {
-                queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers))
+                let apps = appIdentities(in: items)
+                let queued = queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers))
+                if !apps.isEmpty {
+                    queued.whenDone = { [weak self] _ in self?.offerLeftovers(of: apps, toTrash: toTrash) }
+                }
             }
             activePane.model.deselectAll()
         }

@@ -161,6 +161,8 @@ enum BuiltinCommands {
             // Checksum files like TC (no default keys there either).
             C(id: "file.checksumCreate", title: "Create Checksum Files...") { _ in w?.createChecksums() },
             C(id: "file.checksumVerify", title: "Verify Checksums") { _ in w?.verifyChecksums() },
+            // ForkLift-style app cleanup; also offered after F8 / Shift+F8 of an app.
+            C(id: "file.appLeftovers", title: "Find App Leftovers...") { _ in w?.findAppLeftovers() },
             C(id: "file.multiRename", title: "Multi-Rename", defaultKeys: [K(.character("m"), .command)]) { _ in
                 w?.multiRename()
             },
