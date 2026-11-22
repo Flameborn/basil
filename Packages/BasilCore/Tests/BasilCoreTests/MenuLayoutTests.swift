@@ -31,3 +31,19 @@ struct MenuLayoutTests {
         #expect(registry.primaryChord(for: "a") == KeyChord(.forwardDelete))
     }
 }
+
+struct UnsortedOrderTests {
+    @Test func keepsTheListingOrderWithFoldersFirst() {
+        let items = [
+            FileItem(path: .local("/t/b.txt"), kind: .file),
+            FileItem(path: .local("/t/Z"), kind: .directory),
+            FileItem(path: .local("/t/a.txt"), kind: .file),
+            FileItem(path: .local("/t/A"), kind: .directory),
+        ]
+        let order = ListSortOrder(key: .unsorted)
+        let sorted = ItemSorter.sorted(items, by: order)
+        #expect(sorted.map(\.name) == ["Z", "A", "b.txt", "a.txt"])
+        #expect(ItemSorter.insertionIndex(of: FileItem(path: .local("/t/M"), kind: .directory), in: sorted, by: order) == 2)
+        #expect(ItemSorter.insertionIndex(of: FileItem(path: .local("/t/c"), kind: .file), in: sorted, by: order) == 4)
+    }
+}

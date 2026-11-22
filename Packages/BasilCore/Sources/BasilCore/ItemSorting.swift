@@ -2,6 +2,8 @@ import Foundation
 
 public enum SortKey: String, Sendable, Codable, CaseIterable {
     case name, ext, size, modified, created
+    /// The order the provider listed the items in (TC "Unsorted"), folders still first.
+    case unsorted
 }
 
 public struct ListSortOrder: Sendable, Equatable, Codable {
@@ -18,6 +20,9 @@ public struct ListSortOrder: Sendable, Equatable, Codable {
 /// come first; ties fall back to a natural, case-insensitive name comparison.
 public enum ItemSorter {
     public static func sorted(_ items: [FileItem], by order: ListSortOrder) -> [FileItem] {
+        if order.key == .unsorted {
+            return items.filter(\.isDirectoryLike) + items.filter { !$0.isDirectoryLike }
+        }
         // Precompute keys once, then sort indices: avoids moving large structs and repeated string work.
         let keys = items.map(Keyed.init)
         var indices = Array(keys.indices)
@@ -29,6 +34,10 @@ public enum ItemSorter {
 
     /// Index at which `item` should be inserted into an already sorted array.
     public static func insertionIndex(of item: FileItem, in sorted: [FileItem], by order: ListSortOrder) -> Int {
+        if order.key == .unsorted {
+            // New items go last among the folders or among the files.
+            return item.isDirectoryLike ? (sorted.firstIndex { !$0.isDirectoryLike } ?? sorted.count) : sorted.count
+        }
         let key = Keyed(item)
         var low = 0, high = sorted.count
         while low < high {
@@ -71,6 +80,8 @@ public enum ItemSorter {
             primary = compare(a.modified, b.modified)
         case .created:
             primary = compare(a.created, b.created)
+        case .unsorted:
+            primary = .orderedSame // handled in sorted(_:by:) and insertionIndex
         }
         var result = primary != .orderedSame ? primary : NaturalKey.compare(a.name, b.name)
         if result == .orderedSame { result = compare(a.rawName, b.rawName) } // stable, deterministic tie-break

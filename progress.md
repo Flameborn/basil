@@ -105,6 +105,7 @@ M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is buil
 | 2026-11-22 | Pane tabs: Cmd+T, Cmd+W (not the last tab), Ctrl+Tab / Ctrl+Shift+Tab, Cmd+1-9, Cmd+Option+Up opens the cursor folder in a new tab; duplicate, close others, rename, lock; restored at launch; "Tab 2 of 3, Downloads" spoken |
 | 2026-11-22 | Decided by Claude, change if wrong: menu items show keys but never take them (keys stay with the panes and registry); a standard Edit menu for text fields was added (it was missing, so paste did not work in dialogs); the Help menu holds only macOS's menu search; Unpack, checksum, group-select and tab items appear once those commands exist; Hide Others and Show All added to the Basil menu; "Show or Hide Hidden Files" is now "Show Hidden Files" with a checkmark |
 | 2026-11-22 | Decided by Claude, change if wrong: Select Group starts with the last mask (or "*"), folders only with "Include folders" (off); invert leaves selected folders selected; restore works by name; Option+Num+/- on a folder says "No file"; saved Full views lose their Ext column once (shown again by the user, it stays); the accessibility audit now skips "Label not human-readable" on list cells showing a file name with an extension (a false positive: VoiceOver reads file names fine) |
+| 2026-11-22 | Decided by Claude, change if wrong: Unsorted keeps folders first (like every other order) and has no reverse; choosing it rereads the folder to get the listing order back |
 | 2026-11-22 | Decided by Claude, change if wrong: "Test archive after packing" is off by default and remembered like the format |
 | 2026-11-19 | Decided by Claude, change if wrong: Go-to suggestions list prefix matches then substring matches (max 200), hidden items only once something is typed, dot files only after a dot; the count is announced after a 0.7 s pause and only when it changed. Folder size result is spoken as "Alpha, 1.5 MB, 120 files, 8 folders", "Calculating" only after 1 s; symlinks are not followed. New files get rw-r--r--. Files no app opens go to TextEdit. Info shows the cursor item only (not every selected item). Finder's Cmd+Shift+C (Computer) goes to /Volumes |
 
@@ -186,7 +187,7 @@ M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is buil
 - [x] TC-style menus with submenus (2026-11-22)
 - [x] Numpad keys like TC (2026-11-22)
 - [x] One Name column (name and extension) (2026-11-22)
-- [ ] Ctrl+Shift+F views and sorting, spoken
+- [x] Ctrl+Shift+F views and sorting, spoken (2026-11-22)
 - [ ] Checksums: create and verify
 - [ ] Test archive after packing
 - [ ] Path bar

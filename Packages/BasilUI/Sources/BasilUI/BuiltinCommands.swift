@@ -108,15 +108,14 @@ enum BuiltinCommands {
             C(id: "select.deselectSameExtension", title: "Deselect Files with Same Extension",
               defaultKeys: [K(.numpad("-"), .option)]) { _ in w?.selectSameExtension(false) },
 
-            // Sorting (TC: Ctrl+F3-F6 -> Cmd+F3-F6).
-            C(id: "sort.name", title: "Sort by Name", defaultKeys: [K(.function(3), .command)], isChecked: sorted(.name)) { _ in pane()?.setSort(.name) },
-            C(id: "sort.ext", title: "Sort by Extension", defaultKeys: [K(.function(4), .command)], isChecked: sorted(.ext)) { _ in pane()?.setSort(.ext) },
-            C(id: "sort.date", title: "Sort by Date", defaultKeys: [K(.function(5), .command)], isChecked: sorted(.modified)) { _ in pane()?.setSort(.modified) },
-            C(id: "sort.size", title: "Sort by Size", defaultKeys: [K(.function(6), .command)], isChecked: sorted(.size)) { _ in pane()?.setSort(.size) },
-
-            // Views (TC: Ctrl+F1 brief, Ctrl+F2 full; custom views from Ctrl+F3).
-            C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), .control)], isChecked: showing(ListView.brief.id)) { _ in pane()?.setView(ListView.brief.id) },
-            C(id: "view.full", title: "Full View", defaultKeys: [K(.function(2), .control)], isChecked: showing(ListView.full.id)) { _ in pane()?.setView(ListView.full.id) },
+            // Views and sorting on Ctrl+Shift+F keys, in TC's Ctrl+F order (Option+F keys are actions).
+            C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), [.control, .shift])], isChecked: showing(ListView.brief.id)) { _ in pane()?.setView(ListView.brief.id) },
+            C(id: "view.full", title: "Full View", defaultKeys: [K(.function(2), [.control, .shift])], isChecked: showing(ListView.full.id)) { _ in pane()?.setView(ListView.full.id) },
+            C(id: "sort.name", title: "Sort by Name", defaultKeys: [K(.function(3), [.control, .shift])], isChecked: sorted(.name)) { _ in pane()?.setSort(.name) },
+            C(id: "sort.ext", title: "Sort by Extension", defaultKeys: [K(.function(4), [.control, .shift])], isChecked: sorted(.ext)) { _ in pane()?.setSort(.ext) },
+            C(id: "sort.date", title: "Sort by Date", defaultKeys: [K(.function(5), [.control, .shift])], isChecked: sorted(.modified)) { _ in pane()?.setSort(.modified) },
+            C(id: "sort.size", title: "Sort by Size", defaultKeys: [K(.function(6), [.control, .shift])], isChecked: sorted(.size)) { _ in pane()?.setSort(.size) },
+            C(id: "sort.unsorted", title: "Unsorted", defaultKeys: [K(.function(7), [.control, .shift])], isChecked: sorted(.unsorted)) { _ in pane()?.setSort(.unsorted) },
 
             C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
@@ -161,10 +160,10 @@ enum BuiltinCommands {
             },
         ]
 
-        // Custom views 1-9 on Ctrl+F3 ... Ctrl+F11, in the order they appear in settings.
+        // Custom views 1-9 in settings order; 1-5 on Ctrl+Shift+F8 ... F12, 6-9 without a default key.
         for n in 1...9 {
             commands.append(C(id: CommandID(rawValue: "view.custom\(n)"), title: "Custom View \(n)",
-                              defaultKeys: [K(.function(n + 2), .control)],
+                              defaultKeys: n <= 5 ? [K(.function(n + 7), [.control, .shift])] : [],
                               isEnabled: { _ in w?.customViewID(n) != nil },
                               menuTitle: { _ in w?.customViewID(n).flatMap { id in w?.settings.settings.view(id: id).name } },
                               isChecked: { _ in w?.customViewID(n).map { pane()?.viewID == $0 } ?? false }) { _ in

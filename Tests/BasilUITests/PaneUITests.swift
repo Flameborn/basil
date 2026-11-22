@@ -245,13 +245,28 @@ final class PaneUITests: XCTestCase {
 
     func testBriefAndFullViews() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
-        leftTable.typeKey(XCUIKeyboardKey.F1, modifierFlags: .control)
+        leftTable.typeKey(XCUIKeyboardKey.F1, modifierFlags: [.control, .shift])
         XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 1 })
         // Names always include the extension.
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song.mp3") }, "\(names(in: leftTable))")
-        leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: .control)
+        leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: [.control, .shift])
         XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 4 })
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("song.mp3") })
+    }
+
+    func testSortKeysReverse() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(XCUIKeyboardKey.F4, modifierFlags: [.control, .shift])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Alpha", "Beta", "track.flac", "notes.md", "song.mp3", "apple pie.txt"] },
+                      "\(names(in: leftTable))")
+        // The same key again reverses the order; folders stay first.
+        leftTable.typeKey(XCUIKeyboardKey.F4, modifierFlags: [.control, .shift])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Beta", "Alpha", "apple pie.txt", "song.mp3", "notes.md", "track.flac"] },
+                      "\(names(in: leftTable))")
+        leftTable.typeKey(XCUIKeyboardKey.F7, modifierFlags: [.control, .shift])
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable).prefix(2)) == ["Alpha", "Beta"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(XCUIKeyboardKey.F3, modifierFlags: [.control, .shift])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Alpha", "Beta", "apple pie.txt", "notes.md", "song.mp3", "track.flac"] })
     }
 
     func testMenusRunRegistryCommands() {
@@ -275,7 +290,7 @@ final class PaneUITests: XCTestCase {
         menuBar.menuItems["Brief View"].click()
         XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 1 })
         // The keys still go to the pane, not to the menu items that show them.
-        leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: .control)
+        leftTable.typeKey(XCUIKeyboardKey.F2, modifierFlags: [.control, .shift])
         XCTAssertTrue(waitFor { self.leftTable.tableColumns.count == 4 })
     }
 

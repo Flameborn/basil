@@ -383,7 +383,8 @@ final class PaneViewController: NSViewController {
 
     func setSort(_ key: SortKey) {
         let current = model.sortOrder
-        let ascending = current.key == key ? !current.ascending : true
+        // Pressing the active key again reverses the order (TC); unsorted has no direction.
+        let ascending = current.key == key && key != .unsorted ? !current.ascending : true
         // tableView(_:sortDescriptorsDidChange:) applies it.
         table.sortDescriptors = [NSSortDescriptor(key: key.rawValue, ascending: ascending)]
     }
@@ -678,7 +679,8 @@ extension PaneViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard !isApplyingColumns,
               let d = tableView.sortDescriptors.first, let key = d.key.flatMap(SortKey.init(rawValue:)) else { return }
         model.setSortOrder(ListSortOrder(key: key, ascending: d.ascending), cursor: cursorPath)
-        delegate?.pane(self, announce: "Sorted by \(key.spokenName), \(d.ascending ? "ascending" : "descending")")
+        delegate?.pane(self, announce: key == .unsorted ? "Unsorted"
+                       : "Sorted by \(key.spokenName), \(d.ascending ? "ascending" : "descending")")
     }
 
     func tableViewColumnDidResize(_ notification: Notification) { saveColumnLayout() }
@@ -746,6 +748,7 @@ extension SortKey {
         case .size: "size"
         case .modified: "date"
         case .created: "creation date"
+        case .unsorted: "listing order"
         }
     }
 }

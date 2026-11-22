@@ -109,6 +109,8 @@ final class PaneModel {
 
     func setSortOrder(_ order: ListSortOrder, cursor: VFSPath?) {
         sortOrder = order
+        // The listing order is gone once sorted, so unsorted lists the folder again.
+        if order.key == .unsorted { return reload(cursor: cursor) }
         let items = allItems
         let gen = generation
         Task {
