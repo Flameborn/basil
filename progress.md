@@ -95,6 +95,15 @@ M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is buil
 | 2026-11-22 | macOS metadata (extended attributes, Finder tags, resource forks) in zip and tar archives: Settings, Copying tab, "Store macOS metadata in archives", on by default; zip stores it like Finder (__MACOSX/._name), tar as ._name |
 | 2026-11-22 | libarchive writes zip, tar, tar.gz, tar.xz, tar.zst, tar.bz2, tar.lz4, single gz/xz/zst, cpio, xar and ISO 9660 |
 | 2026-11-22 | Decided by Claude, change if wrong: the pack dialog starts with the format and level used last (zip, Normal at first) and the other pane's folder (the active one if the other is not local); the name is the item's name without extension, or the current folder's name for several items; changing the format changes the extension. Levels are Store (zip only), Fast, Normal, Maximum, mapped per format (deflate 1/6/9, gzip and bzip2 1/6/9, xz 1/6/9, zstd 1/3/19, lz4 1/3/9). Packing into an archive that exists adds to it (TC) and asks the conflict question per file. A source that changes while it is packed is packed again (the copy retry count), then asks Keep Retrying / Accept / Skip / Cancel; Skip is treated like Accept, and accepted sources are not deleted by "Move to archive". Without folder paths, a second file with a name already used is left out (logged). Restoring metadata on extraction comes from the AppleDouble data libarchive reads (__MACOSX and ._ entries are not listed). The security attributes com.apple.quarantine, provenance and macl are not packed. Shift+F4 and Cmd+M still do not work inside archives. Archives inside archives and single compressed files cannot be changed. F8 inside an archive asks "Delete X from pack.zip?" and deletes (no Trash) |
+| 2026-11-22 | New features before the rest of M4, in this order: TC-style menus, TC numpad keys, one Name column, Ctrl+Shift+F views and sorting, checksums, test after packing, path bar, pane tabs (details in CLAUDE.md, "Planned features") |
+| 2026-11-22 | Menus: TC top-level names adapted to the Mac (Basil, Files, Mark, Commands, Net, Show, Tabs, Window, Help) with Extended Menus-style submenus, built from the command registry |
+| 2026-11-22 | Option+F keys are actions (pack, test); Ctrl+Shift+F keys are views and sorting (F1 Brief, F2 Full, F3-F7 sort name/ext/date/size/unsorted, F8-F12 custom views 1-5); Cmd+F3-F6 and Ctrl+F1-F11 removed |
+| 2026-11-22 | Numpad: full TC set (Num+ / Num- group dialogs, Num* invert, Num/ restore, Cmd+Num+/- all, Option+Num+/- same extension) |
+| 2026-11-22 | Name column shows name and extension; Ext optional, in no built-in view |
+| 2026-11-22 | Checksums: CRC32 (.sfv), MD5, SHA-1, SHA-256/384/512, SHA3-256/512, BLAKE3, XXH3, XXH128 (xxHash vendored); no Meow hash |
+| 2026-11-22 | Path bar: one button per path part; Cmd+L focuses it, Left/Right move, Return/Space go, Escape/Tab back to the list |
+| 2026-11-22 | Pane tabs: Cmd+T, Cmd+W (not the last tab), Ctrl+Tab / Ctrl+Shift+Tab, Cmd+1-9, Cmd+Option+Up opens the cursor folder in a new tab; duplicate, close others, rename, lock; restored at launch; "Tab 2 of 3, Downloads" spoken |
+| 2026-11-22 | Decided by Claude, change if wrong: "Test archive after packing" is off by default and remembered like the format |
 | 2026-11-19 | Decided by Claude, change if wrong: Go-to suggestions list prefix matches then substring matches (max 200), hidden items only once something is typed, dot files only after a dot; the count is announced after a 0.7 s pause and only when it changed. Folder size result is spoken as "Alpha, 1.5 MB, 120 files, 8 folders", "Calculating" only after 1 s; symlinks are not followed. New files get rw-r--r--. Files no app opens go to TextEdit. Info shows the cursor item only (not every selected item). Finder's Cmd+Shift+C (Computer) goes to /Volumes |
 
 ## Open questions (ask before implementing the related part)
@@ -170,6 +179,16 @@ M4 started on 2026-11-22: libarchive 3.8.11 (with zstd, lz4 and liblzma) is buil
 - [ ] 7-Zip backend (create with options: solid, level, AES, header encryption)
 - [ ] UnRAR backend; password prompts + Keychain
 - [ ] Edit-in-archive -> repack prompt; F3 / F4 on files inside archives (temporary copy)
+
+### Features added 2026-11-22 (before the rest of M4)
+- [ ] TC-style menus with submenus
+- [ ] Numpad keys like TC
+- [ ] One Name column (name and extension)
+- [ ] Ctrl+Shift+F views and sorting, spoken
+- [ ] Checksums: create and verify
+- [ ] Test archive after packing
+- [ ] Path bar
+- [ ] Pane tabs
 
 ### M5 - Remote
 - [ ] SFTP (libssh2) - password, keys, agent, known_hosts
