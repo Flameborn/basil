@@ -104,4 +104,25 @@ import Testing
         #expect(!(try await f.names(root)).contains("hi.txt"))
         #expect(try f.leftovers().isEmpty)
     }
+
+    /// F4 inside an archive: an edited copy (somewhere else on disk) replaces its entry; nothing else changes.
+    @Test(arguments: ["zip", "tar.gz"]) func editedCopyReplacesItsEntry(format: String) async throws {
+        let f = try prepared()
+        let queue = FileOperationQueue()
+        let name = "a.\(format)"
+        _ = try await f.opener.create(f.path(name), options: PackOptions(format: format), changes: try await f.srcAdds(),
+                                      replacing: false, registry: f.registry, monitor: WriteMonitor())
+        let root = try await f.open(name)
+        let before = try await f.names(root)
+        let scratch = f.url.appendingPathComponent("scratch/x", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        try Data("edited in the editor".utf8).write(to: scratch.appendingPathComponent("hello.txt"))
+        let update = await run(queue, ArchiveUpdateOperation(.update(source: .local(scratch.appendingPathComponent("hello.txt").path),
+                                                                     entry: root.appending("hello.txt")),
+                                                             macMetadata: true, unstableRetries: 0, registry: f.registry))
+        #expect(update.state == .finished, "\(update.log)")
+        #expect(try await f.read(root.appending("hello.txt")) == Data("edited in the editor".utf8))
+        #expect(try await f.names(root) == before)
+        #expect(try f.leftovers().isEmpty)
+    }
 }

@@ -155,19 +155,28 @@ extension MainWindowController {
     func editCursorItem() {
         guard let item = activePane.cursorItem else { return announce("No items") }
         if item.isDirectoryLike { return announce("\(item.name) is a folder") }
-        guard item.path.location == .local else { return announce("Only local files can be edited for now") }
-        guard let apps = EditorRules.apps(for: item.name, in: settings.settings.editorRules) else {
-            return openInEditor(item.path)
+        guard item.path.location == .local || item.path.location.container != nil else {
+            return announce("Only local files and files in archives can be edited for now")
         }
-        if apps.count == 1 { return openInEditor(item.path, app: apps[0]) }
+        guard let apps = EditorRules.apps(for: item.name, in: settings.settings.editorRules) else {
+            return edit(item.path, app: nil)
+        }
+        if apps.count == 1 { return edit(item.path, app: apps[0]) }
         let menu = NSMenu(title: "Edit \(item.name) with")
         menu.autoenablesItems = false
         for app in apps {
             menu.addItem(ClosureMenuItem(title: EditorLauncher.displayName(ofApp: app)) { [weak self] in
-                self?.openInEditor(item.path, app: app)
+                self?.edit(item.path, app: app)
             })
         }
         activePane.popUpMenuAtCursor(menu)
+    }
+
+    /// Opens a local file in the editor, or a temporary copy of a file inside an archive
+    /// (`editInArchive`, ArchiveEditing.swift).
+    func edit(_ path: VFSPath, app: String?) {
+        if path.location == .local { return openInEditor(path, app: app) }
+        editInArchive(path, app: app)
     }
 
     /// Cmd+Shift+T: opens the terminal from Settings in the current pane's folder.

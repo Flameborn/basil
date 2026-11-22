@@ -188,6 +188,23 @@ import Testing
                                               replacing: false, registry: f.registry, monitor: monitor)
         #expect(result.changedSources.contains(.local(big.path)))
     }
+
+    /// F4 inside a 7z archive: an edited copy elsewhere on disk replaces its entry in a subfolder.
+    @Test func editedCopyReplacesItsEntry() async throws {
+        let f = try Fixture.withSevenZip()
+        _ = try await create(f, "a.7z", PackOptions(format: "7z"))
+        let root = try await f.open("a.7z")
+        let scratch = f.url.appendingPathComponent("scratch/x", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let copy = scratch.appendingPathComponent("deep.txt")
+        try Data("edited".utf8).write(to: copy)
+        _ = try await f.opener.update(f.path("a.7z"), changes: [.addFile(source: .local(copy.path), at: "/folder/deeper/deep.txt")],
+                                      macMetadata: true, registry: f.registry, monitor: WriteMonitor())
+        #expect(try await f.read(root.appending("folder/deeper/deep.txt")) == Data("edited".utf8))
+        #expect(try await f.names(root.appending("folder/deeper")) == ["deep.txt"])
+        #expect(try await f.names(root) == [".hidden", "Grüße änd ü.txt", "folder", "hello.txt", "link"])
+        #expect(try f.leftovers().isEmpty)
+    }
 }
 
 extension ArchiveOperationTests {

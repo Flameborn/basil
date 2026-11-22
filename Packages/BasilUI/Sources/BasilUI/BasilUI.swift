@@ -31,6 +31,13 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     private let persistsDirectories: Bool
     /// Basil's own files (for example the Multi-Rename undo log). UI tests pass a temporary folder.
     let dataDirectory: URL
+    /// Local copies of files inside archives for F3 and F4 (`TemporaryCopies.swift`).
+    let copies: TemporaryCopies
+    /// True while the "was changed, update it?" sheets are up (ArchiveEditing.swift).
+    var offeringEditedCopies = false
+
+    /// ~/Library/Caches/Basil/Copies
+    public static var defaultCopiesDirectory: URL { TemporaryCopies.defaultRoot }
 
     /// ~/Library/Application Support/Basil
     public static var defaultDataDirectory: URL {
@@ -41,12 +48,15 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// - Parameter dataDirectory: where Basil keeps its own files.
     /// - Parameter defaults: where pane state (folders, views) is remembered; UI tests pass an isolated domain.
     /// - Parameter secrets: where archive passwords are remembered; UI tests pass one in memory.
+    /// - Parameter copiesDirectory: scratch folder for F3 / F4 copies of files inside archives.
     public init(providers: ProviderRegistry, commands: CommandRegistry, settings: SettingsStore,
                 queue: FileOperationQueue, defaults: UserDefaults = .standard,
                 startDirectories: (left: VFSPath, right: VFSPath)? = nil,
                 dataDirectory: URL = MainWindowController.defaultDataDirectory,
-                secrets: any SecretStore = Keychain.archivePasswords) {
+                secrets: any SecretStore = Keychain.archivePasswords,
+                copiesDirectory: URL = MainWindowController.defaultCopiesDirectory) {
         self.dataDirectory = dataDirectory
+        self.copies = TemporaryCopies(root: copiesDirectory, registry: providers)
         self.commands = commands
         self.settings = settings
         self.providers = providers
@@ -88,6 +98,11 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         }
 
         quickLook.announce = { [weak self] message in self?.announce(message) }
+        quickLook.copies = copies
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.offerEditedCopies() }
+        }
         for pane in [left, right] {
             pane.persistsTabs = persistsDirectories
             if persistsDirectories { pane.restoreTabs() }
@@ -216,6 +231,7 @@ extension MainWindowController: PaneViewControllerDelegate {
     /// Nothing is announced: VoiceOver reads the item under the cursor.
     func paneDidChangeDirectory(_ pane: PaneViewController) {
         if pane.side == activeSide { updateTitle() }
+        copies.dropPreviews(keeping: shownContainers)
         if persistsDirectories {
             // Inside an archive, the folder holding it is remembered: providers do not survive a restart.
             let directory = pane.model.directory

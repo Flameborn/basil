@@ -628,6 +628,30 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.app.windows.count == before }, app.debugDescription)
     }
 
+    /// F3 on a file inside an archive previews an extracted copy.
+    func testF3QuickLookInsideArchive() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
+        if !waitFor({ self.names(in: self.leftTable) == ["Inner"] }, timeout: 2) {
+            leftTable.typeKey(.enter, modifierFlags: [])
+        }
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["pack.zip"] })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // into the archive
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["docs", "top.txt"] })
+        leftTable.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 1).isSelected })
+        let before = app.windows.count
+        leftTable.typeKey(.F3, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.app.windows.count > before }, app.debugDescription)
+        // The preview shows the extracted file's text.
+        let text = app.windows["Quick Look"].textViews.firstMatch
+        XCTAssertTrue(waitFor { (text.value as? String) == "top" }, app.windows["Quick Look"].debugDescription)
+        app.typeKey(.F3, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.app.windows.count == before }, app.debugDescription)
+    }
+
     func testEditorAndTerminalSettingsTab() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(",", modifierFlags: .command)

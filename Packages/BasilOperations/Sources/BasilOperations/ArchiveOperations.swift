@@ -313,6 +313,8 @@ public struct ArchiveUpdateOperation: QueueOperation {
         case delete([VFSPath])
         case makeDirectory(VFSPath)
         case rename(from: VFSPath, to: VFSPath)
+        /// Puts an edited copy back: `source` (a local file) replaces the file `entry` (F4 inside an archive).
+        case update(source: VFSPath, entry: VFSPath)
     }
 
     public let action: Action
@@ -335,6 +337,7 @@ public struct ArchiveUpdateOperation: QueueOperation {
         case .delete(let paths): paths.first?.location.container
         case .makeDirectory(let p): p.location.container
         case .rename(let from, _): from.location.container
+        case .update(_, let entry): entry.location.container
         }
     }
 
@@ -345,6 +348,7 @@ public struct ArchiveUpdateOperation: QueueOperation {
         case .delete: .delete
         case .makeDirectory: .makeDirectory
         case .rename: .rename
+        case .update: .pack
         }
     }
 
@@ -357,6 +361,7 @@ public struct ArchiveUpdateOperation: QueueOperation {
         case .delete(let p): "Delete \(what(p)) from \(archive)"
         case .makeDirectory(let p): "New folder \(p.name) in \(archive)"
         case .rename(let from, let to): "Rename \(from.name) to \(to.name)"
+        case .update(_, let entry): "Update \(entry.name) in \(archive)"
         }
     }
 
@@ -422,6 +427,17 @@ public struct ArchiveUpdateOperation: QueueOperation {
             _ = try await writer.update(container, changes: [.rename(from: from.path, to: to.path)], macMetadata: macMetadata,
                                         registry: registry, monitor: monitor)
             context.log("Renamed \(from.path) to \(to.name)")
+        case .update(let source, let entry):
+            context.items(done: 0, total: 1)
+            let size = (try? await registry.writableProvider(for: source.location).fingerprint(of: source).size) ?? 0
+            let monitor = QueueWriteMonitor(context: context, errors: errors, totalBytes: size + archiveSize)
+            monitor.setLabel(container.name)
+            _ = try await ArchiveSteps.writeStable(retries: unstableRetries, context: context) {
+                try await writer.update(container, changes: [.addFile(source: source, at: entry.path)],
+                                        macMetadata: macMetadata, registry: registry, monitor: monitor)
+            }
+            context.log("Updated \(entry.path) in \(container.name)")
+            context.items(done: 1, total: 1)
         }
         context.progress(1, "Done")
     }
@@ -434,6 +450,7 @@ public struct ArchiveUpdateOperation: QueueOperation {
         case .delete(let paths): paths.first?.location
         case .makeDirectory(let p): p.location
         case .rename(let from, _): from.location
+        case .update(_, let entry): entry.location
         }
     }
 }

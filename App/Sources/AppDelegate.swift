@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var defaults = UserDefaults.standard
         var dataDirectory = MainWindowController.defaultDataDirectory
         var secrets: any SecretStore = Keychain.archivePasswords
+        var copiesDirectory = MainWindowController.defaultCopiesDirectory
         #if DEBUG
         start = UITestFixture.makeIfRequested()
         if let isolated = UITestFixture.isolatedDefaults() {
@@ -39,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             BasilWindows.savesFrames = false
             dataDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-data", isDirectory: true)
             try? FileManager.default.removeItem(at: dataDirectory)
+            copiesDirectory = dataDirectory.appendingPathComponent("Copies", isDirectory: true)
             settings = SettingsStore(defaults: isolated)
             secrets = MemorySecretStore() // UI tests never touch the user's keychain
             // UI tests run silently (no sounds, no system voice).
@@ -49,7 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
                                               queue: queue, defaults: defaults, startDirectories: start,
-                                              dataDirectory: dataDirectory, secrets: secrets)
+                                              dataDirectory: dataDirectory, secrets: secrets,
+                                              copiesDirectory: copiesDirectory)
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
         controller.showWindow(nil)
@@ -61,7 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SettingsWindowController.show(settings: settings)
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        mainWindowController?.confirmQuitWithEditedCopies() == false ? .terminateCancel : .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        mainWindowController?.removeTemporaryCopies()
         #if DEBUG
         UITestFixture.cleanup()
         #endif
