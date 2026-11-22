@@ -4,6 +4,8 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 
 ## Unreleased
 
+## 0.1.0 - 2026-11-22
+
 First release.
 
 - Dual-pane file manager with Total Commander keys and menus, adapted to the Mac, built for VoiceOver and the keyboard.
