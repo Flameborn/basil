@@ -22,6 +22,7 @@ public final class SFTPProvider: WritableProvider, ConnectedProvider, @unchecked
     public var connectionTitle: String { connection.endpoint.account }
     /// The folder the server starts in (the user's home there).
     public let home: String
+    public var homeDirectory: VFSPath { VFSPath(location: location, path: home) }
 
     init(connection: SSHConnection, home: String) {
         self.connection = connection

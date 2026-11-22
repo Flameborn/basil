@@ -436,6 +436,15 @@ final class PaneViewController: NSViewController {
             add(volume.name, image: volume.icon) { [weak self] in self?.switchToVolume(volume.url) }
         }
 
+        let connections = model.registry.openConnections.sorted { $0.connectionTitle < $1.connectionTitle }
+        if !connections.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(.sectionHeader(title: "Connections"))
+            for connection in connections {
+                add(connection.connectionTitle) { [weak self] in self?.navigate(to: connection.homeDirectory) }
+            }
+        }
+
         let bookmarks = settings.settings.bookmarks
         if !bookmarks.isEmpty {
             menu.addItem(.separator())

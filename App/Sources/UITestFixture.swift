@@ -1,5 +1,6 @@
 #if DEBUG
 import BasilCore
+import BasilRemote
 import Foundation
 
 /// Debug-only: when launched with BASIL_UITEST_FIXTURE=1, builds a known directory tree and
@@ -126,6 +127,95 @@ enum UITestFixture {
 
     static func cleanup() {
         if let root = createdRoot { try? FileManager.default.removeItem(at: root) }
+    }
+}
+#endif
+
+#if DEBUG
+/// BASIL_UITEST_SSHD=1: an OpenSSH sshd for the UI tests, run by the app (the test runner is
+/// sandboxed) on a free port of 127.0.0.1 with throwaway keys, serving this Mac's files. The app
+/// connects with its own known_hosts and ssh config, never the user's. A watchdog shell stops
+/// sshd when the app goes away (XCUIApplication.terminate kills it without notice).
+enum UITestSSHServer {
+    struct Server {
+        let port: Int
+        let key: String
+        let home: URL
+        let knownHosts: URL
+    }
+
+    static func startIfRequested() -> Server? {
+        guard UITestFixture.isActive, ProcessInfo.processInfo.environment["BASIL_UITEST_SSHD"] == "1" else { return nil }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-sshd-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: folder)
+        let home = folder.appendingPathComponent("home")
+        do {
+            try FileManager.default.createDirectory(at: home.appendingPathComponent(".ssh"), withIntermediateDirectories: true)
+            let hostKey = folder.appendingPathComponent("host_ed25519").path
+            let key = folder.appendingPathComponent("client").path
+            try run("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", hostKey])
+            try run("/usr/bin/ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", key])
+            try FileManager.default.copyItem(atPath: key + ".pub", toPath: folder.appendingPathComponent("authorized_keys").path)
+            let port = freePort()
+            try """
+            Port \(port)
+            ListenAddress 127.0.0.1
+            HostKey \(hostKey)
+            AuthorizedKeysFile \(folder.path)/authorized_keys
+            PasswordAuthentication no
+            KbdInteractiveAuthentication no
+            UsePAM no
+            StrictModes no
+            PidFile \(folder.path)/sshd.pid
+            PerSourcePenalties no
+            Subsystem sftp internal-sftp
+            """.write(to: folder.appendingPathComponent("sshd_config"), atomically: true, encoding: .utf8)
+            let sshd = Process()
+            sshd.executableURL = URL(fileURLWithPath: "/usr/sbin/sshd")
+            sshd.arguments = ["-D", "-e", "-f", folder.appendingPathComponent("sshd_config").path]
+            sshd.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            try sshd.run()
+            let watchdog = Process()
+            watchdog.executableURL = URL(fileURLWithPath: "/bin/sh")
+            watchdog.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 1; done; kill \(sshd.processIdentifier); rm -rf '\(folder.path)'"]
+            try watchdog.run()
+            for _ in 0..<100 where !accepts(port) { usleep(50_000) }
+            return Server(port: port, key: key, home: home, knownHosts: home.appendingPathComponent(".ssh/known_hosts"))
+        } catch {
+            return nil
+        }
+    }
+
+    private static func run(_ tool: String, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private static func accepts(_ port: Int) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = UInt16(port).bigEndian
+        return withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) == 0 }
+        }
+    }
+
+    private static func freePort() -> Int {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, length) } }
+        _ = withUnsafeMutablePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) } }
+        return Int(UInt16(bigEndian: address.sin_port))
     }
 }
 #endif

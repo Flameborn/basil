@@ -3,6 +3,7 @@ import BasilArchives
 import BasilCore
 import BasilIntegrations
 import BasilOperations
+import BasilRemote
 import BasilUI
 import BasilVFS
 
@@ -33,10 +34,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileLists = FileListOpener()
         providers.register(opener: fileLists)
         providers.register(writer: fileLists)
+        // Remote services: SFTP (libssh2 with OpenSSL, from Vendor/libssh2).
+        providers.register(connector: SFTPConnector())
         var start: (left: VFSPath, right: VFSPath)?
         var defaults = UserDefaults.standard
         var dataDirectory = MainWindowController.defaultDataDirectory
         var secrets: any SecretStore = Keychain.archivePasswords
+        var remoteSecrets: any SecretStore = Keychain.remoteSecrets
         var copiesDirectory = MainWindowController.defaultCopiesDirectory
         #if DEBUG
         start = UITestFixture.makeIfRequested()
@@ -48,8 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             copiesDirectory = dataDirectory.appendingPathComponent("Copies", isDirectory: true)
             settings = SettingsStore(defaults: isolated)
             secrets = MemorySecretStore() // UI tests never touch the user's keychain
+            remoteSecrets = MemorySecretStore()
             // The progress window takes focus, which would swallow the keys of other tests.
             settings.settings.showProgressWindow = ProcessInfo.processInfo.environment["BASIL_UITEST_PROGRESS"] == "1"
+            if let server = UITestSSHServer.startIfRequested(), let root = start?.left {
+                providers.register(connector: SFTPConnector(home: server.home, knownHostsFile: server.knownHosts,
+                                                            agentSocket: server.home.appendingPathComponent("no-agent").path,
+                                                            defaultKeys: false))
+                settings.settings.connections = [SavedConnection(
+                    name: "Test server",
+                    target: RemoteTarget(service: .sftp, host: "127.0.0.1", port: server.port, user: NSUserName(),
+                                         path: root.path, authentication: .keyFile(server.key)))]
+            }
             // UI tests run silently (no sounds, no system voice).
             for outcome in QueueOutcome.allCases {
                 settings.settings.feedback.defaults[outcome.rawValue] = EventFeedback(sound: .none, speak: false, text: "")
@@ -59,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
                                               queue: queue, defaults: defaults, startDirectories: start,
                                               dataDirectory: dataDirectory, secrets: secrets,
+                                              remoteSecrets: remoteSecrets,
                                               copiesDirectory: copiesDirectory)
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }

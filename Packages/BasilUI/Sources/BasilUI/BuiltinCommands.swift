@@ -213,6 +213,26 @@ enum BuiltinCommands {
                 if let id = w?.customViewID(n) { pane()?.setView(id) }
             })
         }
+        // Net: Cmd+K's connection manager, Disconnect, and the saved connections 1-20 by name.
+        commands.append(C(id: "net.connect", title: "Connect to Server...", defaultKeys: [K(.character("k"), .command)]) { _ in
+            w?.showConnections()
+        })
+        commands.append(C(id: "net.disconnect", title: "Disconnect",
+                          isEnabled: { _ in w?.activeConnection != nil },
+                          menuTitle: { _ in w?.activeConnection.map { "Disconnect \($0.connectionTitle)" } ?? "Disconnect" }) { _ in
+            w?.disconnectActive()
+        })
+        for n in 1...20 {
+            func saved() -> SavedConnection? {
+                guard let list = w?.settings.settings.connections, list.indices.contains(n - 1) else { return nil }
+                return list[n - 1]
+            }
+            commands.append(C(id: CommandID(rawValue: "net.saved\(n)"), title: "Saved Connection \(n)",
+                              isEnabled: { _ in saved() != nil },
+                              menuTitle: { _ in saved()?.title }) { _ in
+                if let target = saved()?.target { w?.connect(target) }
+            })
+        }
         commands.forEach(registry.register)
     }
 }

@@ -59,6 +59,7 @@ final class TestServer: Sendable {
         MaxStartups 200
         MaxAuthTries 20
         PidFile \(folder.path)/sshd.pid
+        PerSourcePenalties no
         Subsystem sftp internal-sftp
         """
         try config.write(to: folder.appendingPathComponent("sshd_config"), atomically: true, encoding: .utf8)

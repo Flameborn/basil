@@ -18,6 +18,8 @@ public struct Keychain: SecretStore {
 
     /// Archive passwords, found by the archive's path.
     public static let archivePasswords = Keychain(service: "com.erion.basil.archive-password")
+    /// Server passwords ("sftp:user@host:port") and private key passphrases ("ssh-key:/path").
+    public static let remoteSecrets = Keychain(service: "com.erion.basil.remote-secret")
 
     private func query(_ key: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,

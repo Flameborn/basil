@@ -39,6 +39,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public var leftoverRoots: AppLeftoverFinder.Roots = .system
     /// True while the "was changed, update it?" sheets are up (ArchiveEditing.swift).
     var offeringEditedCopies = false
+    /// Host key and password questions of remote connections (`RemoteConnections.swift`).
+    private(set) var remotePrompts: RemotePromptsUI!
 
     /// ~/Library/Caches/Basil/Copies
     public static var defaultCopiesDirectory: URL { TemporaryCopies.defaultRoot }
@@ -52,12 +54,14 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// - Parameter dataDirectory: where Basil keeps its own files.
     /// - Parameter defaults: where pane state (folders, views) is remembered; UI tests pass an isolated domain.
     /// - Parameter secrets: where archive passwords are remembered; UI tests pass one in memory.
+    /// - Parameter remoteSecrets: where server passwords and key passphrases are remembered; UI tests pass one in memory.
     /// - Parameter copiesDirectory: scratch folder for F3 / F4 copies of files inside archives.
     public init(providers: ProviderRegistry, commands: CommandRegistry, settings: SettingsStore,
                 queue: FileOperationQueue, defaults: UserDefaults = .standard,
                 startDirectories: (left: VFSPath, right: VFSPath)? = nil,
                 dataDirectory: URL = MainWindowController.defaultDataDirectory,
                 secrets: any SecretStore = Keychain.archivePasswords,
+                remoteSecrets: any SecretStore = Keychain.remoteSecrets,
                 copiesDirectory: URL = MainWindowController.defaultCopiesDirectory) {
         self.dataDirectory = dataDirectory
         self.copies = TemporaryCopies(root: copiesDirectory, registry: providers)
@@ -118,6 +122,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         setActive(.left)
         window.makeFirstResponder(left.tableView)
         installPasswordPrompt(secrets: secrets)
+        remotePrompts = RemotePromptsUI(controller: self, secrets: remoteSecrets)
         queue.onEvent = { [weak self] event in self?.handle(event) }
         queue.promptHandler = { [weak self] item, prompt in
             guard let self else { return .conflict(.cancel) }
@@ -140,6 +145,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         queue.onItemStarted = { [weak self] item in self?.progressWindow.itemStarted(item) }
         queue.onItemStopped = { [weak self] item in
             self?.progressWindow.itemStopped(item)
+            self?.rereadRemotePanes()
             // Wait until the queue has started what comes next (whenDone may have queued it).
             Task { @MainActor in self?.closeUnusedContainers() }
         }

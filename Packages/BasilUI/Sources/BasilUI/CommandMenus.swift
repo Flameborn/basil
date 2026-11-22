@@ -38,7 +38,8 @@ enum BuiltinMenus {
             .separator,
         ] + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show"))
 
-        layout.addMenu("Net", placeholder: "No connections yet")
+        layout.addMenu("Net", items: c("net.connect", "net.disconnect") + [.separator]
+            + (1...20).map { N.command(CommandID(rawValue: "net.saved\($0)")) })
 
         layout.addMenu("Show", items: [
             .submenu("View Mode", c("view.brief", "view.full") + [.separator]
