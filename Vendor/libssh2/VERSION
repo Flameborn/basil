@@ -1,0 +1,25 @@
+libssh2 1.11.1 with OpenSSL 3.5.9 (LTS line, supported until 2030) as its crypto backend.
+Both are unmodified release tarballs.
+
+libssh2    https://libssh2.org/download/libssh2-1.11.1.tar.gz
+           sha256 d9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7
+           libssh2/ is the unpacked tarball.
+OpenSSL    https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz
+           sha256 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+           (matches the published openssl-3.5.9.tar.gz.sha256)
+           openssl/ is the unpacked tarball without test/ (90 MB, OpenSSL's own test suite) and
+           demos/; both are only read by Configure when tests or demos are enabled, and they are not.
+
+Ours:      build.sh, Package.swift, Tests, this file.
+Build:     build.sh configures OpenSSL as darwin64-arm64-cc no-shared no-tests no-apps no-docs
+           no-module no-dso no-engine no-ui-console (arm64 assembly on, macOS 27 minimum), builds
+           libcrypto only, then libssh2 with CMake (CRYPTO_BACKEND=OpenSSL, zlib compression from
+           the SDK, static, no examples or tests). libtool joins libssh2.a and libcrypto.a into
+           libBasilSSH2.a, which goes with libssh2's three headers and a CLibSSH2 module map
+           (links zlib) into build/LibSSH2.xcframework. Outputs stay in build/ (gitignored).
+           A first build takes about 20 s; later runs about 3 s and keep the xcframework when
+           nothing changed (ZERO_AR_DATE makes the library byte-identical).
+Licences:  libssh2 BSD 3-clause (libssh2/COPYING), OpenSSL Apache 2.0 (openssl/LICENSE.txt).
+To update: replace libssh2/ or openssl/ with newer tarballs (drop openssl/test and openssl/demos),
+           update this file, run build.sh, then swift test --package-path Vendor/libssh2 and
+           swift test --package-path Packages/BasilRemote.

@@ -134,13 +134,14 @@ All eight features requested on 2026-11-22 are done: TC-style menus (Files, Mark
 | 2026-11-22 | Decided by Claude, change if wrong: parts are named name.ext.001 (7-Zip/HJSplit style, keeps the name; TC uses name.001 and its .crc is read too); presets CD 650/700/800 MB, DVD 4.7 GB, DVD DL 8.5 GB, Blu-ray 25 and 50 GB, FAT32 largest file, Custom (exact sector sizes); first preset CD 700 MB and Create SFV on, both remembered; a size without a unit is refused; a file not larger than one part is refused; the cursor file is split into the other pane's folder; existing parts ask Replace; leftover parts from an earlier larger split are removed; Combine starts from the cursor part (or the SFV) and writes into the other pane's folder; no default keys |
 | 2026-11-22 | Unpack (requested): Option+F9 dialog with target, "Extract into its own folder" when the archive has several items at the top, file mask, folder paths on/off, delete archive after with a Trash / permanently pop-up; an existing folder of that name asks |
 | 2026-11-22 | Decided by Claude, change if wrong: the folder question offers Unpack into It / Use "name (2)" / Skip / Cancel and "Do the same for the other archives"; it is also asked when the archive's single top folder exists; an existing file with that name gets "name (2)" without asking; `__MACOSX` is never unpacked and `.DS_Store` does not count as a top item; the delete box always starts off, the delete mode is remembered; the archive (all volumes of a RAR set) is deleted only when nothing failed or was skipped; archives inside archives are never deleted; the target folder is created when missing; without folder paths a second file with the same name is left out and logged |
+| 2026-11-22 | Remotes (asked): libssh2 uses OpenSSL 3 as its crypto backend (vendored sources); FTP/FTPS is Basil's own client on Network.framework; Dropbox uses the official SwiftyDropbox SDK |
 | 2026-11-22 | Decided by Claude, change if wrong: SwiftUI secondary text is now the primary colour at 85 percent (was 75): the audit flagged a wrapped hint as "nearly passed" |
 
 ## Open questions (ask before implementing the related part)
 
-- [ ] Crypto backend for libssh2: OpenSSL 3 or mbedTLS?
-- [ ] FTP implementation: system libcurl, or a custom client?
-- [ ] Dropbox: official SwiftyDropbox SDK, or direct REST via URLSession?
+- [x] Crypto backend for libssh2: OpenSSL 3 (2026-11-22)
+- [x] FTP implementation: own client on Network.framework (2026-11-22)
+- [x] Dropbox: official SwiftyDropbox SDK (2026-11-22)
 - [ ] How should LuaJIT be built and linked (prebuilt static lib/xcframework from `scripts/bootstrap.sh`)?
 - [ ] Should there be several queues in parallel (for example one per destination device), or strictly one global queue?
 - [ ] Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
