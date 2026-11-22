@@ -30,7 +30,9 @@ enum BuiltinMenus {
             .submenu("Go To", c("go.path") + [.separator]
                 + c("go.home", "go.desktop", "go.documents", "go.downloads", "go.applications",
                     "go.utilities", "go.iCloud", "go.computer") + [.separator]
-                + c("pane.parent", "cursor.first", "cursor.last")),
+                // No First Item / Last Item (Home, End): VoiceOver reads a menu item's title when
+                // its key is pressed, which repeats what the cursor move already says.
+                + c("pane.parent")),
             .submenu("Locations", c("pane.locations", "pane.locationsLeft", "pane.locationsRight")),
             .separator,
         ] + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show"))
