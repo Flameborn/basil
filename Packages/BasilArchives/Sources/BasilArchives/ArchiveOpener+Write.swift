@@ -51,6 +51,7 @@ extension ArchiveOpener: ContainerWriter {
             if provider.backendIs(SevenZipBackend.self) {
                 return sevenZip.withLock({ $0 }) == nil ? "\(container.name) cannot be changed: 7-Zip is missing." : nil
             }
+            if provider.backendIs(UnRARBackend.self) { return "\(container.name) is a RAR archive, which Basil can only read." }
             if !(provider.backendIs(LibArchiveBackend.self)) { return "\(container.name) cannot be changed yet." }
             if provider.hasEncryptedEntries { return "\(container.name) is encrypted and cannot be changed yet." }
         }

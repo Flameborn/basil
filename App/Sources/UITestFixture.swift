@@ -36,6 +36,9 @@ enum UITestFixture {
             if ProcessInfo.processInfo.environment["BASIL_UITEST_ENCRYPTED_7Z"] == "1" {
                 try makeEncrypted7z(at: root.appendingPathComponent("Alpha/Inner/secret.7z"))
             }
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_RAR"] == "1" {
+                try Data(base64Encoded: rar4Archive.joined())!.write(to: root.appendingPathComponent("Alpha/Inner/old.rar"))
+            }
         } catch {
             return nil
         }
@@ -80,6 +83,16 @@ enum UITestFixture {
         try input.fileHandleForWriting.close()
         sevenZip.waitUntilExit()
     }
+
+    /// Alpha/Inner/old.rar: libarchive's test_read_format_rar.rar (RAR 4; test.txt, testdir with
+    /// test.txt, testemptydir, and testlink pointing to test.txt). Nothing on macOS makes RAR archives.
+    private static let rar4Archive = [
+        "UmFyIRoHAM+QcwAADQAAAAAAAACEUnQgkDIAFAAAABQAAAADQqLIvrd22j4UMAgApIEAAHRlc3QudHh0gAi3dto+t3baPnRl",
+        "c3QgdGV4dCBkb2N1bWVudA0KnS90IJAyAAgAAAAIAAAAA3tEybbRTNg+FDAIAP+hAAB0ZXN0bGlua8AI0UzYPlBf2j50ZXN0",
+        "LnR4dM3gdCCQOgAUAAAAFAAAAANCosi+Y3faPhQwEACkgQAAdGVzdGRpclx0ZXN0LnR4dMDMY3faPmN32j50ZXN0IHRleHQg",
+        "ZG9jdW1lbnQNCqHIdOCQMQAAAAAAAAAAAAMAAAAAY3faPhQwBwDtQQAAdGVzdGRpcsDMY3faPmR32j7m53TgkDYAAAAAAAAA",
+        "AAADAAAAAJ2r1T4UMAwA7UEAAHRlc3RlbXB0eWRpcoDMnavVPsVd2j7EPXsAQAcA",
+    ]
 
     nonisolated(unsafe) private static var createdRoot: URL?
 

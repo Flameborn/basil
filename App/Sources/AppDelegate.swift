@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugMenu.install(queue: queue)
         #endif
         providers.register(LocalProvider())
-        let archives = ArchiveOpener()
+        let archives = ArchiveOpener() // UnRAR (linked in) and libarchive
         // 7z through the 7zz built from Vendor/7zip and copied into Contents/MacOS.
         // Zip files libarchive cannot read fall back to 7-Zip, tried after libarchive.
         if let sevenZip = SevenZipBackend.bundled() {

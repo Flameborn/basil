@@ -703,6 +703,35 @@ final class PaneUITests: XCTestCase {
         XCTAssertFalse(app.sheets.firstMatch.exists)
     }
 
+    func testRarArchiveBrowsesAndIsReadOnly() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_RAR"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha
+        if !waitFor({ self.names(in: self.leftTable) == ["Inner"] }, timeout: 2) {
+            leftTable.typeKey(.enter, modifierFlags: [])
+        }
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Inner
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["old.rar", "pack.zip"] }, "\(names(in: leftTable))")
+        leftTable.typeKey(.enter, modifierFlags: [])                     // Enter enters the RAR archive
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)) == ["test.txt", "testdir", "testemptydir", "testlink"] },
+                      "\(names(in: leftTable))")
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(waitFor { window.title == "old.rar - Basil" }, window.title)
+        try audit(app) { issue in
+            print("AUDIT rar: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        // Audited before this: the audit fails the status bar while it shows an error (see progress.md).
+        leftTable.typeKey(.F7, modifierFlags: [])                        // refused: RAR archives are read-only
+        XCTAssertFalse(app.sheets.firstMatch.waitForExistence(timeout: 1))
+        let status = app.staticTexts["pane.left.status"]
+        XCTAssertTrue(waitFor { (status.value as? String) == "old.rar is a RAR archive, which Basil can only read." },
+                      "\(status.value ?? "")")
+    }
+
     func testArchiveBrowseChangeAndExtract() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(.enter, modifierFlags: [])                     // Alpha

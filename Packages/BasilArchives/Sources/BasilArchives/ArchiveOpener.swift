@@ -4,7 +4,8 @@ import Foundation
 import Synchronization
 
 /// Opens archive files as `ArchiveProvider`s. Registered in `ProviderRegistry` as a container
-/// opener; backends register here (libarchive by default, 7-Zip and UnRAR ahead of it later).
+/// opener; backends register here (UnRAR and libarchive by default, 7-Zip ahead of them once
+/// its bundled 7zz is found).
 public final class ArchiveOpener: ContainerOpener {
     public var provider: ProviderID { .archive }
     private let backends: Mutex<[any ArchiveBackend]>
@@ -12,7 +13,7 @@ public final class ArchiveOpener: ContainerOpener {
     /// Where copies of archives that are not local files (an archive inside an archive) go.
     let temporaryRoot: URL
 
-    public init(backends: [any ArchiveBackend] = [LibArchiveBackend()],
+    public init(backends: [any ArchiveBackend] = [UnRARBackend(), LibArchiveBackend()],
                 temporaryRoot: URL = FileManager.default.temporaryDirectory.appendingPathComponent("Basil Archives", isDirectory: true)) {
         self.backends = Mutex(backends)
         self.temporaryRoot = temporaryRoot

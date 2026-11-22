@@ -1,0 +1,23 @@
+UnRAR source 7.2.7 (version.hpp: RAR 7.23, 2026-06-27), the official UnRAR library. Unmodified and complete.
+
+Source      https://www.rarlab.com/rar/unrarsrc-7.2.7.tar.gz
+            (linked from https://www.rarlab.com/rar_add.htm)
+            sha256 01d903a7dcf413cb2925696d7796e48e38d471f79bfe7ef3ad2aebf6c12dbefd
+            Sources/CUnRAR/unrar is the unpacked tarball.
+
+Ours:       Package.swift, Sources/CUnRAR/include/CUnRAR.h (the dll.hpp API for Swift),
+            Sources/CUnRAR/BasilErrors.cpp, Tests, this file.
+Build:      SwiftPM compiles the makefile's "lib" target sources (OBJECTS plus LIB_OBJ) with
+            RARDLL, RAR_SMP and large-file defines. The library is linked into the app; there is
+            no separate unrar tool.
+Threads:    UnRAR keeps its error state in one global ErrorHandler (global.hpp). Package.swift
+            defines ErrHandler as (*BasilUnRARErrorHandler()), a thread_local handler in
+            BasilErrors.cpp, so archives read on several threads at once do not see each other's
+            errors; the sources stay unchanged. BasilUnRARClearErrors() clears this thread's
+            state, which Basil does before each header and file call.
+Licence:    UnRAR freeware licence, see Sources/CUnRAR/unrar/license.txt. It allows using the
+            source in any software to handle RAR archives, but not to make a RAR compressor.
+To update:  replace Sources/CUnRAR/unrar with a newer unrarsrc tarball, check the makefile's lib
+            objects against Package.swift and that global.hpp still declares ErrHandler the same
+            way, update this file, then run swift test --package-path Vendor/unrar and
+            swift test --package-path Packages/BasilArchives --filter RARTests.

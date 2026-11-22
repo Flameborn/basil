@@ -1,0 +1,6 @@
+RAR test archives from libarchive 3.8.11 (libarchive/test/*.rar.uu, decoded with uudecode),
+unchanged. libarchive is under the BSD 2-Clause licence (its COPYING file). Basil cannot create
+RAR archives, so the UnRAR tests (RARTests.swift) read these.
+
+Encrypted archives use the password "password"; in test_read_format_rar4_encrypted.rar and
+test_read_format_rar5_encrypted.rar, d.txt has its own password, "password2".
