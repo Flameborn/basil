@@ -98,11 +98,11 @@ public struct DropboxConnector: RemoteConnector {
     /// Signs in in the browser: opens the authorization page through `prompts` and waits for
     /// the redirect back to Basil, or for the user to give up.
     func signIn(prompts: any RemotePrompts, account: String?) async throws -> DropboxToken {
-        let pkce = DropboxPKCE()
-        let state = DropboxPKCE.state()
+        let pkce = OAuthPKCE()
+        let state = OAuthPKCE.state()
         // The page the browser comes back to, open only while this sign-in waits.
         let server = try SignInReturnServer(port: returnPort, service: displayName) { url in
-            Self.returnPage(url, matched: url.path == "/dropbox" && DropboxRedirects.handle(url))
+            Self.returnPage(url, matched: url.path == "/dropbox" && SignInRedirects.handle(url))
         }
         defer { server.stop() }
         let redirect = DropboxAuth.redirectURI(port: server.port)
@@ -112,7 +112,7 @@ public struct DropboxConnector: RemoteConnector {
         enum Outcome: Sendable { case redirect(URL), cancelled, failed(String) }
         let outcome: Outcome = await withTaskGroup(of: Outcome.self) { group in
             group.addTask {
-                do { return .redirect(try await DropboxRedirects.wait(for: state)) } catch is RemoteCancelled {
+                do { return .redirect(try await SignInRedirects.wait(for: state)) } catch is RemoteCancelled {
                     return .cancelled
                 } catch {
                     return .cancelled

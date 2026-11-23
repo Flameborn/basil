@@ -304,7 +304,7 @@ final class FakeDropbox: @unchecked Sendable {
             case "authorization_code":
                 guard let code = form["code"], let issued = s.codes.removeValue(forKey: code),
                       issued.redirect == form["redirect_uri"], let verifier = form["code_verifier"],
-                      DropboxPKCE.base64URL(Data(SHA256.hash(data: Data(verifier.utf8)))) == issued.challenge else {
+                      OAuthPKCE.base64URL(Data(SHA256.hash(data: Data(verifier.utf8)))) == issued.challenge else {
                     return .json(["error": "invalid_grant", "error_description": "bad code or verifier"], status: 400)
                 }
                 let refresh = "refresh-\(UUID().uuidString)"

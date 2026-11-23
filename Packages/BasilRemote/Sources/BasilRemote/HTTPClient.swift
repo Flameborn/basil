@@ -541,7 +541,7 @@ final class HTTPStreamUpload: @unchecked Sendable {
 actor HTTPReadFile: ReadableFile {
     let name: String
     /// Starts a GET from an offset (0: the whole file).
-    let start: @Sendable (Int64) -> HTTPDownload
+    let start: @Sendable (Int64) async throws -> HTTPDownload
     /// The file's size on the server now, or nil.
     let currentSize: @Sendable () async -> Int64?
     /// A refused GET in VFS terms.
@@ -550,7 +550,7 @@ actor HTTPReadFile: ReadableFile {
     private var position: Int64 = 0
     private var atEnd = false
 
-    init(name: String, start: @escaping @Sendable (Int64) -> HTTPDownload,
+    init(name: String, start: @escaping @Sendable (Int64) async throws -> HTTPDownload,
          currentSize: @escaping @Sendable () async -> Int64?, failure: @escaping @Sendable (HTTPResponse) -> Error) {
         self.name = name
         self.start = start
@@ -588,7 +588,7 @@ actor HTTPReadFile: ReadableFile {
     private func begin(at offset: Int64) async throws {
         stop()
         atEnd = false
-        let download = start(offset)
+        let download = try await start(offset)
         let response: HTTPResponse
         do { response = try await download.response() } catch {
             download.cancel()

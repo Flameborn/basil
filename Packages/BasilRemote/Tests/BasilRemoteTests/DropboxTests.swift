@@ -35,7 +35,7 @@ private final class Monitor: TransferMonitor {
 
 @Suite struct DropboxPiecesTests {
     @Test func pkceChallengeIsTheBase64URLOfTheVerifiersSHA256() {
-        let pkce = DropboxPKCE()
+        let pkce = OAuthPKCE()
         #expect(pkce.verifier.count == 128)
         #expect(pkce.verifier.allSatisfy { $0.isLetter || $0.isNumber || "-._~".contains($0) })
         let expected = Data(SHA256.hash(data: Data(pkce.verifier.utf8))).base64EncodedString()
@@ -43,12 +43,12 @@ private final class Monitor: TransferMonitor {
             .replacingOccurrences(of: "=", with: "")
         #expect(pkce.challenge == expected)
         #expect(pkce.challenge.count == 43)
-        #expect(DropboxPKCE().verifier != pkce.verifier)
+        #expect(OAuthPKCE().verifier != pkce.verifier)
     }
 
     @Test func authorizationAddressAsksForCodeFlowWithOfflineAccess() throws {
         let auth = DropboxAuth(appKey: "k3y", hosts: .dropbox, session: .shared)
-        let url = auth.authorizationURL(pkce: DropboxPKCE(), state: "st", redirect: DropboxAuth.redirectURI(port: 21745))
+        let url = auth.authorizationURL(pkce: OAuthPKCE(), state: "st", redirect: DropboxAuth.redirectURI(port: 21745))
         let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
         let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
         #expect(url.host == "www.dropbox.com" && url.path == "/oauth2/authorize")
@@ -81,10 +81,10 @@ private final class Monitor: TransferMonitor {
     }
 
     @Test func redirectsGoToTheSignInWithTheirState() async throws {
-        let waiting = Task { try await DropboxRedirects.wait(for: "abc") }
+        let waiting = Task { try await SignInRedirects.wait(for: "abc") }
         try await Task.sleep(for: .milliseconds(20))
-        #expect(!DropboxRedirects.handle(URL(string: "http://localhost:1/dropbox?code=c1&state=other")!))
-        #expect(DropboxRedirects.handle(URL(string: "http://localhost:1/dropbox?code=c2&state=abc")!))
+        #expect(!SignInRedirects.handle(URL(string: "http://localhost:1/dropbox?code=c1&state=other")!))
+        #expect(SignInRedirects.handle(URL(string: "http://localhost:1/dropbox?code=c2&state=abc")!))
         let url = try await waiting.value
         #expect(url.absoluteString.contains("code=c2"))
     }
@@ -126,7 +126,7 @@ private final class Monitor: TransferMonitor {
     }
 
     @Test func cancellingStopsWaitingForARedirect() async {
-        let waiting = Task { try await DropboxRedirects.wait(for: "never") }
+        let waiting = Task { try await SignInRedirects.wait(for: "never") }
         try? await Task.sleep(for: .milliseconds(20))
         waiting.cancel()
         await #expect(throws: CancellationError.self) { try await waiting.value }

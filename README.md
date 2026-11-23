@@ -2,7 +2,7 @@
 
 Basil is a native macOS dual-pane file manager in the spirit of Total Commander, written in Swift (AppKit for the panes, SwiftUI for dialogs and settings). VoiceOver accessibility is a core requirement: every pane, dialog and command is designed to work fully with VoiceOver and the keyboard alone.
 
-Features include Total Commander style keys and menus, tabs, quick filter, multi-rename, an operation queue with a secure copy and move engine, archives (zip, tar, 7z, RAR and more, including passwords), checksums, split and combine, and remote connections (SFTP, FTP/FTPS and Dropbox).
+Features include Total Commander style keys and menus, tabs, quick filter, multi-rename, an operation queue with a secure copy and move engine, archives (zip, tar, 7z, RAR and more, including passwords), checksums, split and combine, and remote connections (SFTP, FTP/FTPS, WebDAV and Nextcloud, SMB, S3, Dropbox and Google Drive).
 
 Basil is a personal project. It is not sandboxed, notarized or sold.
 
@@ -49,6 +49,23 @@ BASIL_DROPBOX_APP_KEY = your_app_key
 ```
 
 No app secret is needed and none should be committed: Basil signs in with OAuth 2 PKCE, which uses only the public app key. Tokens are stored in the macOS Keychain.
+
+### Google Drive OAuth client (optional)
+
+Google Drive support needs an OAuth client from the [Google Cloud Console](https://console.cloud.google.com/). Without one the app builds and runs fine, it just does not offer Google Drive.
+
+1. Create a project and enable the Google Drive API (APIs and Services > Library).
+2. OAuth consent screen (Google Auth Platform): External, add the scope `https://www.googleapis.com/auth/drive`, and add your Google account as a test user.
+3. Set the publishing status to "In production". In "Testing" Google ends every sign-in after 7 days. An unverified app in production shows a "Google hasn't verified this app" warning at sign-in (Advanced > Go to Basil), which is fine for personal use.
+4. Credentials > Create credentials > OAuth client ID, type Desktop app. No redirect URI is needed: Basil receives the sign-in on `http://127.0.0.1` with a free port, which Google allows for desktop clients.
+5. Put the client ID and secret in `Config/GoogleDrive.local.xcconfig` (gitignored):
+
+```
+BASIL_GOOGLE_CLIENT_ID = 1234-abc.apps.googleusercontent.com
+BASIL_GOOGLE_CLIENT_SECRET = GOCSPX-...
+```
+
+Google documents the secret of a desktop client as not confidential (it is built into every copy of the app); Basil still signs in with PKCE. Tokens are stored in the macOS Keychain.
 
 ## Building
 
@@ -103,7 +120,7 @@ Notes:
 
 - The UI tests use their own fixture folder and preferences domain and never touch your real settings.
 - The SFTP tests start macOS's own `sshd` on a free port as your user; the FTP tests build pure-ftpd with `scripts/build-test-ftpd.sh` on first use (needs Homebrew).
-- Dropbox tests run against an in-memory fake server and need no app key or network.
+- Dropbox and Google Drive tests run against in-memory fake servers and need no app key, OAuth client or network.
 
 ## Project layout
 

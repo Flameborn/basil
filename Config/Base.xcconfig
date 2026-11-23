@@ -15,3 +15,9 @@ ENABLE_HARDENED_RUNTIME = NO
 // Dropbox app key, set in Config/Dropbox.local.xcconfig (gitignored). Empty: Dropbox is not offered.
 BASIL_DROPBOX_APP_KEY =
 #include? "Dropbox.local.xcconfig"
+
+// Google Drive OAuth client (Google Cloud Console, Credentials, type Desktop app), set in
+// Config/GoogleDrive.local.xcconfig (gitignored). Empty: Google Drive is not offered.
+BASIL_GOOGLE_CLIENT_ID =
+BASIL_GOOGLE_CLIENT_SECRET =
+#include? "GoogleDrive.local.xcconfig"

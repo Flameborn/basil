@@ -999,6 +999,15 @@ final class PaneUITests: XCTestCase {
     /// Dropbox has no server to type: the editor shows the account instead of Host, Port and
     /// User; connecting shows the browser sign-in sheet (UI tests never open the browser).
     func testDropboxConnectionEditorAndSignInSheet() throws {
+        try accountServiceEditorAndSignIn("Dropbox", note: "Basil never sees your Dropbox password")
+    }
+
+    /// Google Drive works like Dropbox: no server to type, a browser sign-in.
+    func testGoogleDriveConnectionEditorAndSignInSheet() throws {
+        try accountServiceEditorAndSignIn("Google Drive", note: "Basil never sees your Google password")
+    }
+
+    func accountServiceEditorAndSignIn(_ service: String, note: String) throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey("k", modifierFlags: .command)
         let sheet = app.sheets.firstMatch
@@ -1008,32 +1017,32 @@ final class PaneUITests: XCTestCase {
         let protocolPicker = sheet.popUpButtons["Protocol"]
         XCTAssertTrue(protocolPicker.waitForExistence(timeout: 3), sheet.debugDescription)
         protocolPicker.click()
-        app.menuItems["Dropbox"].click()
+        app.menuItems[service].click()
         XCTAssertTrue(waitFor { !sheet.textFields["Host"].exists }, sheet.debugDescription)
         XCTAssertFalse(sheet.textFields["Port"].exists || sheet.textFields["User"].exists)
         XCTAssertTrue(sheet.staticTexts.allElementsBoundByIndex.contains {
             ($0.value as? String ?? $0.label).contains("Account: not signed in yet")
         }, sheet.debugDescription)
         XCTAssertTrue(sheet.staticTexts.allElementsBoundByIndex.contains {
-            ($0.value as? String ?? $0.label).contains("Basil never sees your Dropbox password")
+            ($0.value as? String ?? $0.label).contains(note)
         })
         func editing() -> Bool {
             sheet.textFields.allElementsBoundByIndex.contains { ($0.value(forKey: "hasKeyboardFocus") as? Bool) == true }
         }
         for _ in 0..<10 where editing() { app.typeKey(.tab, modifierFlags: []) }
-        try auditSheet(sheet, "dropbox editor")
+        try auditSheet(sheet, "\(service) editor")
         sheet.buttons["Save"].click()
         XCTAssertTrue(waitFor { sheet.staticTexts.allElementsBoundByIndex.contains {
-            ($0.value as? String ?? $0.label).contains("Dropbox (not signed in yet)")
+            ($0.value as? String ?? $0.label).contains("\(service) (not signed in yet)")
         } }, sheet.debugDescription)
 
         sheet.buttons["Connect"].click()
         let signIn = app.sheets.firstMatch
         XCTAssertTrue(waitFor({ signIn.buttons["Open Browser Again"].exists }, timeout: 5), app.debugDescription.prefix(3000).description)
         XCTAssertTrue(signIn.staticTexts.allElementsBoundByIndex.contains {
-            ($0.value as? String ?? $0.label).contains("Sign in to Dropbox in your browser")
+            ($0.value as? String ?? $0.label).contains("Sign in to \(service) in your browser")
         }, signIn.debugDescription)
-        try auditSheet(signIn, "dropbox sign-in")
+        try auditSheet(signIn, "\(service) sign-in")
         signIn.buttons["Cancel"].click()
         XCTAssertTrue(waitFor { (self.app.staticTexts["pane.left.status"].value as? String ?? "").contains("Connection cancelled") },
                       "\(app.staticTexts["pane.left.status"].value ?? "")")

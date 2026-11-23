@@ -114,10 +114,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            !key.isEmpty, !key.hasPrefix("$(") {
             providers.register(connector: DropboxConnector(appKey: key, secrets: remoteSecrets))
         }
+        // Google Drive, when the build has an OAuth client (Config/GoogleDrive.local.xcconfig).
+        let info = Bundle.main.infoDictionary ?? [:]
+        if let id = info["BasilGoogleClientID"] as? String, let secret = info["BasilGoogleClientSecret"] as? String,
+           !id.isEmpty, !id.hasPrefix("$("), !secret.hasPrefix("$(") {
+            providers.register(connector: GoogleDriveConnector(client: GoogleClient(id: id, secret: secret), secrets: remoteSecrets))
+        }
         #if DEBUG
-        // UI tests see Dropbox in every build; its sign-in never leaves the sheet.
+        // UI tests see Dropbox and Google Drive in every build; their sign-in never leaves the sheet.
         if UITestFixture.isActive, providers.connector(for: .dropbox) == nil {
             providers.register(connector: DropboxConnector(appKey: "uitest", secrets: remoteSecrets, returnPort: 0))
+        }
+        if UITestFixture.isActive, providers.connector(for: .googleDrive) == nil {
+            providers.register(connector: GoogleDriveConnector(client: GoogleClient(id: "uitest", secret: "uitest"), secrets: remoteSecrets))
         }
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,

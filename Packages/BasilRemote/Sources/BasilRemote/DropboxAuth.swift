@@ -62,7 +62,7 @@ enum DropboxScopes {
 }
 
 /// A PKCE verifier and its S256 challenge (RFC 7636).
-struct DropboxPKCE {
+struct OAuthPKCE {
     let verifier: String
     let challenge: String
 
@@ -98,7 +98,7 @@ struct DropboxAuth: Sendable {
     /// (`SignInReturnServer`). It must be listed under Redirect URIs in the App Console.
     static func redirectURI(port: UInt16) -> String { "http://localhost:\(port)/dropbox" }
 
-    func authorizationURL(pkce: DropboxPKCE, state: String, redirect: String) -> URL {
+    func authorizationURL(pkce: OAuthPKCE, state: String, redirect: String) -> URL {
         var components = URLComponents(string: hosts.web + "/oauth2/authorize")!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: appKey),
@@ -113,7 +113,7 @@ struct DropboxAuth: Sendable {
         return components.url!
     }
 
-    func exchange(code: String, pkce: DropboxPKCE, redirect: String) async throws -> DropboxToken {
+    func exchange(code: String, pkce: OAuthPKCE, redirect: String) async throws -> DropboxToken {
         let json = try await post(["grant_type": "authorization_code", "code": code,
                                    "code_verifier": pkce.verifier, "redirect_uri": redirect])
         guard let access = json["access_token"] as? String, let refresh = json["refresh_token"] as? String,
@@ -182,7 +182,7 @@ struct DropboxAuth: Sendable {
 
 /// Redirects from the browser ("http://localhost:21745/dropbox?code=...&state=..."), handed
 /// over by the sign-in return page to the sign-in waiting for that state.
-enum DropboxRedirects {
+enum SignInRedirects {
     private static let waiting = Mutex<[String: CheckedContinuation<URL, Error>]>([:])
 
     /// True when a sign-in was waiting for this address (its state).
