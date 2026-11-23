@@ -20,6 +20,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var views: [ListView] = ListView.defaults
     /// Switching to a volume from the drive menu goes to its root instead of the last folder visited there.
     public var goToRootOnVolumeSwitch = false
+    /// The user's changes to the default keys (Settings, Keys), applied to the command registry.
+    public var keyBindings: [KeyBindingOverride] = []
     /// Space on a folder also calculates its size, like Total Commander's option (off by default).
     public var spaceCalculatesFolderSizes = false
     public var bookmarks: [Bookmark] = []
@@ -87,6 +89,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         date = try c.decodeIfPresent(DateFormatSettings.self, forKey: .date) ?? d.date
         views = try c.decodeIfPresent([ListView].self, forKey: .views) ?? d.views
         goToRootOnVolumeSwitch = try c.decodeIfPresent(Bool.self, forKey: .goToRootOnVolumeSwitch) ?? d.goToRootOnVolumeSwitch
+        keyBindings = try c.decodeIfPresent([KeyBindingOverride].self, forKey: .keyBindings) ?? d.keyBindings
         spaceCalculatesFolderSizes = try c.decodeIfPresent(Bool.self, forKey: .spaceCalculatesFolderSizes) ?? d.spaceCalculatesFolderSizes
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? d.bookmarks
         connections = try c.decodeIfPresent([SavedConnection].self, forKey: .connections) ?? d.connections

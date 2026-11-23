@@ -4,7 +4,7 @@ import BasilIntegrations
 import SwiftUI
 
 public enum SettingsTab: String, Hashable, Sendable {
-    case views, display, navigation, bookmarks, copying, editing, sounds
+    case views, display, navigation, bookmarks, copying, editing, sounds, keys
 }
 
 @MainActor
@@ -18,6 +18,8 @@ final class SettingsNavigation {
 public final class SettingsWindowController: NSWindowController {
     private static var shared: SettingsWindowController?
     private let navigation = SettingsNavigation()
+    /// The commands whose keys the Keys tab changes (set by the main window).
+    static var commands: CommandRegistry?
 
     public static func show(settings: SettingsStore, tab: SettingsTab = .views) {
         let controller = shared ?? SettingsWindowController(settings: settings)
@@ -29,7 +31,7 @@ public final class SettingsWindowController: NSWindowController {
 
     private init(settings: SettingsStore) {
         let window = SettingsNSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 1240, height: 600),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -37,9 +39,10 @@ public final class SettingsWindowController: NSWindowController {
         window.title = "Basil Settings"
         window.basilAutosave("BasilSettingsWindow")
         // Wide enough that all tabs fit in the toolbar (otherwise one hides behind an overflow button).
-        window.contentMinSize = NSSize(width: 980, height: 520)
+        window.contentMinSize = NSSize(width: 1100, height: 520)
         super.init(window: window)
-        let hosting = NSHostingController(rootView: SettingsView(store: settings, navigation: navigation))
+        let keys = Self.commands.map { KeysModel(registry: $0) }
+        let hosting = NSHostingController(rootView: SettingsView(store: settings, navigation: navigation, keys: keys))
         hosting.view.setAccessibilityLabel("Settings")
         window.contentViewController = hosting
         if !window.setFrameUsingName("BasilSettingsWindow") { window.center() }
@@ -58,6 +61,10 @@ public final class SettingsWindowController: NSWindowController {
 /// close the main window (that would quit the app).
 final class SettingsNSWindow: NSWindow {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // While a key is being recorded, every key goes to the recorder (Cmd+W too).
+        if let recorder = firstResponder as? KeyRecorderView, recorder.isRecording {
+            return recorder.performKeyEquivalent(with: event)
+        }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
             performClose(nil)
@@ -70,6 +77,7 @@ final class SettingsNSWindow: NSWindow {
 struct SettingsView: View {
     @Bindable var store: SettingsStore
     @Bindable var navigation: SettingsNavigation
+    let keys: KeysModel?
 
     var body: some View {
         TabView(selection: $navigation.tab) {
@@ -94,9 +102,14 @@ struct SettingsView: View {
             FeedbackSettingsView(store: store)
                 .tabItem { Text("Sounds and Speech") }
                 .tag(SettingsTab.sounds)
+            if let keys {
+                KeySettings(model: keys)
+                    .tabItem { Text("Keys") }
+                    .tag(SettingsTab.keys)
+            }
         }
         .padding()
-        .frame(minWidth: 1120, minHeight: 520)
+        .frame(minWidth: 1240, minHeight: 520)
     }
 }
 

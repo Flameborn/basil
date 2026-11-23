@@ -150,6 +150,47 @@ import Testing
         #expect(registry.chords(for: "copy") == [KeyChord(.function(6))])
     }
 
+    @Test func assignRemoveResetAndSaveKeys() throws {
+        let registry = CommandRegistry()
+        registry.register(.init(id: "name", title: "Copy Name", defaultKeys: [KeyChord(.character("c"), .command)]) { _ in })
+        registry.register(.init(id: "path", title: "Copy Path", defaultKeys: [KeyChord(.character("c"), [.command, .option])]) { _ in })
+        var changes = 0
+        registry.onKeymapChange = { changes += 1 }
+        let cmdC = KeyChord(.character("c"), .command), cmdOptC = KeyChord(.character("c"), [.command, .option])
+        let f9 = KeyChord(.function(9))
+
+        // Taking another command's key warns first, then moves it.
+        #expect(registry.command(using: cmdC, otherThan: "path")?.title == "Copy Name")
+        #expect(registry.command(using: cmdC, otherThan: "name") == nil)
+        registry.assign(cmdC, to: "path")
+        registry.assign(f9, to: "path")
+        #expect(registry.chords(for: "name").isEmpty)
+        #expect(Set(registry.chords(for: "path")) == [cmdC, cmdOptC, f9])
+        #expect(registry.hasChangedKeys("name") && registry.hasChangedKeys("path"))
+
+        // Removing a default key leaves it unbound; removing an added key forgets it.
+        registry.removeKey(cmdOptC, from: "path")
+        registry.removeKey(f9, from: "path")
+        #expect(registry.chords(for: "path") == [cmdC])
+        #expect(registry.commandID(for: cmdOptC) == nil && registry.commandID(for: f9) == nil)
+
+        // Saved and restored.
+        let saved = try JSONDecoder().decode([KeyBindingOverride].self, from: JSONEncoder().encode(registry.keyOverrides))
+        let restored = CommandRegistry()
+        restored.register(.init(id: "name", title: "Copy Name", defaultKeys: [cmdC]) { _ in })
+        restored.register(.init(id: "path", title: "Copy Path", defaultKeys: [cmdOptC]) { _ in })
+        restored.keyOverrides = saved
+        #expect(restored.chords(for: "path") == [cmdC] && restored.chords(for: "name").isEmpty)
+
+        // Reset takes the default keys back; reset all restores everything.
+        registry.resetKeys(of: "name")
+        #expect(registry.chords(for: "name") == [cmdC])
+        #expect(registry.chords(for: "path").isEmpty)
+        registry.resetAllKeys()
+        #expect(registry.chords(for: "path") == [cmdOptC] && registry.keyOverrides.isEmpty)
+        #expect(changes == 6)
+    }
+
     @Test func disabledCommandsDoNotRun() {
         let registry = CommandRegistry()
         registry.register(.init(id: "x", title: "X", defaultKeys: [KeyChord(.enter)], isEnabled: { _ in false }) { _ in Issue.record("ran") })

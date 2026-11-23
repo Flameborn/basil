@@ -183,6 +183,59 @@ public final class CommandRegistry {
 
     public func bind(_ chord: KeyChord, to id: CommandID?) {
         overrides[chord] = .some(id)
+        onKeymapChange?()
+    }
+
+    /// Called after every change to the user's keys (to save them).
+    public var onKeymapChange: (() -> Void)?
+
+    /// The user's changes to the default keys, for saving. Setting it replaces them all
+    /// without calling `onKeymapChange`.
+    public var keyOverrides: [KeyBindingOverride] {
+        get {
+            overrides.map { KeyBindingOverride(chord: $0.key, command: $0.value) }
+                .sorted { $0.chord.description < $1.chord.description }
+        }
+        set {
+            overrides = Dictionary(newValue.map { ($0.chord, $0.command) }, uniquingKeysWith: { _, last in last })
+        }
+    }
+
+    /// The command a chord runs now, other than `id` (to warn before taking the chord away from it).
+    public func command(using chord: KeyChord, otherThan id: CommandID) -> Command? {
+        guard let current = commandID(for: chord), current != id else { return nil }
+        return commands[current]
+    }
+
+    /// Gives `chord` to `id`; a command that had it loses it.
+    public func assign(_ chord: KeyChord, to id: CommandID) {
+        overrides[chord] = defaultKeymap[chord] == id ? nil : .some(id)
+        onKeymapChange?()
+    }
+
+    /// Takes `chord` away from `id`, leaving it unbound.
+    public func removeKey(_ chord: KeyChord, from id: CommandID) {
+        guard commandID(for: chord) == id else { return }
+        overrides[chord] = defaultKeymap[chord] == nil ? nil : .some(nil)
+        onKeymapChange?()
+    }
+
+    /// Gives `id` its default keys back (taking them from commands they were given to) and
+    /// removes the keys the user added to it.
+    public func resetKeys(of id: CommandID) {
+        for (chord, target) in overrides where target == id || defaultKeymap[chord] == id { overrides[chord] = nil }
+        onKeymapChange?()
+    }
+
+    /// Back to every command's default keys.
+    public func resetAllKeys() {
+        overrides = [:]
+        onKeymapChange?()
+    }
+
+    /// Whether `id` has keys other than its defaults.
+    public func hasChangedKeys(_ id: CommandID) -> Bool {
+        overrides.contains { $0.value == id || defaultKeymap[$0.key] == id }
     }
 
     /// Runs the command bound to `chord`. Returns false if nothing is bound.
@@ -197,5 +250,17 @@ public final class CommandRegistry {
         guard let command = commands[id], command.isEnabled(context) else { return false }
         command.run(context)
         return true
+    }
+}
+
+/// One change to the default keys: `chord` runs `command`, or nothing when `command` is nil
+/// (a default key the user removed).
+public struct KeyBindingOverride: Codable, Hashable, Sendable {
+    public var chord: KeyChord
+    public var command: CommandID?
+
+    public init(chord: KeyChord, command: CommandID?) {
+        self.chord = chord
+        self.command = command
     }
 }

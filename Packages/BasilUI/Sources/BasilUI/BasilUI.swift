@@ -94,7 +94,15 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
 
         BuiltinCommands.register(in: commands, window: self)
         ContextMenuCommands.register(in: commands, window: self)
+        // The user's keys (Settings, Keys), saved whenever they change.
+        commands.keyOverrides = settings.settings.keyBindings
+        SettingsWindowController.commands = commands
         functionBar = FunctionKeyBar(commands: commands, ids: BuiltinCommands.functionBarIDs)
+        commands.onKeymapChange = { [weak self] in
+            guard let self else { return }
+            settings.settings.keyBindings = commands.keyOverrides
+            functionBar.refreshKeys()
+        }
         functionBar.onInvoke = { [weak self] id in
             guard let self else { return }
             commands.perform(id, in: self)

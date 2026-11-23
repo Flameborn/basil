@@ -586,6 +586,80 @@ final class PaneUITests: XCTestCase {
         }
     }
 
+    /// Settings, Keys: pick a command, record a key (one in use asks to take it), assign it,
+    /// and the pane runs it; Reset All Keys brings the defaults back.
+    func testKeysSettingsTab() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Keys'")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
+        tab.click()
+        let filter = settings.textFields["Filter commands"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 2), settings.debugDescription)
+        filter.click()
+        filter.typeText("Copy Path")
+        let row = settings.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Copy Path, Option+Cmd+C' OR value == 'Copy Path, Option+Cmd+C'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 2), settings.debugDescription)
+        row.click()
+        let recorder = settings.buttons["Record new key for Copy Path"]
+        XCTAssertTrue(recorder.waitForExistence(timeout: 2), settings.debugDescription)
+        XCTAssertTrue(settings.buttons["Remove Option+Cmd+C"].exists)
+        try audit(app) { issue in
+            if issue.auditType == .action, let element = issue.element, !element.isEnabled { return true }
+            if self.isCoveredElsewhere(issue, by: settings) { return true }
+            print("AUDIT keys settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        // Cmd+K belongs to Connect to Server; Cmd+W while recording is recorded, not closing.
+        recorder.click()
+        XCTAssertTrue(waitFor { (recorder.value as? String) == "Press the new key" })
+        settings.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(settings.buttons["Assign Cmd+W"].waitForExistence(timeout: 2), settings.debugDescription)
+        settings.buttons["Cancel"].click()
+        recorder.click()
+        settings.typeKey("k", modifierFlags: .command)
+        let conflict = settings.staticTexts.matching(NSPredicate(
+            format: "value BEGINSWITH 'Cmd+K is used by Connect to Server.' OR label BEGINSWITH 'Cmd+K is used by Connect to Server.'")).firstMatch
+        XCTAssertTrue(conflict.waitForExistence(timeout: 2), settings.debugDescription)
+        settings.buttons["Assign Cmd+K"].click()
+        XCTAssertTrue(settings.buttons["Remove Cmd+K"].waitForExistence(timeout: 2), settings.debugDescription)
+        XCTAssertTrue(settings.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Copy Path, Cmd+K, Option+Cmd+C' OR value == 'Copy Path, Cmd+K, Option+Cmd+C'")).firstMatch.exists, settings.debugDescription)
+        settings.buttons["Remove Option+Cmd+C"].click()
+        XCTAssertTrue(waitFor { !settings.buttons["Remove Option+Cmd+C"].exists })
+        settings.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitFor { !settings.exists })
+
+        // In the pane Cmd+K now copies the path; Cmd+Option+C does nothing.
+        NSPasteboard.general.clearContents()
+        leftTable.click()
+        leftTable.typeKey(.home, modifierFlags: [])
+        leftTable.typeKey("k", modifierFlags: .command)
+        let fixture = try XCTUnwrap(app.groups["pane.left.path"].value as? String)
+        XCTAssertTrue(waitFor { NSPasteboard.general.string(forType: .string) == fixture + "/Alpha" },
+                      NSPasteboard.general.string(forType: .string) ?? "")
+        XCTAssertFalse(app.sheets.firstMatch.exists, "Cmd+K no longer opens the connections")
+
+        // Reset All Keys asks first, then Cmd+K connects again.
+        leftTable.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        tab.click()
+        settings.buttons["Reset All Keys..."].click()
+        let confirm = app.sheets.buttons["Reset All Keys"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 2), app.debugDescription)
+        confirm.click()
+        XCTAssertTrue(waitFor { !settings.buttons["Reset All Keys..."].isEnabled })
+        settings.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitFor { !settings.exists })
+        leftTable.click()
+        leftTable.typeKey("c", modifierFlags: [.command, .option])
+        XCTAssertTrue(waitFor { NSPasteboard.general.string(forType: .string) == fixture + "/Alpha" })
+    }
+
     func testCopySettingsTab() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(",", modifierFlags: .command)

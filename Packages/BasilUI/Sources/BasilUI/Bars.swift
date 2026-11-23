@@ -234,8 +234,10 @@ final class FunctionKeyBar: ThemedBox {
     private let stack = NSStackView()
     private var buttons: [(CommandID, NSButton)] = []
     var onInvoke: ((CommandID) -> Void)?
+    private let commands: CommandRegistry
 
     init(commands: CommandRegistry, ids: [CommandID]) {
+        self.commands = commands
         super.init(frame: .zero)
         fillColor = Theme.barBackground
         stack.orientation = .horizontal
@@ -256,22 +258,31 @@ final class FunctionKeyBar: ThemedBox {
         setAccessibilityIdentifier("functionKeyBar")
 
         for id in ids {
-            guard let command = commands.command(id) else { continue }
-            let chord = commands.primaryChord(for: id)?.description ?? ""
-            let button = NSButton(title: "\(chord) \(command.title)", target: self, action: #selector(clicked(_:)))
+            guard commands.command(id) != nil else { continue }
+            let button = NSButton(title: "", target: self, action: #selector(clicked(_:)))
             button.bezelStyle = .accessoryBarAction
             button.font = Theme.barFont
             button.refusesFirstResponder = true
-            button.setAccessibilityLabel(command.title)
-            button.setAccessibilityHelp(chord.isEmpty ? nil : "Keyboard shortcut \(chord)")
             button.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
             stack.addArrangedSubview(button)
             buttons.append((id, button))
         }
+        refreshKeys()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Shows each command's current key (after the user changed keys).
+    func refreshKeys() {
+        for (id, button) in buttons {
+            guard let command = commands.command(id) else { continue }
+            let chord = commands.primaryChord(for: id)?.description ?? ""
+            button.title = chord.isEmpty ? command.title : "\(chord) \(command.title)"
+            button.setAccessibilityLabel(command.title)
+            button.setAccessibilityHelp(chord.isEmpty ? nil : "Keyboard shortcut \(chord)")
+        }
+    }
 
     func updateEnabled(_ isEnabled: (CommandID) -> Bool) {
         for (id, button) in buttons { button.isEnabled = isEnabled(id) }
