@@ -137,6 +137,10 @@ public final class OneDriveProvider: WritableProvider, ConnectedProvider, Shared
     /// A refused request in VFS terms.
     func failure(_ response: HTTPResponse, _ action: String, _ path: VFSPath) -> Error {
         let problem = GraphProblem(response)
+        // Personal Vault: only Microsoft's own apps can unlock it, Graph answers this for it.
+        if problem.message.lowercased().contains("objecthandle is invalid") {
+            return VFSError.failed("\(path.name) can't be opened by other apps. Use onedrive.com or the OneDrive app.")
+        }
         switch (response.status, problem.code) {
         case (404, _), (_, "itemNotFound"):
             return VFSError.notFound(path)

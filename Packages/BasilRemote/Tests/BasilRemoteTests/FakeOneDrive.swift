@@ -37,6 +37,8 @@ final class FakeOneDrive: @unchecked Sendable {
         var deleted = false
         /// A shared folder added to My files: (drive, id) of the folder.
         var remote: (drive: String, id: String)?
+        /// Personal Vault: locked to other apps, Graph refuses to list it.
+        var vault = false
     }
 
     struct Session {
@@ -139,6 +141,14 @@ final class FakeOneDrive: @unchecked Sendable {
 
     @discardableResult
     func folder(_ name: String, in parent: String? = nil) -> String { put(name, in: parent, Data(), folder: true) }
+
+    /// Personal Vault, which Graph cannot open ("ObjectHandle is Invalid").
+    @discardableResult
+    func vault(_ name: String = "Personal Vault") -> String {
+        let id = folder(name)
+        state.withLock { $0.items[id]?.vault = true }
+        return id
+    }
 
     /// A folder in the other drive, added to the user's My files under `name`.
     @discardableResult
@@ -366,7 +376,9 @@ final class FakeOneDrive: @unchecked Sendable {
         }
         switch (method, action) {
         case ("GET", []): return get(id)
-        case ("GET", ["children"]): return list(id, request)
+        case ("GET", ["children"]):
+            if folder.vault { return .error(400, "invalidRequest", "ObjectHandle is Invalid") }
+            return list(id, request)
         case ("GET", ["content"]):
             guard !folder.folder else { return .error(400, "invalidRequest", "Folders have no content") }
             return Response(status: 302, body: Data(), headers: ["Location": "\(other)/download/\(id)"])

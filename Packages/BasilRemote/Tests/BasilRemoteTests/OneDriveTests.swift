@@ -295,6 +295,15 @@ private func referenceQuickXor(_ data: Data) -> String {
         await #expect(throws: VFSError.notFound(s.top.appending("Nothing"))) { _ = try await s.provider.item(at: s.top.appending("Nothing")) }
     }
 
+    @Test func personalVaultIsListedButExplainsWhyItCannotBeOpened() async throws {
+        let s = try await setUp { fake in fake.vault() }
+        let vault = s.top.appending("Personal Vault")
+        #expect(try await collect(s.provider.list(s.top)).contains { $0.name == "Personal Vault" })
+        await #expect(throws: VFSError.failed("Personal Vault can't be opened by other apps. Use onedrive.com or the OneDrive app.")) {
+            _ = try await collect(s.provider.list(vault))
+        }
+    }
+
     @Test func sharedFoldersInMyFilesAreLinksIntoTheirDrive() async throws {
         var shared = (link: "", folder: "")
         let s = try await setUp { fake in
