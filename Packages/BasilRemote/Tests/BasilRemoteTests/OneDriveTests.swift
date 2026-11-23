@@ -88,6 +88,26 @@ private func referenceQuickXor(_ data: Data) -> String {
         }
     }
 
+    /// Values from rclone's QuickXorHash (`rclone hashsum quickxor --base64`, its URL-safe
+    /// Base64 turned into the standard alphabet OneDrive uses).
+    @Test func quickXorHashMatchesRclone() {
+        func hash(_ data: Data) -> String {
+            var hasher = QuickXorHash()
+            hasher.update(data)
+            return hasher.base64
+        }
+        #expect(hash(Data()) == "AAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+        #expect(hash(Data("a".utf8)) == "YQAAAAAAAAAAAAAAAQAAAAAAAAA=")
+        #expect(hash(Data("Hello, world".utf8)) == "SCgDG9jwBhaA4A5vnAMbyAAAAAA=")
+        let seq1000 = Data((0..<1000).map { (i: Int) -> UInt8 in UInt8(i % 251) })
+        let seq200k = Data((0..<200_000).map { (i: Int) -> UInt8 in UInt8((i * 7 + 3) % 256) })
+        let count3m = 3 * 1024 * 1024 + 17
+        let seq3m = Data((0..<count3m).map { (i: Int) -> UInt8 in UInt8((i * 13 + i / 7) % 256) })
+        #expect(hash(seq1000) == "KbphcpColXb1/3Wm950vUzeX1es=")
+        #expect(hash(seq200k) == "UDaz+YSVrQw+YhHrw4BvRPpkJxs=")
+        #expect(hash(seq3m) == "Gv1aVj2hgG8ZIup0DafBGKE3jJM=")
+    }
+
     @Test func namesAreEncodedAndForbiddenCharactersRefused() {
         #expect(GraphPath.encode("a b#%?.txt") == "a%20b%23%25%3F.txt")
         #expect(GraphPath.encode("b!drive") == "b%21drive")
