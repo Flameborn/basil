@@ -38,7 +38,7 @@ struct NextcloudServer: Sendable {
 /// permanent delete also empties the item from there. Folders are not watched.
 public final class WebDAVProvider: WritableProvider, ConnectedProvider, @unchecked Sendable {
     public let location: ProviderLocation
-    let client: WebDAVClient
+    let client: HTTPClient
     /// Decoded server path of "/", without a trailing slash ("" for the server's top).
     let root: String
     let nextcloud: NextcloudServer?
@@ -59,7 +59,7 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
         return result
     }
 
-    init(client: WebDAVClient, root: String, nextcloud: NextcloudServer?, identity: String) {
+    init(client: HTTPClient, root: String, nextcloud: NextcloudServer?, identity: String) {
         self.client = client
         self.root = root
         self.nextcloud = nextcloud
@@ -97,10 +97,10 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
 
     /// Sends a request and turns a lost login into words.
     func send(_ method: String, _ url: URL, headers: [String: String] = [:], body: Data? = nil,
-              file: URL? = nil, retry: Bool = true) async throws -> WebDAVResponse {
+              file: URL? = nil, retry: Bool = true) async throws -> HTTPResponse {
         do {
             return try await client.send(method, url, headers: headers, body: body, file: file, retry: retry)
-        } catch is WebDAVUnauthorized {
+        } catch is HTTPUnauthorized {
             throw VFSError.failed("\(host) no longer accepts the login. Disconnect and connect again.")
         } catch is UntrustedCertificate {
             throw VFSError.failed("The TLS certificate of \(host) changed while connected. Connect again to check it.")
@@ -108,7 +108,7 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
     }
 
     /// A refused request in VFS terms.
-    func failure(_ response: WebDAVResponse, _ action: String, _ path: VFSPath) -> Error {
+    func failure(_ response: HTTPResponse, _ action: String, _ path: VFSPath) -> Error {
         switch response.status {
         case 404, 410: return VFSError.notFound(path)
         case 403: return VFSError.permissionDenied(path)
@@ -120,7 +120,7 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
     }
 
     /// PROPFIND with Depth 0 or 1.
-    func propfind(_ url: URL, depth: Int, extra: [(String, String)] = []) async throws -> WebDAVResponse {
+    func propfind(_ url: URL, depth: Int, extra: [(String, String)] = []) async throws -> HTTPResponse {
         try await send("PROPFIND", url, headers: ["Depth": String(depth), "Content-Type": "application/xml; charset=utf-8"],
                        body: DAVXML.propfind(nextcloud: nextcloud != nil, extra: extra))
     }
@@ -139,7 +139,7 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
         return entry
     }
 
-    func parse(_ response: WebDAVResponse, _ path: VFSPath) throws -> [DAVEntry] {
+    func parse(_ response: HTTPResponse, _ path: VFSPath) throws -> [DAVEntry] {
         do { return try DAVXML.parse(response.body) } catch let error as DAVXML.DAVParseError {
             throw VFSError.failed("\(host) sent an unreadable listing of \(path.displayName): \(error.message)")
         }
@@ -245,7 +245,11 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
     public func openForReading(_ path: VFSPath, bypassCache: Bool) async throws -> any ReadableFile {
         let entry = try await entry(path)
         if entry.isCollection { throw VFSError.failed("\(path.displayName) is a folder") }
-        return WebDAVReadFile(path: path, url: url(path), provider: self)
+        let url = url(path)
+        let client = client
+        return HTTPReadFile(name: path.name, start: { client.download(url, from: $0) },
+                            currentSize: { try? await self.lookUp(path)?.size },
+                            failure: { self.failure($0, "Reading \(path.name)", path) })
     }
 
     public func createFile(_ path: VFSPath) async throws -> any WritableFile {
@@ -275,7 +279,7 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
         throw failure(response, action, from)
     }
 
-    private func move(_ from: VFSPath, _ to: VFSPath, folder: Bool, overwrite: Bool) async throws -> WebDAVResponse {
+    private func move(_ from: VFSPath, _ to: VFSPath, folder: Bool, overwrite: Bool) async throws -> HTTPResponse {
         try await send("MOVE", url(from, folder: folder), headers: [
             "Destination": url(to, folder: folder).absoluteString,
             "Overwrite": overwrite ? "T" : "F",
@@ -372,98 +376,4 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
     public func createSymlink(_ path: VFSPath, target: String) async throws {
         throw VFSError.unsupported("making links on a WebDAV server")
     }
-}
-
-/// A file being read: one GET from the asked offset on, delivered as it arrives and started
-/// again at another offset when the caller jumps. A server that ignores ranges sends the whole
-/// file, and the bytes before the offset are dropped.
-actor WebDAVReadFile: ReadableFile {
-    let path: VFSPath
-    let url: URL
-    let provider: WebDAVProvider
-    private var download: WebDAVDownload?
-    private var position: Int64 = 0
-    private var atEnd = false
-
-    init(path: VFSPath, url: URL, provider: WebDAVProvider) {
-        self.path = path
-        self.url = url
-        self.provider = provider
-    }
-
-    func read(at offset: Int64, count: Int) async throws -> Data {
-        if atEnd, offset >= position { return Data() }
-        if download == nil || offset != position {
-            try await start(at: offset)
-            if atEnd { return Data() }
-        }
-        guard let download else { return Data() }
-        let bytes: Data
-        do { bytes = try await download.read(count) } catch {
-            stop()
-            // A server sends the length the file had when the transfer began and drops the
-            // connection when it was cut short meanwhile. When the file is no longer than what
-            // arrived, that was its end; the copy engine sees the changed size and reads again.
-            if let size = try? await provider.lookUp(path)?.size, size <= position {
-                atEnd = true
-                return Data()
-            }
-            throw VFSError.failed("Reading \(path.name) failed: \(error.localizedDescription)")
-        }
-        position += Int64(bytes.count)
-        if bytes.count < count {
-            atEnd = true
-            self.download = nil
-        }
-        return bytes
-    }
-
-    private func start(at offset: Int64) async throws {
-        stop()
-        atEnd = false
-        let download = provider.client.download(url, from: offset)
-        let response: WebDAVResponse
-        do { response = try await download.response() } catch {
-            download.cancel()
-            throw error is VFSError ? error : VFSError.failed("Reading \(path.name) failed: \(error.localizedDescription)")
-        }
-        switch response.status {
-        case 206:
-            position = offset
-        case 200:
-            // The whole file: skip to the offset.
-            position = 0
-            var skip = offset
-            while skip > 0 {
-                let bytes = try await download.read(Int(min(skip, 1 << 20)))
-                if bytes.isEmpty { break }
-                skip -= Int64(bytes.count)
-                position += Int64(bytes.count)
-            }
-            if position < offset {
-                atEnd = true
-                download.cancel()
-                return
-            }
-        case 416:
-            // At or past the end.
-            position = offset
-            atEnd = true
-            download.cancel()
-            return
-        default:
-            let body = (try? await download.rest()) ?? Data()
-            download.cancel()
-            throw provider.failure(WebDAVResponse(status: response.status, headers: response.headers, body: body),
-                                   "Reading \(path.name)", path)
-        }
-        self.download = download
-    }
-
-    private func stop() {
-        download?.cancel()
-        download = nil
-    }
-
-    func close() async { stop() }
 }

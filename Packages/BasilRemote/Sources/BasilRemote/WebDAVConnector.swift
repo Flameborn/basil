@@ -27,15 +27,15 @@ public struct WebDAVConnector: RemoteConnector {
     public var pathPlaceholder: String? { "Folder on the server, such as /dav (empty: the top)" }
     public var schemeAliases: [String] { secure ? ["https", "davs"] : ["http", "dav"] }
 
-    func endpoint(for target: RemoteTarget) -> WebDAVEndpoint {
-        WebDAVEndpoint(service: service, secure: secure, host: target.host, port: target.port ?? defaultPort,
+    func endpoint(for target: RemoteTarget) -> HTTPEndpoint {
+        HTTPEndpoint(service: service, secure: secure, host: target.host, port: target.port ?? defaultPort,
                        defaultPort: defaultPort, user: target.user?.trimmingCharacters(in: .whitespaces) ?? "")
     }
 
     public func connect(_ target: RemoteTarget, prompts: any RemotePrompts) async throws
         -> (provider: any FileSystemProvider, start: VFSPath) {
         let endpoint = endpoint(for: target)
-        let client = WebDAVClient(endpoint: endpoint)
+        let client = HTTPClient(endpoint: endpoint)
         let session = LoginSession(connector: self, client: client, prompts: prompts)
         do {
             let given = DAVPath.normalized(target.path)
@@ -134,23 +134,23 @@ public struct WebDAVConnector: RemoteConnector {
 /// for the password whenever the server answers 401 (three tries).
 final class LoginSession: @unchecked Sendable {
     let connector: WebDAVConnector
-    let client: WebDAVClient
+    let client: HTTPClient
     let prompts: any RemotePrompts
     private var request: SecretRequest?
     private var answer: SecretAnswer?
     private var tries = 0
 
-    init(connector: WebDAVConnector, client: WebDAVClient, prompts: any RemotePrompts) {
+    init(connector: WebDAVConnector, client: HTTPClient, prompts: any RemotePrompts) {
         self.connector = connector
         self.client = client
         self.prompts = prompts
     }
 
-    var endpoint: WebDAVEndpoint { client.endpoint }
+    var endpoint: HTTPEndpoint { client.endpoint }
 
     /// Sends a request to a decoded server path, asking what has to be asked.
     func send(_ method: String, _ path: String, headers: [String: String] = [:], body: Data? = nil) async throws
-        -> WebDAVResponse {
+        -> HTTPResponse {
         var headers = headers
         if body != nil { headers["Content-Type"] = "application/xml; charset=utf-8" }
         let url = URL(string: endpoint.origin + DAVPath.encode(path))!
@@ -164,7 +164,7 @@ final class LoginSession: @unchecked Sendable {
                 let digest = try await connector.trust.verify(untrusted.chain, host: endpoint.host,
                                                               hostAndPort: endpoint.hostAndPort, prompts: prompts)
                 client.accept(certificate: digest)
-            } catch is WebDAVUnauthorized {
+            } catch is HTTPUnauthorized {
                 try await askPassword()
             }
         }

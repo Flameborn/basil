@@ -76,6 +76,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     target: RemoteTarget(service: .smb, host: server.host, port: nil, user: server.user,
                                          path: nil, authentication: .password))]
             }
+            if let server = UITestS3Server.startIfRequested() {
+                settings.settings.connections = [SavedConnection(
+                    name: "Test S3 server",
+                    target: RemoteTarget(service: .s3, host: server.host, port: server.port, user: server.accessKey,
+                                         path: nil, authentication: .password, options: ["security": "http"]))]
+            }
             if let server = UITestFTPServer.startIfRequested(), let root = start?.left {
                 settings.settings.connections = [SavedConnection(
                     name: "Test FTP server",
@@ -100,6 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         providers.register(connector: WebDAVConnector(secure: false, trustFile: davTrustFile))
         // SMB through macOS's own client: shares are mounted in /Volumes like Finder does.
         providers.register(connector: SMBConnector())
+        // Amazon S3 and S3-compatible services (R2, B2, Wasabi, MinIO, ...), Basil's own SigV4 client.
+        providers.register(connector: S3Connector(trustFile: dataDirectory.appendingPathComponent("Trusted S3 certificates.txt")))
         // Dropbox, when the build has an app key (Config/Dropbox.local.xcconfig). Its sign-in comes
         // back to http://localhost:21745/dropbox, which Basil serves while it waits.
         if let key = Bundle.main.object(forInfoDictionaryKey: "BasilDropboxAppKey") as? String,

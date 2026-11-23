@@ -20,7 +20,7 @@ actor WebDAVWriteFile: WritableFile {
 
     private enum Mode {
         case memory
-        case stream(WebDAVStreamUpload)
+        case stream(HTTPStreamUpload)
         case spool(FileHandle, URL)
         /// Nextcloud's upload folder (a server path) and the number of the next chunk.
         case chunks(String, Int)
@@ -93,10 +93,10 @@ actor WebDAVWriteFile: WritableFile {
         }
     }
 
-    private func send(_ data: Data, through upload: WebDAVStreamUpload) async throws {
+    private func send(_ data: Data, through upload: HTTPStreamUpload) async throws {
         do {
             try await upload.write(data)
-        } catch is WebDAVStreamUpload.Ended {
+        } catch is HTTPStreamUpload.Ended {
             // The server answered before the end: an error.
             let response = try await upload.answer()
             throw refused(response)
@@ -122,7 +122,7 @@ actor WebDAVWriteFile: WritableFile {
         }
     }
 
-    private func refused(_ response: WebDAVResponse) -> Error {
+    private func refused(_ response: HTTPResponse) -> Error {
         if response.status == 411 {
             provider.needsLength.withLock { $0 = true }
             return VFSError.failed("\(action) failed: \(provider.host) needs the size of a file before it is uploaded. Retry: large files now go through a temporary copy on this Mac first.")
@@ -140,7 +140,7 @@ actor WebDAVWriteFile: WritableFile {
             headers["OC-Checksum"] = "SHA1:" + sha1.finalize().map { String(format: "%02x", $0) }.joined()
         }
         let target = provider.url(path)
-        let response: WebDAVResponse
+        let response: HTTPResponse
         switch mode {
         case .memory:
             headers["Content-Type"] = "application/octet-stream"

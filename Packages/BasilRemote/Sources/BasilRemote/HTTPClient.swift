@@ -4,8 +4,8 @@ import Foundation
 import Security
 import Synchronization
 
-/// Where one WebDAV connection goes.
-struct WebDAVEndpoint: Sendable {
+/// Where one HTTP connection (WebDAV, S3) goes.
+struct HTTPEndpoint: Sendable {
     var service: ProviderID
     var secure: Bool
     var host: String
@@ -31,7 +31,7 @@ struct WebDAVEndpoint: Sendable {
 }
 
 /// One answer from the server: status, headers (names in lower case) and body.
-struct WebDAVResponse: Sendable {
+struct HTTPResponse: Sendable {
     var status: Int
     var headers: [String: String]
     var body: Data
@@ -75,15 +75,15 @@ struct UntrustedCertificate: Error {
 }
 
 /// The server asked for a login (401) that Basil did not have or that it refused.
-struct WebDAVUnauthorized: Error {}
+struct HTTPUnauthorized: Error {}
 
-/// HTTP for one WebDAV connection, through its own URLSession (ephemeral: no cache, cookies only
+/// HTTP for one WebDAV or S3 connection, through its own URLSession (ephemeral: no cache, cookies only
 /// in memory, no stored credentials). Logins are answered from the password given to the
 /// connection (Basic, Digest; after the first Basic challenge every request carries it, so
 /// streamed uploads are never challenged). TLS certificates the system does not trust are
 /// refused unless the connector accepted that certificate (`UntrustedCertificate` tells it).
-final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate, @unchecked Sendable {
-    let endpoint: WebDAVEndpoint
+final class HTTPClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate, @unchecked Sendable {
+    let endpoint: HTTPEndpoint
     private var session: URLSession!
 
     private struct State {
@@ -93,12 +93,12 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
         var acceptedCertificate: Data?
         var untrustedChain: [Data]?
         /// Per-task delegates of downloads, by task identifier.
-        var downloads: [Int: WebDAVDownload] = [:]
+        var downloads: [Int: HTTPDownload] = [:]
     }
 
     private let state = Mutex(State())
 
-    init(endpoint: WebDAVEndpoint) {
+    init(endpoint: HTTPEndpoint) {
         self.endpoint = endpoint
         super.init()
         let configuration = URLSessionConfiguration.ephemeral
@@ -138,10 +138,10 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
 
     /// Sends a request with an optional body and returns the whole answer. `retry`: the request
     /// may be sent again after a network error or a busy server (429, 502, 503, 504), up to four
-    /// times, waiting longer each time. Throws `UntrustedCertificate` and `WebDAVUnauthorized`
+    /// times, waiting longer each time. Throws `UntrustedCertificate` and `HTTPUnauthorized`
     /// (401) for the connector; other statuses are returned.
     func send(_ method: String, _ url: URL, headers: [String: String] = [:], body: Data? = nil,
-              file: URL? = nil, retry: Bool = true) async throws -> WebDAVResponse {
+              file: URL? = nil, retry: Bool = true) async throws -> HTTPResponse {
         var attempt = 0
         while true {
             attempt += 1
@@ -166,8 +166,8 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
             guard let http = result.1 as? HTTPURLResponse else {
                 throw VFSError.failed("\(endpoint.hostAndPort) did not answer over HTTP")
             }
-            let response = WebDAVResponse(http, body: result.0)
-            if response.status == 401 { throw WebDAVUnauthorized() }
+            let response = HTTPResponse(http, body: result.0)
+            if response.status == 401 { throw HTTPUnauthorized() }
             if retry, attempt < 4, [429, 502, 503, 504].contains(response.status) {
                 let wait = response.header("Retry-After").flatMap(Double.init) ?? Double(1 << (attempt - 1))
                 try await Task.sleep(for: .seconds(min(wait, 30)))
@@ -220,24 +220,26 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
     }
 
     /// Starts a download of `url` from byte `offset` on ("Range: bytes=offset-"), delivered as it
-    /// arrives (`WebDAVDownload`).
-    func download(_ url: URL, from offset: Int64) -> WebDAVDownload {
-        var request = request("GET", url, headers: offset > 0 ? ["Range": "bytes=\(offset)-"] : [:])
+    /// arrives (`HTTPDownload`).
+    func download(_ url: URL, from offset: Int64, headers: [String: String] = [:]) -> HTTPDownload {
+        var headers = headers
+        if offset > 0 { headers["Range"] = "bytes=\(offset)-" }
+        var request = request("GET", url, headers: headers)
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         let task = session.dataTask(with: request)
-        let download = WebDAVDownload(task: task, client: self)
+        let download = HTTPDownload(task: task, client: self)
         state.withLock { $0.downloads[task.taskIdentifier] = download }
         task.resume()
         return download
     }
 
     /// Starts an upload whose body is written as it comes (chunked transfer encoding).
-    func streamedUpload(_ method: String, _ url: URL, headers: [String: String]) -> WebDAVStreamUpload {
-        WebDAVStreamUpload(client: self, request: request(method, url, headers: headers))
+    func streamedUpload(_ method: String, _ url: URL, headers: [String: String]) -> HTTPStreamUpload {
+        HTTPStreamUpload(client: self, request: request(method, url, headers: headers))
     }
 
-    /// Runs a request whose body is a stream; used by `WebDAVStreamUpload`.
-    func perform(streamed request: URLRequest) async throws -> WebDAVResponse {
+    /// Runs a request whose body is a stream; used by `HTTPStreamUpload`.
+    func perform(streamed request: URLRequest) async throws -> HTTPResponse {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await session.data(for: request)
@@ -247,7 +249,7 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
         guard let http = response as? HTTPURLResponse else {
             throw VFSError.failed("\(endpoint.hostAndPort) did not answer over HTTP")
         }
-        return WebDAVResponse(http, body: data)
+        return HTTPResponse(http, body: data)
     }
 
     // MARK: URLSession delegate
@@ -270,7 +272,7 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
         case NSURLAuthenticationMethodServerTrust:
             guard let trust = space.serverTrust else { return (.cancelAuthenticationChallenge, nil) }
             let chain = ((SecTrustCopyCertificateChain(trust) as? [SecCertificate]) ?? []).map { SecCertificateCopyData($0) as Data }
-            if CertificateTrust.evaluate(chain, host: endpoint.host).trusted { return (.performDefaultHandling, nil) }
+            if CertificateTrust.evaluate(chain, host: space.host).trusted { return (.performDefaultHandling, nil) }
             if let leaf = chain.first, let accepted = acceptedCertificate, CertificateTrust.fingerprint(leaf) == accepted {
                 return (.useCredential, URLCredential(trust: trust))
             }
@@ -329,14 +331,14 @@ final class WebDAVClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelega
         download?.finished(error.map { mapped($0) })
     }
 
-    private func download(for task: URLSessionTask) -> WebDAVDownload? {
+    private func download(for task: URLSessionTask) -> HTTPDownload? {
         state.withLock { $0.downloads[task.taskIdentifier] }
     }
 }
 
 /// A GET whose body is handed out as it arrives. The task is suspended while more than
 /// `limit` bytes wait, so a slow reader never piles up a whole file in memory.
-final class WebDAVDownload: @unchecked Sendable {
+final class HTTPDownload: @unchecked Sendable {
     static let limit = 16 << 20
 
     private struct State {
@@ -350,9 +352,9 @@ final class WebDAVDownload: @unchecked Sendable {
 
     private let state = Mutex(State())
     let task: URLSessionDataTask
-    private let client: WebDAVClient
+    private let client: HTTPClient
 
-    init(task: URLSessionDataTask, client: WebDAVClient) {
+    init(task: URLSessionDataTask, client: HTTPClient) {
         self.task = task
         self.client = client
     }
@@ -404,10 +406,10 @@ final class WebDAVDownload: @unchecked Sendable {
     }
 
     /// The response's status and headers, once they arrived.
-    func response() async throws -> WebDAVResponse {
+    func response() async throws -> HTTPResponse {
         try await wait { $0.response != nil || $0.done }
         let (response, error) = state.withLock { ($0.response, $0.error) }
-        if let response { return WebDAVResponse(response, body: Data()) }
+        if let response { return HTTPResponse(response, body: Data()) }
         throw client.describe(error ?? VFSError.failed("No answer"), method: "GET")
     }
 
@@ -449,10 +451,10 @@ final class WebDAVDownload: @unchecked Sendable {
 /// An upload whose body is written while it is sent (a bound stream pair; the URL loading
 /// system reads one end, `write` fills the other on its own dispatch queue, never on the
 /// cooperative pool). The server's answer comes from `finish`.
-final class WebDAVStreamUpload: @unchecked Sendable {
+final class HTTPStreamUpload: @unchecked Sendable {
     private let output: OutputStream
-    private let task: Task<WebDAVResponse, Error>
-    private let queue = DispatchQueue(label: "Basil WebDAV upload")
+    private let task: Task<HTTPResponse, Error>
+    private let queue = DispatchQueue(label: "Basil HTTP upload")
     private let ended = Flag()
 
     struct Ended: Error {}
@@ -464,7 +466,7 @@ final class WebDAVStreamUpload: @unchecked Sendable {
         var isSet: Bool { value.withLock { $0 } }
     }
 
-    init(client: WebDAVClient, request: URLRequest) {
+    init(client: HTTPClient, request: URLRequest) {
         var input: InputStream?
         var output: OutputStream?
         Stream.getBoundStreams(withBufferSize: 256 << 10, inputStream: &input, outputStream: &output)
@@ -512,7 +514,7 @@ final class WebDAVStreamUpload: @unchecked Sendable {
     }
 
     /// Ends the body and returns the server's answer.
-    func finish() async throws -> WebDAVResponse {
+    func finish() async throws -> HTTPResponse {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             nonisolated(unsafe) let output = output
             queue.async {
@@ -524,11 +526,110 @@ final class WebDAVStreamUpload: @unchecked Sendable {
     }
 
     /// The server's answer after `write` threw `Ended`.
-    func answer() async throws -> WebDAVResponse { try await task.value }
+    func answer() async throws -> HTTPResponse { try await task.value }
 
     func cancel() {
         task.cancel()
         nonisolated(unsafe) let output = output
         queue.async { output.close() }
     }
+}
+
+/// A file being read over HTTP: one GET from the asked offset on, delivered as it arrives and
+/// started again at another offset when the caller jumps. A server that ignores ranges sends the
+/// whole file, and the bytes before the offset are dropped.
+actor HTTPReadFile: ReadableFile {
+    let name: String
+    /// Starts a GET from an offset (0: the whole file).
+    let start: @Sendable (Int64) -> HTTPDownload
+    /// The file's size on the server now, or nil.
+    let currentSize: @Sendable () async -> Int64?
+    /// A refused GET in VFS terms.
+    let failure: @Sendable (HTTPResponse) -> Error
+    private var download: HTTPDownload?
+    private var position: Int64 = 0
+    private var atEnd = false
+
+    init(name: String, start: @escaping @Sendable (Int64) -> HTTPDownload,
+         currentSize: @escaping @Sendable () async -> Int64?, failure: @escaping @Sendable (HTTPResponse) -> Error) {
+        self.name = name
+        self.start = start
+        self.currentSize = currentSize
+        self.failure = failure
+    }
+
+    func read(at offset: Int64, count: Int) async throws -> Data {
+        if atEnd, offset >= position { return Data() }
+        if download == nil || offset != position {
+            try await begin(at: offset)
+            if atEnd { return Data() }
+        }
+        guard let download else { return Data() }
+        let bytes: Data
+        do { bytes = try await download.read(count) } catch {
+            stop()
+            // A server sends the length the file had when the transfer began and drops the
+            // connection when it was cut short meanwhile. When the file is no longer than what
+            // arrived, that was its end; the copy engine sees the changed size and reads again.
+            if let size = await currentSize(), size <= position {
+                atEnd = true
+                return Data()
+            }
+            throw VFSError.failed("Reading \(name) failed: \(error.localizedDescription)")
+        }
+        position += Int64(bytes.count)
+        if bytes.count < count {
+            atEnd = true
+            self.download = nil
+        }
+        return bytes
+    }
+
+    private func begin(at offset: Int64) async throws {
+        stop()
+        atEnd = false
+        let download = start(offset)
+        let response: HTTPResponse
+        do { response = try await download.response() } catch {
+            download.cancel()
+            throw error is VFSError ? error : VFSError.failed("Reading \(name) failed: \(error.localizedDescription)")
+        }
+        switch response.status {
+        case 206:
+            position = offset
+        case 200:
+            // The whole file: skip to the offset.
+            position = 0
+            var skip = offset
+            while skip > 0 {
+                let bytes = try await download.read(Int(min(skip, 1 << 20)))
+                if bytes.isEmpty { break }
+                skip -= Int64(bytes.count)
+                position += Int64(bytes.count)
+            }
+            if position < offset {
+                atEnd = true
+                download.cancel()
+                return
+            }
+        case 416:
+            // At or past the end.
+            position = offset
+            atEnd = true
+            download.cancel()
+            return
+        default:
+            let body = (try? await download.rest()) ?? Data()
+            download.cancel()
+            throw failure(HTTPResponse(status: response.status, headers: response.headers, body: body))
+        }
+        self.download = download
+    }
+
+    private func stop() {
+        download?.cancel()
+        download = nil
+    }
+
+    func close() async { stop() }
 }

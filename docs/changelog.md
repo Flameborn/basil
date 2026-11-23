@@ -7,6 +7,7 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - WebDAV over HTTP and HTTPS: saved connections and Quick Connect (http:// and https:// addresses work), Basic and Digest logins with the password asked only when the server wants one, untrusted certificates asked about and remembered, copy and move both ways through the secure copy engine, server-side copies and moves.
 - Nextcloud is found automatically: its user's files are the top folder, large uploads go in checked chunks with their dates kept, F8 moves to the Nextcloud trash bin and Shift+F8 also removes the item from there.
 - SMB (Windows shares, Samba, NAS boxes, Macs): connect with Cmd+K, the server's shares show as folders, Enter on a share mounts it in /Volumes like Finder, and Disconnect unmounts what Basil mounted. Guest logins work. Copy and move go through the secure copy engine; F3, F4, the terminal and archives work on shares like on local files.
+- S3: Amazon S3 and S3-compatible services (Cloudflare R2, Backblaze B2, Wasabi, MinIO and others). Log in with an access key and its secret (Keychain optional) or with a profile from ~/.aws/credentials. The top folder lists the buckets (F7 there makes a bucket); folders work like in Cyberduck. Uploads are checked with SHA-256 by the server, large files go up in parts, dates are kept, and copies, moves and renames inside a bucket happen on the server.
 
 ## 0.1.0 - 2026-11-22
 

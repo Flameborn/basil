@@ -154,6 +154,10 @@ extension MainWindowController {
             fieldLabel = "Passphrase"
             alert.messageText = request.retry ? "Wrong passphrase for the key \(name). Try again." : "Passphrase for the key \(name):"
             alert.informativeText = "To log in to \(request.account) with \(keyFile)."
+        case .named(let name):
+            fieldLabel = name
+            let lower = name.prefix(1).lowercased() + name.dropFirst()
+            alert.messageText = request.retry ? "Wrong \(lower) for \(request.account). Try again." : "\(name) for \(request.account):"
         case .serverPrompt(let prompt):
             fieldLabel = prompt.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: ":"))
             alert.messageText = prompt

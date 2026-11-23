@@ -388,14 +388,14 @@ enum UITestSMBServer {
         return Server(host: host)
     }
 
-    /// Whether Samba accepts connections on port 445 yet.
-    private static func answers(_ host: String) -> Bool {
+    /// Whether the server accepts connections on the port yet (Samba: 445).
+    static func answers(_ host: String, port: Int = 445) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(445).bigEndian
+        address.sin_port = in_port_t(port).bigEndian
         inet_pton(AF_INET, host, &address.sin_addr)
         // Non-blocking with a short wait: a connect to an address that is not up yet can hang.
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
@@ -414,7 +414,7 @@ enum UITestSMBServer {
         return error == 0
     }
 
-    private static func run(_ tool: String, _ arguments: [String]) -> String? {
+    static func run(_ tool: String, _ arguments: [String]) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
@@ -425,6 +425,36 @@ enum UITestSMBServer {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+}
+
+/// The S3 gateway container of the BasilRemote tests (`basil-test-s3`, made by their first run)
+/// for the S3 UI test (`BASIL_UITEST_S3=1`): started when Docker (OrbStack) runs, emptied (no
+/// buckets), and stopped again by a watchdog when the app dies.
+enum UITestS3Server {
+    struct Server {
+        let host: String
+        let port = 7070
+        let accessKey = "basil-test-key"
+    }
+
+    static let container = "basil-test-s3"
+
+    static func startIfRequested() -> Server? {
+        guard UITestFixture.isActive, ProcessInfo.processInfo.environment["BASIL_UITEST_S3"] == "1",
+              let docker = ["/opt/homebrew/bin/docker", "/usr/local/bin/docker", NSHomeDirectory() + "/.orbstack/bin/docker"]
+                .first(where: { FileManager.default.isExecutableFile(atPath: $0) }),
+              UITestSMBServer.run(docker, ["start", container]) != nil,
+              let host = UITestSMBServer.run(docker, ["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container])?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else { return nil }
+        let server = Server(host: host)
+        for _ in 0..<100 where !UITestSMBServer.answers(host, port: server.port) { usleep(100_000) }
+        _ = UITestSMBServer.run(docker, ["exec", container, "sh", "-c", "rm -rf /data/* /data/.[!.]*"])
+        let watchdog = Process()
+        watchdog.executableURL = URL(fileURLWithPath: "/bin/sh")
+        watchdog.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 1; done; '\(docker)' stop -t 2 \(container)"]
+        try? watchdog.run()
+        return server
     }
 }
 #endif

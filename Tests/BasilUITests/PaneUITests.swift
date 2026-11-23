@@ -1240,6 +1240,61 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor({ !FileManager.default.fileExists(atPath: "/Volumes/media") }, timeout: 10))
     }
 
+    /// S3 against the BasilRemote tests' gateway container (skipped without Docker or the
+    /// container): the secret key prompt, the (empty) bucket list, F7 makes a bucket and a folder
+    /// in it, Backspace goes back to the buckets, Disconnect.
+    func testS3ConnectBrowseAndDisconnect() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_S3"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("k", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        if !sheet.waitForExistence(timeout: 2) { leftTable.typeKey("k", modifierFlags: .command) }
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        guard sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Test S3 server, '")).firstMatch
+            .waitForExistence(timeout: 3) else {
+            throw XCTSkip("No S3 container: start OrbStack and run the BasilRemote S3 tests once")
+        }
+        sheet.buttons["Connect"].click()
+        let secret = app.sheets.firstMatch.secureTextFields["Secret access key"]
+        XCTAssertTrue(secret.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitFor { (secret.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("Basil-test-secret-1\r")
+        let path = app.groups["pane.left.path"]
+        XCTAssertTrue(waitFor({ path.buttons.firstMatch.label.hasPrefix("basil-test-key@") }, timeout: 10), path.debugDescription)
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).isEmpty }, "\(names(in: leftTable))")
+
+        // A bucket, a folder in it, back to the buckets.
+        leftTable.typeKey(.F7, modifierFlags: [])
+        var mkdir = app.sheets.firstMatch
+        XCTAssertTrue(mkdir.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: mkdir)
+        app.typeText("uibucket\r")
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["uibucket"] }, timeout: 10), "\(names(in: leftTable))")
+        try audit(app) { issue in
+            print("AUDIT s3 buckets: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        leftTable.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor({ path.buttons.allElementsBoundByIndex.last?.label == "uibucket" }, timeout: 10), path.debugDescription)
+        leftTable.typeKey(.F7, modifierFlags: [])
+        mkdir = app.sheets.firstMatch
+        XCTAssertTrue(mkdir.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: mkdir)
+        app.typeText("Remote\r")
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["Remote"] }, timeout: 10), "\(names(in: leftTable))")
+        leftTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["uibucket"] }, timeout: 10))
+
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Net"].click()
+        let disconnect = menuBar.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'Disconnect '")).firstMatch
+        XCTAssertTrue(disconnect.waitForExistence(timeout: 2))
+        disconnect.click()
+        XCTAssertTrue(waitFor { !path.buttons.firstMatch.label.hasPrefix("basil-test-key@") }, path.debugDescription)
+    }
+
     func testRarArchiveBrowsesAndIsReadOnly() throws {
         app.terminate()
         app.launchEnvironment["BASIL_UITEST_RAR"] = "1"

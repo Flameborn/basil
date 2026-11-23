@@ -46,6 +46,8 @@ public struct SecretRequest: Sendable, Equatable {
         case passphrase(keyFile: String)
         /// A server question (keyboard-interactive), with its own prompt text.
         case serverPrompt(String)
+        /// A password the service names otherwise ("Secret access key" for S3).
+        case named(String)
     }
 
     public var kind: Kind
