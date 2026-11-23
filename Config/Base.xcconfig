@@ -21,3 +21,9 @@ BASIL_DROPBOX_APP_KEY =
 BASIL_GOOGLE_CLIENT_ID =
 BASIL_GOOGLE_CLIENT_SECRET =
 #include? "GoogleDrive.local.xcconfig"
+
+// OneDrive: the application (client) ID of an app registered in Microsoft Entra (public client,
+// redirect URI http://localhost/onedrive), set in Config/OneDrive.local.xcconfig (gitignored).
+// Empty: OneDrive is not offered.
+BASIL_ONEDRIVE_CLIENT_ID =
+#include? "OneDrive.local.xcconfig"

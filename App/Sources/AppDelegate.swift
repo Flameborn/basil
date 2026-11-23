@@ -120,13 +120,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            !id.isEmpty, !id.hasPrefix("$("), !secret.hasPrefix("$(") {
             providers.register(connector: GoogleDriveConnector(client: GoogleClient(id: id, secret: secret), secrets: remoteSecrets))
         }
+        // OneDrive, when the build has a Microsoft Entra client ID (Config/OneDrive.local.xcconfig).
+        if let id = info["BasilOneDriveClientID"] as? String, !id.isEmpty, !id.hasPrefix("$(") {
+            providers.register(connector: OneDriveConnector(clientID: id, secrets: remoteSecrets))
+        }
         #if DEBUG
-        // UI tests see Dropbox and Google Drive in every build; their sign-in never leaves the sheet.
+        // UI tests see Dropbox, Google Drive and OneDrive in every build; their sign-in never leaves the sheet.
         if UITestFixture.isActive, providers.connector(for: .dropbox) == nil {
             providers.register(connector: DropboxConnector(appKey: "uitest", secrets: remoteSecrets, returnPort: 0))
         }
         if UITestFixture.isActive, providers.connector(for: .googleDrive) == nil {
             providers.register(connector: GoogleDriveConnector(client: GoogleClient(id: "uitest", secret: "uitest"), secrets: remoteSecrets))
+        }
+        if UITestFixture.isActive, providers.connector(for: .oneDrive) == nil {
+            providers.register(connector: OneDriveConnector(clientID: "uitest", secrets: remoteSecrets))
         }
         #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,

@@ -47,6 +47,9 @@ targets:
         # to http://127.0.0.1:<free port>/google, served by Basil while it waits.
         BasilGoogleClientID: $(BASIL_GOOGLE_CLIENT_ID)
         BasilGoogleClientSecret: $(BASIL_GOOGLE_CLIENT_SECRET)
+        # OneDrive: the Microsoft Entra client ID (Config/OneDrive.local.xcconfig). The sign-in
+        # returns to http://localhost:<free port>/onedrive (Microsoft ignores the port).
+        BasilOneDriveClientID: $(BASIL_ONEDRIVE_CLIENT_ID)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flameborn.basil

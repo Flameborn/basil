@@ -1007,6 +1007,11 @@ final class PaneUITests: XCTestCase {
         try accountServiceEditorAndSignIn("Google Drive", note: "Basil never sees your Google password")
     }
 
+    /// OneDrive works like Dropbox: no server to type, a browser sign-in.
+    func testOneDriveConnectionEditorAndSignInSheet() throws {
+        try accountServiceEditorAndSignIn("OneDrive", note: "Basil never sees your Microsoft password")
+    }
+
     func accountServiceEditorAndSignIn(_ service: String, note: String) throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey("k", modifierFlags: .command)

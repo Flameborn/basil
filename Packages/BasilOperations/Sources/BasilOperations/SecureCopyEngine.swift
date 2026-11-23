@@ -397,10 +397,15 @@ public struct SecureCopyEngine: Sendable {
         }
         if mode == .move, hooks.allowed.contains(.rename), try await canRename(source, to: destination, src, dst) {
             // Same volume: a rename keeps writes from open handles, in both modes.
-            try await dst.rename(source, to: destination, replacing: replace)
-            monitor.log("Moved \(source.name) by renaming")
-            monitor.transferred(bytes: (try? await dst.fingerprint(of: destination))?.size ?? 0)
-            return FileTransferResult(outcome: .completed, strategy: .rename, sourceRemoved: true)
+            do {
+                try await dst.rename(source, to: destination, replacing: replace)
+                monitor.log("Moved \(source.name) by renaming")
+                monitor.transferred(bytes: (try? await dst.fingerprint(of: destination))?.size ?? 0)
+                return FileTransferResult(outcome: .completed, strategy: .rename, sourceRemoved: true)
+            } catch VFSError.unsupported {
+                // Different volume after all (a folder that is a link into another drive):
+                // copy and delete below.
+            }
         }
         if !options.secure {
             return try await plainTransferFile(source, to: destination, mode: mode, replacing: replace, src, dst)

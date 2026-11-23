@@ -2,7 +2,7 @@
 
 Basil is a native macOS dual-pane file manager in the spirit of Total Commander, written in Swift (AppKit for the panes, SwiftUI for dialogs and settings). VoiceOver accessibility is a core requirement: every pane, dialog and command is designed to work fully with VoiceOver and the keyboard alone.
 
-Features include Total Commander style keys and menus, tabs, quick filter, multi-rename, an operation queue with a secure copy and move engine, archives (zip, tar, 7z, RAR and more, including passwords), checksums, split and combine, and remote connections (SFTP, FTP/FTPS, WebDAV and Nextcloud, SMB, S3, Dropbox and Google Drive).
+Features include Total Commander style keys and menus, tabs, quick filter, multi-rename, an operation queue with a secure copy and move engine, archives (zip, tar, 7z, RAR and more, including passwords), checksums, split and combine, and remote connections (SFTP, FTP/FTPS, WebDAV and Nextcloud, SMB, S3, Dropbox, Google Drive and OneDrive).
 
 Basil is a personal project. It is not sandboxed, notarized or sold.
 
@@ -67,6 +67,21 @@ BASIL_GOOGLE_CLIENT_SECRET = GOCSPX-...
 
 Google documents the secret of a desktop client as not confidential (it is built into every copy of the app); Basil still signs in with PKCE. Tokens are stored in the macOS Keychain.
 
+### OneDrive app registration (optional)
+
+OneDrive support needs an app registered in the [Microsoft Entra admin center](https://entra.microsoft.com/). Without one the app builds and runs fine, it just does not offer OneDrive. Microsoft may ask you to create a free Azure account first.
+
+1. Identity > Applications > App registrations > New registration. Name: Basil. Supported account types: "Accounts in any organizational directory and personal Microsoft accounts".
+2. Redirect URI: platform "Public client/native (mobile and desktop)", value `http://localhost/onedrive`. Microsoft ignores the port of localhost addresses, so Basil can use a free port each time; the path must match.
+3. API permissions > Add a permission > Microsoft Graph > Delegated: `Files.ReadWrite.All` and `offline_access` (`User.Read` is there already). Work or school accounts may need their admin to allow the app.
+4. Put the Application (client) ID from the Overview page in `Config/OneDrive.local.xcconfig` (gitignored):
+
+```
+BASIL_ONEDRIVE_CLIENT_ID = 11111111-2222-3333-4444-555555555555
+```
+
+No client secret is needed: Basil signs in with OAuth 2 PKCE as a public client. Tokens are stored in the macOS Keychain. Microsoft has no way for an app to revoke its own sign-in, so after deleting a OneDrive connection in Basil, remove Basil from your account's app permissions (account.live.com/consent/Manage for personal accounts, myapps.microsoft.com for work or school) if you want its access to end at once.
+
 ## Building
 
 Debug:
@@ -120,7 +135,7 @@ Notes:
 
 - The UI tests use their own fixture folder and preferences domain and never touch your real settings.
 - The SFTP tests start macOS's own `sshd` on a free port as your user; the FTP tests build pure-ftpd with `scripts/build-test-ftpd.sh` on first use (needs Homebrew).
-- Dropbox and Google Drive tests run against in-memory fake servers and need no app key, OAuth client or network.
+- Dropbox, Google Drive and OneDrive tests run against in-memory fake servers and need no app key, OAuth client or network.
 
 ## Project layout
 
