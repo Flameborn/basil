@@ -10,7 +10,7 @@ Basil is a free, open-source dual-pane file manager for macOS. These terms expla
 - Basil is provided as is, without any warranty. You are responsible for your own files and backups.
 - Basil runs only on your Mac. The Basil project has no servers, no accounts and no service you sign up for.
 - When you connect Basil to a remote service, your use of that service stays subject to the service's own terms.
-- Basil collects no data about you. See the privacy policy (`db_privacypolicy.md`) for how the Dropbox connection handles your information.
+- Basil collects no data about you. The privacy policies `db_privacypolicy.md` (Dropbox) and `gd_privacypolicy.md` (Google Drive) explain how those connections handle your information.
 
 ## Who provides Basil
 
@@ -54,7 +54,7 @@ Basil can connect to services run by other companies and people, including Dropb
 
 ## Privacy
 
-Basil has no analytics, telemetry, crash reporting or advertising, and it sends nothing to the developer. Your settings, saved connections and temporary copies stay on your Mac, and secrets stay in the macOS Keychain. The privacy policy for the Dropbox connection is in `db_privacypolicy.md` in the repository.
+Basil has no analytics, telemetry, crash reporting or advertising, and it sends nothing to the developer. Your settings, saved connections and temporary copies stay on your Mac, and secrets stay in the macOS Keychain. The privacy policies for the Dropbox and Google Drive connections are `db_privacypolicy.md` and `gd_privacypolicy.md` in the repository.
 
 ## Updates and support
 
