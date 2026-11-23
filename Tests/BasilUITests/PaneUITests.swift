@@ -1113,6 +1113,78 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { !path.buttons.firstMatch.label.contains("@127.0.0.1:") }, path.debugDescription)
     }
 
+    /// WebDAV over HTTPS against macOS's own Apache (the app starts it): the editor shows the
+    /// WebDAV hints, the untrusted certificate and the password are asked, browsing and F7 work.
+    func testWebDAVConnectBrowseAndDisconnect() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_WEBDAV"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("k", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        if !sheet.waitForExistence(timeout: 2) { leftTable.typeKey("k", modifierFlags: .command) }
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Test WebDAV server, '")).firstMatch.waitForExistence(timeout: 3),
+                      sheet.debugDescription)
+
+        sheet.buttons["Edit"].click()
+        XCTAssertTrue(sheet.textFields["Host"].waitForExistence(timeout: 3), sheet.debugDescription)
+        XCTAssertEqual(sheet.popUpButtons["Protocol"].value as? String, "WebDAV (HTTPS)")
+        XCTAssertFalse(sheet.popUpButtons["Log in with"].exists)
+        func editing() -> Bool {
+            sheet.textFields.allElementsBoundByIndex.contains { ($0.value(forKey: "hasKeyboardFocus") as? Bool) == true }
+        }
+        for _ in 0..<10 where editing() { app.typeKey(.tab, modifierFlags: []) }
+        try audit(app) { issue in
+            if issue.auditType == .action, let element = issue.element,
+               element.elementType == .popUpButton || !element.isEnabled { return true }
+            if self.isCoveredElsewhere(issue, by: sheet) { return true }
+            // The same misreading of the form's field labels as in the SFTP test (see progress.md).
+            if issue.auditType == .contrast, issue.element?.elementType == .staticText,
+               ["Host", "Port"].contains(issue.element?.value as? String ?? "") { return true }
+            print("AUDIT webdav editor: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(sheet.buttons["Connect"].waitForExistence(timeout: 3))
+
+        sheet.buttons["Connect"].click()
+        let alert = app.sheets.firstMatch
+        XCTAssertTrue(waitFor({ alert.buttons["Trust Once"].exists }, timeout: 10), "\(app.staticTexts["pane.left.status"].value ?? "")")
+        XCTAssertTrue(alert.staticTexts.allElementsBoundByIndex.contains {
+            ($0.value as? String ?? $0.label).contains("does not trust the certificate of 127.0.0.1:")
+        }, alert.debugDescription)
+        alert.buttons["Trust Once"].click()
+
+        let password = app.sheets.firstMatch.secureTextFields["Password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 10), app.debugDescription.prefix(2000).description)
+        XCTAssertTrue(waitFor { (password.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        app.typeText("dav secret\r")
+
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["Alpha", "Beta", "apple pie.txt", "notes.md", "song.mp3", "track.flac"] },
+                              timeout: 15), "\(names(in: leftTable)) \(app.staticTexts["pane.left.status"].value ?? "")")
+        let path = app.groups["pane.left.path"]
+        XCTAssertTrue(waitFor { path.buttons.firstMatch.label.contains("basil@127.0.0.1:") }, path.debugDescription)
+        try audit(app) { issue in
+            print("AUDIT webdav pane: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        leftTable.typeKey(.F7, modifierFlags: [])
+        let mkdir = app.sheets.firstMatch
+        XCTAssertTrue(mkdir.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: mkdir)
+        app.typeText("Remote\r")
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable).contains("Remote") }, timeout: 10), "\(names(in: leftTable))")
+
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Net"].click()
+        let disconnect = menuBar.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'Disconnect '")).firstMatch
+        XCTAssertTrue(disconnect.waitForExistence(timeout: 2))
+        disconnect.click()
+        XCTAssertTrue(waitFor { !path.buttons.firstMatch.label.contains("@127.0.0.1:") }, path.debugDescription)
+    }
+
     func testRarArchiveBrowsesAndIsReadOnly() throws {
         app.terminate()
         app.launchEnvironment["BASIL_UITEST_RAR"] = "1"

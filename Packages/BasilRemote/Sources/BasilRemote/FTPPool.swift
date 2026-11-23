@@ -19,7 +19,7 @@ struct FTPLogin: Sendable {
 final class FTPPool: Sendable {
     let endpoint: FTPEndpoint
     let login: FTPLogin
-    let trust: FTPTrust
+    let trust: CertificateTrust
 
     private struct State {
         var idle: [FTPSession] = []
@@ -34,7 +34,7 @@ final class FTPPool: Sendable {
     /// Idle sessions older than this get a NOOP before use (servers drop idle connections).
     static let idleCheck: TimeInterval = 30
 
-    init(endpoint: FTPEndpoint, login: FTPLogin, trust: FTPTrust, first: FTPSession) {
+    init(endpoint: FTPEndpoint, login: FTPLogin, trust: CertificateTrust, first: FTPSession) {
         self.endpoint = endpoint
         self.login = login
         self.trust = trust

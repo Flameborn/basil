@@ -4,10 +4,10 @@ import CryptoKit
 import Foundation
 import Security
 
-/// Checks FTPS certificates: first against the system's trust (as Safari would, including the
+/// Checks TLS certificates (FTPS, WebDAV over HTTPS): first against the system's trust (as Safari would, including the
 /// host name), then against certificates the user chose to trust for that server. Those are kept
 /// in a text file, one "host:port sha256-hex" line per server.
-struct FTPTrust: Sendable {
+struct CertificateTrust: Sendable {
     let file: URL
 
     /// What the system says about a chain.
@@ -64,22 +64,28 @@ struct FTPTrust: Sendable {
     /// it is not the one remembered. Returns the accepted leaf's fingerprint (nil when the system
     /// trusts the chain).
     func verify(_ chain: [Data], endpoint: FTPEndpoint, prompts: any RemotePrompts) async throws -> Data? {
-        guard let leaf = chain.first else { throw VFSError.failed("\(endpoint.host) sent no TLS certificate") }
-        let evaluation = Self.evaluate(chain, host: endpoint.host)
+        try await verify(chain, host: endpoint.host, hostAndPort: endpoint.hostAndPort, prompts: prompts)
+    }
+
+    /// `host` is checked against the certificate; `hostAndPort` ("example.com", or
+    /// "example.com:8443" off the default port) names the server in the question and the file.
+    func verify(_ chain: [Data], host: String, hostAndPort: String, prompts: any RemotePrompts) async throws -> Data? {
+        guard let leaf = chain.first else { throw VFSError.failed("\(host) sent no TLS certificate") }
+        let evaluation = Self.evaluate(chain, host: host)
         if evaluation.trusted { return nil }
         let digest = Self.fingerprint(leaf)
-        let saved = remembered(for: endpoint.hostAndPort)
+        let saved = remembered(for: hostAndPort)
         if saved == digest { return digest }
         let info = Self.describe(leaf)
         let question = CertificateQuestion(
             reason: saved == nil ? .untrusted(evaluation.reason) : .changed(evaluation.reason),
-            host: endpoint.hostAndPort, subject: info.subject, issuer: info.issuer, validity: info.validity,
+            host: hostAndPort, subject: info.subject, issuer: info.issuer, validity: info.validity,
             fingerprint: Self.displayFingerprint(digest), trustFile: file.path)
         switch await prompts.certificate(question) {
         case .cancel: throw RemoteCancelled()
         case .trustOnce: return digest
         case .trustAndRemember:
-            do { try remember(digest, for: endpoint.hostAndPort) } catch {
+            do { try remember(digest, for: hostAndPort) } catch {
                 await prompts.note("Could not save the certificate in \(file.path): \(error.localizedDescription)")
             }
             return digest

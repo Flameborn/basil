@@ -370,6 +370,8 @@ final class ConnectionsModel {
         /// False for an account rather than a server (Dropbox): no Host, Port, User or login.
         let usesServerAddress: Bool
         let loginNote: String?
+        let pathPlaceholder: String?
+        let schemeAliases: [String]
 
         init(_ connector: any RemoteConnector) {
             id = connector.service
@@ -382,6 +384,8 @@ final class ConnectionsModel {
             options = connector.options
             usesServerAddress = connector.usesServerAddress
             loginNote = connector.loginNote
+            pathPlaceholder = connector.pathPlaceholder
+            schemeAliases = connector.schemeAliases
         }
     }
 
@@ -436,8 +440,13 @@ final class ConnectionsModel {
     var selected: SavedConnection? { saved.first { $0.id == selection } }
 
     var quickTarget: RemoteTarget? {
-        guard let target = RemoteTarget.parse(quick, defaultService: defaultService),
-              service(target.service)?.usesServerAddress != false else { return nil }
+        guard var target = RemoteTarget.parse(quick, defaultService: defaultService) else { return nil }
+        // "https://host/dav" names WebDAV over HTTPS.
+        if service(target.service) == nil,
+           let named = services.first(where: { $0.schemeAliases.contains(target.service.rawValue) }) {
+            target.service = named.id
+        }
+        guard service(target.service)?.usesServerAddress != false else { return nil }
         return target
     }
 
@@ -766,7 +775,7 @@ struct ConnectionEditor: View {
                     let account = draft.original.service == draft.service ? draft.original.user : nil
                     Text("Account: \(account ?? "not signed in yet")")
                 }
-                TextField("Start folder", text: binding.path, prompt: Text(address ? "Home folder on the server" : "Top folder"))
+                TextField("Start folder", text: binding.path, prompt: Text(service?.pathPlaceholder ?? (address ? "Home folder on the server" : "Top folder")))
                     .accessibilityLabel("Start folder")
                 let logins = ConnectionDraft.Auth.allCases.filter { service?.logins.contains($0.login) ?? true }
                 if address, logins.count > 1 {

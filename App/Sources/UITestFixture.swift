@@ -1,6 +1,7 @@
 #if DEBUG
 import BasilCore
 import BasilRemote
+import CryptoKit
 import Foundation
 
 /// Debug-only: when launched with BASIL_UITEST_FIXTURE=1, builds a known directory tree and
@@ -284,5 +285,80 @@ enum UITestFTPServer {
     }
 
     private static func freePort() -> Int { UITestSSHServer.freePort() }
+}
+
+/// macOS's own Apache httpd for the WebDAV UI test (`BASIL_UITEST_WEBDAV=1`): HTTPS on a free
+/// port with a self-signed certificate and a Basic login, serving `folder` (the fixture) at
+/// /dav. A watchdog stops it when the app dies.
+enum UITestWebDAVServer {
+    struct Server {
+        let port: Int
+        let user = "basil"
+        let password = "dav secret"
+    }
+
+    static func startIfRequested(serving served: String) -> Server? {
+        guard UITestFixture.isActive, ProcessInfo.processInfo.environment["BASIL_UITEST_WEBDAV"] == "1",
+              FileManager.default.isExecutableFile(atPath: "/usr/sbin/httpd") else { return nil }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-uitest-httpd-\(ProcessInfo.processInfo.processIdentifier)")
+        try? FileManager.default.removeItem(at: folder)
+        do {
+            let top = folder.appendingPathComponent("top")
+            try FileManager.default.createDirectory(at: top, withIntermediateDirectories: true)
+            let key = folder.appendingPathComponent("key.pem").path
+            let crt = folder.appendingPathComponent("crt.pem").path
+            let openssl = Process()
+            openssl.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+            openssl.arguments = ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
+                                 "-subj", "/CN=localhost", "-keyout", key, "-out", crt]
+            openssl.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            try openssl.run()
+            openssl.waitUntilExit()
+            let server = Server(port: UITestSSHServer.freePort())
+            let users = folder.appendingPathComponent("users").path
+            // {SHA}: base64 of the SHA-1 of the password, as htpasswd -s writes it.
+            let digest = Insecure.SHA1.hash(data: Data(server.password.utf8))
+            try "\(server.user):{SHA}\(Data(digest).base64EncodedString())\n".write(toFile: users, atomically: true, encoding: .utf8)
+            let modules = ["mpm_prefork", "authn_file", "authn_core", "authz_user", "authz_core", "auth_basic",
+                           "dav", "dav_fs", "unixd", "ssl", "alias", "mime", "log_config"]
+            let config = """
+            ServerRoot "/usr"
+            \(modules.map { "LoadModule \($0)_module libexec/apache2/mod_\($0).so" }.joined(separator: "\n"))
+            Listen 127.0.0.1:\(server.port)
+            ServerName localhost
+            PidFile \(folder.path)/httpd.pid
+            Mutex file:\(folder.path) default
+            ErrorLog \(folder.path)/error.log
+            DavLockDB \(folder.path)/davlock
+            DocumentRoot \(top.path)
+            SSLEngine on
+            SSLCertificateFile \(crt)
+            SSLCertificateKeyFile \(key)
+            Alias /dav \(served)
+            <Directory \(served)>
+              Dav On
+              AuthType Basic
+              AuthName "Basil UI test"
+              AuthUserFile \(users)
+              Require valid-user
+            </Directory>
+            """
+            let configFile = folder.appendingPathComponent("httpd.conf").path
+            try config.write(toFile: configFile, atomically: true, encoding: .utf8)
+            let httpd = Process()
+            httpd.executableURL = URL(fileURLWithPath: "/usr/sbin/httpd")
+            httpd.arguments = ["-f", configFile, "-D", "FOREGROUND"]
+            httpd.standardError = FileHandle(forWritingAtPath: "/dev/null")
+            try httpd.run()
+            let watchdog = Process()
+            watchdog.executableURL = URL(fileURLWithPath: "/bin/sh")
+            watchdog.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 1; done; kill \(httpd.processIdentifier); rm -rf '\(folder.path)'"]
+            try watchdog.run()
+            for _ in 0..<100 where !UITestSSHServer.accepts(server.port) { usleep(50_000) }
+            return server
+        } catch {
+            return nil
+        }
+    }
 }
 #endif

@@ -4,7 +4,7 @@ import Foundation
 
 /// Connects to FTP servers: plain FTP, FTPS explicit (AUTH TLS, refusing to log in without it)
 /// or FTPS implicit (TLS from the start). One connector is registered per kind. TLS
-/// certificates the system does not trust are asked about (`FTPTrust`). An empty user, or the
+/// certificates the system does not trust are asked about (`CertificateTrust`). An empty user, or the
 /// Anonymous option, logs in as "anonymous" without a password prompt.
 public struct FTPConnector: RemoteConnector {
     public enum Kind: Sendable {
@@ -13,14 +13,14 @@ public struct FTPConnector: RemoteConnector {
 
     public let kind: Kind
     /// Where trusted certificates are remembered.
-    let trust: FTPTrust
+    let trust: CertificateTrust
 
     /// Tests: use LIST as on servers without MLSD.
     var ignoreModernListing = false
 
     public init(_ kind: Kind, trustFile: URL) {
         self.kind = kind
-        trust = FTPTrust(file: trustFile)
+        trust = CertificateTrust(file: trustFile)
     }
 
     public var service: ProviderID {

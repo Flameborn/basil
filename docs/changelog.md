@@ -4,6 +4,9 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 
 ## Unreleased
 
+- WebDAV over HTTP and HTTPS: saved connections and Quick Connect (http:// and https:// addresses work), Basic and Digest logins with the password asked only when the server wants one, untrusted certificates asked about and remembered, copy and move both ways through the secure copy engine, server-side copies and moves.
+- Nextcloud is found automatically: its user's files are the top folder, large uploads go in checked chunks with their dates kept, F8 moves to the Nextcloud trash bin and Shift+F8 also removes the item from there.
+
 ## 0.1.0 - 2026-11-22
 
 First release.

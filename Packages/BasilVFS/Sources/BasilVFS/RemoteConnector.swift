@@ -226,6 +226,10 @@ public protocol RemoteConnector: Sendable {
     var usesServerAddress: Bool { get }
     /// A sentence the editor shows about logging in (Dropbox: signing in on its website).
     var loginNote: String? { get }
+    /// Placeholder text for the editor's Start folder field; nil: the usual one.
+    var pathPlaceholder: String? { get }
+    /// Other URL schemes Quick Connect reads as this service ("https" for WebDAV over HTTPS).
+    var schemeAliases: [String] { get }
     /// A saved connection is being deleted: forget what only it needed (Dropbox: revoke the
     /// account's token and remove it from the Keychain, unless one of `remaining`, the
     /// connections still saved, uses the same account).
@@ -245,6 +249,8 @@ extension RemoteConnector {
     public var options: [RemoteOption] { [] }
     public var usesServerAddress: Bool { true }
     public var loginNote: String? { nil }
+    public var pathPlaceholder: String? { nil }
+    public var schemeAliases: [String] { [] }
     public func forget(_ target: RemoteTarget, remaining: [RemoteTarget]) async {}
 }
 

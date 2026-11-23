@@ -64,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     target: RemoteTarget(service: .sftp, host: "127.0.0.1", port: server.port, user: NSUserName(),
                                          path: root.path, authentication: .keyFile(server.key)))]
             }
+            if let root = start?.left, let server = UITestWebDAVServer.startIfRequested(serving: root.path) {
+                settings.settings.connections = [SavedConnection(
+                    name: "Test WebDAV server",
+                    target: RemoteTarget(service: .webdavs, host: "127.0.0.1", port: server.port, user: server.user,
+                                         path: "/dav", authentication: .password))]
+            }
             if let server = UITestFTPServer.startIfRequested(), let root = start?.left {
                 settings.settings.connections = [SavedConnection(
                     name: "Test FTP server",
@@ -82,6 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for kind in [FTPConnector.Kind.plain, .explicitTLS, .implicitTLS] {
             providers.register(connector: FTPConnector(kind, trustFile: trustFile))
         }
+        // WebDAV over HTTP and HTTPS (URLSession), with Nextcloud's extras where the server is one.
+        let davTrustFile = dataDirectory.appendingPathComponent("Trusted WebDAV certificates.txt")
+        providers.register(connector: WebDAVConnector(secure: true, trustFile: davTrustFile))
+        providers.register(connector: WebDAVConnector(secure: false, trustFile: davTrustFile))
         // Dropbox, when the build has an app key (Config/Dropbox.local.xcconfig). Its sign-in comes
         // back to http://localhost:21745/dropbox, which Basil serves while it waits.
         if let key = Bundle.main.object(forInfoDictionaryKey: "BasilDropboxAppKey") as? String,

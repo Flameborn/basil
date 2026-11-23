@@ -97,7 +97,7 @@ private final class Monitor: TransferMonitor {
 
     @Test func changedCertificateIsAskedAndCancelStops() async throws {
         let box = try RemoteSandbox()
-        try FTPTrust(file: box.folder.appendingPathComponent("trusted")).remember(Data(repeating: 7, count: 32), for: "127.0.0.1:\(server.port)")
+        try CertificateTrust(file: box.folder.appendingPathComponent("trusted")).remember(Data(repeating: 7, count: 32), for: "127.0.0.1:\(server.port)")
         let prompts = FTPPrompts(certificate: .cancel, secrets: [server.password])
         await #expect(throws: RemoteCancelled.self) { _ = try await connect(box, prompts: prompts) }
         let reason = prompts.state.withLock { $0.certificateQuestions.first?.reason }
