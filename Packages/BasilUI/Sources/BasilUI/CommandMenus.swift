@@ -98,6 +98,7 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
     /// (custom view slots without a view) are current.
     private func rebuild(_ menu: LayoutMenu) {
         menu.removeAllItems()
+        let inMainMenu = isInMainMenu(menu)
         let ctx = context()
         var pendingSeparator = false
         for node in menu.nodes {
@@ -118,12 +119,14 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 let item = NSMenuItem(title: title, action: #selector(runCommand(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = id.rawValue
-                if let chord = commands.primaryChord(for: id), let key = chord.menuKeyEquivalent {
-                    item.keyEquivalent = key.characters
-                    item.keyEquivalentModifierMask = key.modifiers
-                }
+                let key = commands.primaryChord(for: id)?.menuKeyEquivalent
                 if let isChecked = command.isChecked, let ctx { item.state = isChecked(ctx) ? .on : .off }
                 menu.addItem(item)
+                if let key {
+                    if inMainMenu { borrowKey(key, for: item) }
+                    item.keyEquivalentModifierMask = key.modifiers
+                    item.keyEquivalent = key.characters
+                }
             case .submenu(let title, let children):
                 let submenu = LayoutMenu(title: title, nodes: children, placeholder: nil, onlyApplicable: menu.onlyApplicable)
                 submenu.delegate = self
@@ -156,6 +159,69 @@ final class CommandMenuBuilder: NSObject, NSMenuDelegate, NSMenuItemValidation {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         if let menu = menu as? LayoutMenu { rebuild(menu) }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu.supermenu === NSApp.mainMenu { returnBorrowedKeys() }
+    }
+
+    /// A key taken from another menu-bar item (Edit > Copy, Window > Minimize) while a command
+    /// menu is open, so the command's item can show it.
+    private struct BorrowedKey {
+        let owner: NSMenuItem
+        let borrower: NSMenuItem
+        let characters: String
+    }
+    private var borrowed: [BorrowedKey] = []
+
+    /// AppKit clears the key of an item added to the menu bar when another item there already has
+    /// that key (Edit > Copy has Cmd+C, so Copy Name showed none). The other item lends its key
+    /// while this menu is open; the command menus never take keys themselves, so nothing changes
+    /// for typing, and the key goes back when the menu closes (text fields need Edit > Copy).
+    private func borrowKey(_ key: (characters: String, modifiers: NSEvent.ModifierFlags), for item: NSMenuItem) {
+        guard let main = NSApp.mainMenu, let owner = itemWithKey(key, in: main) else { return }
+        borrowed.append(BorrowedKey(owner: owner, borrower: item, characters: owner.keyEquivalent))
+        owner.keyEquivalent = ""
+        if !owner.keyEquivalent.isEmpty {
+            // Items AppKit ties to a system shortcut (Window > Minimize) keep their key the first
+            // time; setting another key first unties it.
+            owner.keyEquivalent = " "
+            owner.keyEquivalent = ""
+        }
+    }
+
+    private func returnBorrowedKeys() {
+        for entry in borrowed.reversed() {
+            entry.borrower.keyEquivalent = ""
+            entry.owner.keyEquivalent = entry.characters
+        }
+        borrowed.removeAll()
+    }
+
+    /// An item outside the command menus with this key.
+    private func itemWithKey(_ key: (characters: String, modifiers: NSEvent.ModifierFlags), in menu: NSMenu) -> NSMenuItem? {
+        if menu is LayoutMenu { return nil }
+        let mask: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        for item in menu.items {
+            if let submenu = item.submenu {
+                if let found = itemWithKey(key, in: submenu) { return found }
+            } else if !item.keyEquivalent.isEmpty {
+                var modifiers = item.keyEquivalentModifierMask.intersection(mask)
+                if item.keyEquivalent != item.keyEquivalent.lowercased() { modifiers.insert(.shift) }
+                if item.keyEquivalent.lowercased() == key.characters.lowercased(),
+                   modifiers == key.modifiers.intersection(mask) { return item }
+            }
+        }
+        return nil
+    }
+
+    private func isInMainMenu(_ menu: NSMenu) -> Bool {
+        var current: NSMenu? = menu
+        while let m = current {
+            if m === NSApp.mainMenu { return true }
+            current = m.supermenu
+        }
+        return false
     }
 
     func menuHasKeyEquivalent(_ menu: NSMenu, for event: NSEvent, target: AutoreleasingUnsafeMutablePointer<AnyObject?>,
