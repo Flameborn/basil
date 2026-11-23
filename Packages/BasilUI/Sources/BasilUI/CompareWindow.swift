@@ -25,8 +25,20 @@ extension MainWindowController {
             announce("Select two files, or put the cursor on a file in each pane")
             return
         }
-        CompareWindowController(left: pair.left, right: pair.right, registry: providers, settings: settings,
-                                announce: { [weak self] in self?.announce($0) }).show()
+        let controller = CompareWindowController(left: pair.left, right: pair.right, registry: providers, settings: settings,
+                                                 announce: { [weak self] in self?.announce($0) })
+        controller.onIdentical = { [weak self] size in self?.showIdentical(pair.left, pair.right, size: size) }
+        controller.show()
+    }
+
+    /// Like TC: files with the same content get a message, not the compare window.
+    private func showIdentical(_ left: FileItem, _ right: FileItem, size: String) {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "The files are identical"
+        alert.informativeText = "\(left.name) and \(right.name) have the same content, \(size)."
+        alert.addButton(withTitle: "OK")
+        Task { _ = await present(alert, in: window) }
     }
 }
 
@@ -62,6 +74,8 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate, NSTab
     private let closeButton = NSButton(title: "Close", target: nil, action: nil)
     private let header = NSTextField(labelWithString: "")
     private let table = CompareTableView()
+    /// Called instead of showing the window when both files have the same bytes, with the size.
+    var onIdentical: ((String) -> Void)?
 
     init(left: FileItem, right: FileItem, registry: ProviderRegistry, settings: SettingsStore,
          announce: @escaping (String) -> Void) {
@@ -86,12 +100,21 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate, NSTab
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Compares first: the window opens once the files differ, or after a second while the
+    /// comparison still runs (so it can be closed, which cancels it).
     func show() {
         Self.openWindows.insert(self)
+        start()
+    }
+
+    private var isShown = false
+
+    private func reveal() {
+        guard !isShown else { return }
+        isShown = true
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(table)
-        start()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -184,6 +207,7 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate, NSTab
         let notice = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, let self, result == nil else { return }
+            reveal()
             announce("Comparing")
         }
         task = Task { [weak self] in
@@ -196,6 +220,7 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate, NSTab
             } catch is CancellationError {
             } catch {
                 guard let self else { return }
+                reveal()
                 summary.stringValue = "Could not compare: \(PaneViewController.describe(error))"
                 announce(summary.stringValue)
             }
@@ -204,6 +229,12 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate, NSTab
 
     private func show(_ result: FileComparison) {
         self.result = result
+        if result.identical, let onIdentical {
+            if isShown { close() } else { Self.openWindows.remove(self) }
+            onIdentical(settings.formatters.size.string(result.leftSize))
+            return
+        }
+        reveal()
         let textAvailable = result.text != nil
         modePopUp.item(at: Mode.text.rawValue)?.isEnabled = textAvailable
         mode = textAvailable ? .text : .binary

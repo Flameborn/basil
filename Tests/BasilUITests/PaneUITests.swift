@@ -233,7 +233,7 @@ final class PaneUITests: XCTestCase {
     }
 
     /// Compare by Content: the cursor file in each pane, a text comparison with one difference,
-    /// Binary mode, Show only differences; two identical selected files say "Identical".
+    /// Binary mode, Show only differences; two identical selected files get a message with OK.
     func testCompareByContent() throws {
         app.terminate()
         app.launchEnvironment["BASIL_UITEST_COMPARE"] = "1"
@@ -287,11 +287,15 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(.downArrow, modifierFlags: .shift)
         menuBar.menuBarItems["Files"].click()
         menuBar.menuItems["Compare by Content"].click()
-        let same = app.windows["Compare apple pie.txt and notes.md"]
-        XCTAssertTrue(same.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(waitFor { (same.staticTexts["compare.summary"].value as? String) == "Identical, 1 B" })
-        same.typeKey("w", modifierFlags: .command)
-        XCTAssertTrue(waitFor { !same.exists })
+        // Same content: a message with OK instead of the window, like TC.
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(sheet.staticTexts["The files are identical"].exists, sheet.debugDescription)
+        XCTAssertTrue(sheet.staticTexts["apple pie.txt and notes.md have the same content, 1 B."].exists, sheet.debugDescription)
+        XCTAssertFalse(app.windows["Compare apple pie.txt and notes.md"].exists)
+        try audit(app) { issue in self.isCoveredElsewhere(issue, by: sheet) }
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { !sheet.exists })
     }
 
     func testGoToPathWithSuggestions() throws {
