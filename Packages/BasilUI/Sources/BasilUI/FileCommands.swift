@@ -45,6 +45,30 @@ extension MainWindowController {
         }
     }
 
+    /// Shift+F5: copies the selected items (or the cursor item) into the same folder as
+    /// "name (2).ext", the first free number. One item goes at once; several are confirmed first.
+    func duplicateItems() {
+        let items = targetItems
+        guard !items.isEmpty else { return announce("No items") }
+        let directory = activePane.model.directory
+        guard let window, ensureReadable(directory), ensureWritable(directory, archives: false) else { return }
+        let pane = activePane
+        Task {
+            if items.count > 1 {
+                guard await confirm(in: window, message: "Duplicate \(FeedbackText.items(items.count))?",
+                                    confirm: "Duplicate") else { return }
+            }
+            let s = settings.settings
+            let options = SecureCopyOptions(verifyDestination: s.verifyCopies, unstableRetries: s.unstableSourceRetries,
+                                            secure: s.secureCopy)
+            let queued = queue.add(TransferOperation(duplicating: items.map(\.path), registry: providers, options: options))
+            pane.model.deselectAll()
+            queued.whenDone = { _ in
+                if pane.model.directory == directory { pane.model.reload(cursor: pane.cursorItem?.path) }
+            }
+        }
+    }
+
     func renameCursorItem() {
         guard let item = activePane.cursorItem, let parent = item.path.parent else { return announce("No items") }
         guard let window, ensureWritable(parent) else { return }

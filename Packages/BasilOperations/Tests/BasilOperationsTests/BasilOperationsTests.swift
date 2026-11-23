@@ -277,6 +277,28 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         #expect(try box.names("new") == ["a.txt", "b.txt"])
     }
 
+    @Test(arguments: [true, false])
+    func duplicateCopiesNextToTheSourceUnderFreeNames(secure: Bool) async throws {
+        let box = try Sandbox()
+        let a = try box.write("a.txt", Data("a".utf8))
+        try box.write("a (2).txt", Data("taken".utf8))
+        let b = try box.write("a (3).txt", Data("b".utf8))
+        try box.mkdir("Photos.2024/sub")
+        try box.write("Photos.2024/sub/x", Data("x".utf8))
+        let queue = FileOperationQueue()
+        let op = TransferOperation(duplicating: [a, b, box.path("Photos.2024")], registry: registry,
+                                   options: SecureCopyOptions(secure: secure))
+        #expect(op.title == "Duplicate 3 items")
+        let item = await run(queue, op)
+        #expect(item.state == .finished)
+        // a.txt skips the taken (2) and the (3) that exists; a (3).txt gets its own (2).
+        #expect(try contents(box.path("a (4).txt")) == Data("a".utf8))
+        #expect(try contents(box.path("a (3) (2).txt")) == Data("b".utf8))
+        #expect(try contents(box.path("a (2).txt")) == Data("taken".utf8))
+        #expect(try contents(box.path("Photos.2024 (2)/sub/x")) == Data("x".utf8))
+        #expect(item.itemsDone == 3)
+    }
+
     @Test func deleteMkdirAndRename() async throws {
         let box = try Sandbox()
         try box.mkdir("tree/sub")

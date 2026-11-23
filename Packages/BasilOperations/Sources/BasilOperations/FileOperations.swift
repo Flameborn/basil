@@ -72,6 +72,9 @@ public struct TransferOperation: QueueOperation {
     /// An existing folder to copy into, or for a single source the full new path. A path that
     /// does not exist with several sources is created as a folder.
     public let target: VFSPath
+    /// Shift+F5: each source is copied next to itself as "name (2).ext" (the first free number);
+    /// `target` is not used.
+    public let duplicate: Bool
     let registry: ProviderRegistry
     let options: SecureCopyOptions
 
@@ -79,6 +82,17 @@ public struct TransferOperation: QueueOperation {
         self.mode = mode
         self.sources = sources
         self.target = target
+        self.duplicate = false
+        self.registry = registry
+        self.options = options
+    }
+
+    /// Copies each source into its own folder under a free "name (2).ext" name.
+    public init(duplicating sources: [VFSPath], registry: ProviderRegistry, options: SecureCopyOptions) {
+        self.mode = .copy
+        self.sources = sources
+        self.target = sources.first?.parent ?? VFSPath(location: .local, path: "/")
+        self.duplicate = true
         self.registry = registry
         self.options = options
     }
@@ -87,6 +101,7 @@ public struct TransferOperation: QueueOperation {
 
     public var title: String {
         let what = sources.count == 1 ? sources[0].name : itemsText(sources.count)
+        if duplicate { return "Duplicate \(what)" }
         return "\(mode == .copy ? "Copy" : "Move") \(what) to \(target.path)"
     }
 
@@ -98,9 +113,21 @@ public struct TransferOperation: QueueOperation {
     /// inside them failed or was skipped).
     func transferAll(_ context: OperationContext) async throws -> [VFSPath] {
         let dst = try registry.writableProvider(for: target.location)
-        let targetKind = try? await dst.fingerprint(of: target).kind
-        let pairs: [(VFSPath, VFSPath)]
-        if targetKind == .directory {
+        let targetKind = duplicate ? nil : try? await dst.fingerprint(of: target).kind
+        var pairs: [(VFSPath, VFSPath)]
+        if duplicate {
+            pairs = []
+            var taken: Set<VFSPath> = []
+            for source in sources {
+                guard let parent = source.parent else { throw VFSError.unsupported("Duplicate \(source.path)") }
+                let provider = try registry.writableProvider(for: source.location)
+                let isFolder = (try? await provider.fingerprint(of: source).kind) == .directory
+                let name = try await FreeName.find(for: source, folder: isFolder, provider: provider, taken: taken)
+                let destination = parent.appending(name)
+                taken.insert(destination)
+                pairs.append((source, destination))
+            }
+        } else if targetKind == .directory {
             pairs = sources.map { ($0, target.appending($0.name)) }
         } else if sources.count == 1 {
             pairs = [(sources[0], target)]
@@ -237,15 +264,24 @@ final class QueueTransferMonitor: TransferMonitor {
 
     /// "name (2).ext", "name (3).ext", ... the first that does not exist.
     private func freeName(for path: VFSPath) async throws -> String {
-        let provider = try registry.writableProvider(for: path.location)
+        try await FreeName.find(for: path, folder: false, provider: registry.writableProvider(for: path.location))
+    }
+}
+
+/// The first free "name (2).ext", "name (3).ext", ... next to a path. Folders keep dots in their
+/// names ("Photos.2024 (2)").
+enum FreeName {
+    static func find(for path: VFSPath, folder: Bool, provider: any WritableProvider,
+                     taken: Set<VFSPath> = []) async throws -> String {
         let name = path.name
-        let dot = name.lastIndex(of: ".").flatMap { $0 == name.startIndex ? nil : $0 }
+        let dot = folder ? nil : name.lastIndex(of: ".").flatMap { $0 == name.startIndex ? nil : $0 }
         let base = dot.map { String(name[..<$0]) } ?? name
         let ext = dot.map { String(name[$0...]) } ?? ""
         guard let parent = path.parent else { return name }
         for n in 2... {
-            let candidate = "\(base) (\(n))\(ext)"
-            if (try? await provider.fingerprint(of: parent.appending(candidate))) == nil { return candidate }
+            let candidate = parent.appending("\(base) (\(n))\(ext)")
+            if taken.contains(candidate) { continue }
+            if (try? await provider.fingerprint(of: candidate)) == nil { return candidate.name }
         }
         return name
     }

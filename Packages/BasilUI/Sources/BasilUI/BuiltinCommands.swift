@@ -130,6 +130,7 @@ enum BuiltinCommands {
             // File operations. All of them go through the queue.
             C(id: "file.copy", title: "Copy", defaultKeys: [K(.function(5))]) { _ in w?.copyOrMove(.copy) },
             C(id: "file.move", title: "Move", defaultKeys: [K(.function(6))]) { _ in w?.copyOrMove(.move) },
+            C(id: "file.duplicate", title: "Duplicate", defaultKeys: [K(.function(5), .shift)]) { _ in w?.duplicateItems() },
             // Shift+F6 with several items selected opens the Multi-Rename tool.
             C(id: "file.rename", title: "Rename", defaultKeys: [K(.function(6), .shift)]) { _ in
                 if (pane()?.model.selected.count ?? 0) > 1 { w?.multiRename() } else { w?.renameCursorItem() }

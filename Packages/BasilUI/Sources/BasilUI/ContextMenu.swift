@@ -39,7 +39,7 @@ enum ContextMenuCommands {
         layout.addToContextMenu(
             c("pane.open", "pane.showPackageContents", "file.view", "file.edit") + [.separator]
             + c("file.unpack", "file.testArchive", "file.pack") + [.separator]
-            + c("file.copy", "file.move", "file.copyLink", "file.copyPath", "file.copyName") + [.separator]
+            + c("file.copy", "file.duplicate", "file.move", "file.copyLink", "file.copyPath", "file.copyName") + [.separator]
             + c("file.rename", "file.delete", "file.deletePermanently") + [.separator]
             + c("file.mkdir", "file.newFile", "tools.terminal") + [.separator]
             + c("file.calculateSize", "file.info"))
@@ -57,6 +57,7 @@ enum ContextMenuCommands {
             "file.testArchive": { _ in w?.targetsIncludeArchive ?? false },
             "file.pack": hasTargets,
             "file.copy": hasTargets,
+            "file.duplicate": hasTargets,
             "file.move": hasTargets,
             "file.rename": hasTargets,
             "file.delete": hasTargets,

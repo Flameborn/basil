@@ -885,6 +885,31 @@ final class PaneUITests: XCTestCase {
         }
     }
 
+    /// Shift+F5 duplicates in the same folder: one item at once as "name (2).ext", several after a question.
+    func testShiftF5Duplicates() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("no")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 3).isSelected })
+        leftTable.typeKey(.F5, modifierFlags: .shift)
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("notes (2).md") }, "\(names(in: leftTable))")
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+
+        leftTable.typeKey(.home, modifierFlags: [])                     // Alpha
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 0).isSelected })
+        leftTable.typeKey(.space, modifierFlags: [])
+        leftTable.typeKey(.end, modifierFlags: [])                      // track.flac
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 6).isSelected })
+        leftTable.typeKey(.space, modifierFlags: [])
+        leftTable.typeKey(.F5, modifierFlags: .shift)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertTrue(sheet.buttons["Duplicate"].exists, sheet.debugDescription)
+        try audit(app) { issue in self.isCoveredElsewhere(issue, by: sheet) }
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { Set(self.names(in: self.leftTable)).isSuperset(of: ["Alpha (2)", "track (2).flac"]) },
+                      "\(names(in: leftTable))")
+    }
+
     func testF3QuickLookFollowsCursorAndCloses() {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeText("no")
