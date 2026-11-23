@@ -138,3 +138,5 @@ scripts/      bootstrap and test helper scripts
 ## License
 
 Basil is released under the [MIT License](LICENSE). The third-party code in `Vendor/` keeps its own licenses (see each folder).
+
+Using Basil is subject to the [terms of service](TERMS.md). The [privacy policy](db_privacypolicy.md) covers the Dropbox connection.
