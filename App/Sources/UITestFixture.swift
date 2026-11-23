@@ -66,6 +66,10 @@ enum UITestFixture {
                 try makeLeftovers(app: root.appendingPathComponent("Beta/Leftie.app"),
                                   places: temp.appendingPathComponent("basil-uitest-leftovers-\(ProcessInfo.processInfo.processIdentifier)"))
             }
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_COMPARE"] == "1" {
+                // notes.md is "x"; this one has a second line.
+                try Data("x\nnew line\n".utf8).write(to: root.appendingPathComponent("Beta/notes.md"))
+            }
             if ProcessInfo.processInfo.environment["BASIL_UITEST_RAR"] == "1" {
                 try Data(base64Encoded: rar4Archive.joined())!.write(to: root.appendingPathComponent("Alpha/Inner/old.rar"))
             }

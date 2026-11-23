@@ -232,6 +232,68 @@ final class PaneUITests: XCTestCase {
                       "\(cellLabels(leftTable.tableRows.element(boundBy: 0)))")
     }
 
+    /// Compare by Content: the cursor file in each pane, a text comparison with one difference,
+    /// Binary mode, Show only differences; two identical selected files say "Identical".
+    func testCompareByContent() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_COMPARE"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeText("no")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 3).isSelected })
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Files"].click()
+        menuBar.menuItems["Compare by Content"].click()
+        let window = app.windows["Compare notes.md and notes.md"]
+        XCTAssertTrue(window.waitForExistence(timeout: 5), app.debugDescription)
+        let summary = window.staticTexts["compare.summary"]
+        XCTAssertTrue(waitFor { (summary.value as? String) == "1 difference, sizes 1 B and 11 B" }, "\(summary.value ?? "")")
+        let table = window.tables["compare.table"]
+        XCTAssertTrue(waitFor { table.tableRows.count == 2 }, table.debugDescription)
+        // The cursor starts on the difference, which reads as one sentence.
+        XCTAssertTrue(table.tableRows.element(boundBy: 1).isSelected)
+        let row = table.tableRows.element(boundBy: 1).descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Only right, line 2: new line'")).firstMatch
+        XCTAssertTrue(row.exists, table.debugDescription)
+        try audit(app) { issue in
+            if issue.auditType == .action, issue.element?.elementType == .popUpButton { return true }
+            if self.isCoveredElsewhere(issue, by: window) { return true }
+            print("AUDIT compare: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        // Up to the first line, then F8 jumps to the next difference.
+        window.typeKey(.upArrow, modifierFlags: [])
+        XCTAssertTrue(waitFor { table.tableRows.element(boundBy: 0).isSelected })
+        window.typeKey(.F8, modifierFlags: [])
+        XCTAssertTrue(waitFor { table.tableRows.element(boundBy: 1).isSelected })
+
+        let onlyDifferences = window.checkBoxes["Show only differences"]
+        onlyDifferences.click()
+        XCTAssertTrue(waitFor { table.tableRows.count == 1 }, table.debugDescription)
+        window.popUpButtons["Mode"].click()
+        window.menuItems["Binary"].click()
+        XCTAssertTrue(waitFor { (summary.value as? String) == "1 difference, first at byte 1, sizes 1 B and 11 B" }, "\(summary.value ?? "")")
+        XCTAssertTrue(waitFor { table.tableRows.count == 1 }, table.debugDescription)
+        window.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !window.exists })
+
+        // Two selected files with the same content.
+        leftTable.click()
+        leftTable.typeKey(.home, modifierFlags: [])
+        leftTable.typeText("ap")
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 2).isSelected })
+        leftTable.typeKey(.downArrow, modifierFlags: .shift)
+        leftTable.typeKey(.downArrow, modifierFlags: .shift)
+        menuBar.menuBarItems["Files"].click()
+        menuBar.menuItems["Compare by Content"].click()
+        let same = app.windows["Compare apple pie.txt and notes.md"]
+        XCTAssertTrue(same.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(waitFor { (same.staticTexts["compare.summary"].value as? String) == "Identical, 1 B" })
+        same.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitFor { !same.exists })
+    }
+
     func testGoToPathWithSuggestions() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey("g", modifierFlags: .command)

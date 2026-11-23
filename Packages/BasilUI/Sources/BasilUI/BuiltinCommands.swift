@@ -140,6 +140,7 @@ enum BuiltinCommands {
                 guard let w else { return }
                 w.activePane.calculateSizes(of: w.targetItems)
             },
+            C(id: "file.compare", title: "Compare by Content", isApplicable: { _ in w?.comparePair != nil }) { _ in w?.compareFiles() },
             C(id: "file.mkdir", title: "New Folder", defaultKeys: [K(.function(7))]) { _ in w?.makeDirectory() },
             C(id: "file.delete", title: "Delete", defaultKeys: [K(.function(8)), K(.forwardDelete)]) { _ in
                 w?.delete(permanently: false)

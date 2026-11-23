@@ -19,7 +19,7 @@ enum BuiltinMenus {
                 .submenu("Checksums", c("file.checksumCreate", "file.checksumVerify")),
                 .submenu("Split", c("file.split", "file.combine")),
                 .separator,
-            ] + c("file.calculateSize"))
+            ] + c("file.compare", "file.calculateSize"))
 
         layout.addMenu("Mark", items:
             c("select.toggle", "select.group", "select.ungroup") + [.separator]

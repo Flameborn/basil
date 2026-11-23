@@ -48,6 +48,12 @@ public enum Theme {
     static var secondaryTextColor: Color { Color.primary.opacity(0.85) }
     static var errorTextColor: Color { Color(nsColor: errorText) }
 
+    // Compare by Content: row backgrounds for lines or bytes that differ (the Status column says
+    // the same in words). Theme.text stays above 10:1 on all of them.
+    static let compareChanged = dynamic(light: 0xFFF1BF, dark: 0x4A4120)
+    static let compareOnlyLeft = dynamic(light: 0xFFDEDE, dark: 0x4D2828)
+    static let compareOnlyRight = dynamic(light: 0xD9F3DD, dark: 0x1F4228)
+
     // Progress bars (queue panel). Outline and fill keep at least 3:1 against the window background
     // (WCAG non-text contrast); the track itself is transparent.
     static let progressOutline = dynamic(light: 0x767676, dark: 0x8E8E93)
