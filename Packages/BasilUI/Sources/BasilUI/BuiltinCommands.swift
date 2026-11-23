@@ -27,6 +27,10 @@ enum BuiltinCommands {
             C(id: "pane.openArchive", title: "Open as Archive", defaultKeys: [K(.pageDown, .command)]) { _ in
                 pane()?.openCursorAsContainer()
             },
+            C(id: "pane.showPackageContents", title: "Show Package Contents", isApplicable: { _ in
+                guard let p = pane(), let item = p.cursorItem else { return false }
+                return p.packagePath(of: item) != nil
+            }) { _ in pane()?.enterCursorFolder() },
             C(id: "pane.parent", title: "Parent Folder", defaultKeys: [K(.backspace), K(.up, .command)]) { _ in pane()?.goToParent() },
             C(id: "pane.reload", title: "Reread", defaultKeys: [K(.function(2))]) { ctx in
                 guard let p = pane() else { return }

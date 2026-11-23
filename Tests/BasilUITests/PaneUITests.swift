@@ -795,6 +795,34 @@ final class PaneUITests: XCTestCase {
         }, "\(rows.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
     }
 
+    /// An app is a package: the context menu offers Show Package Contents, which (like Cmd+PageDown)
+    /// goes inside. Enter would launch it, so the test does not press Enter on it.
+    func testShowPackageContents() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_LEFTOVERS"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(.tab, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Leftie.app"] }, "\(names(in: rightTable))")
+        rightTable.typeKey(.pageDown, modifierFlags: .command)
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Contents"] }, "\(names(in: rightTable))")
+        rightTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Leftie.app"] }, "\(names(in: rightTable))")
+
+        rightTable.typeKey(.F10, modifierFlags: .shift)
+        let menu = app.menus.containing(.menuItem, identifier: "Copy Name").containing(.menuItem, identifier: "Get Info").firstMatch
+        XCTAssertTrue(waitFor { menu.exists }, app.debugDescription)
+        menu.menuItems["Show Package Contents"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["Contents"] }, "\(names(in: rightTable))")
+
+        // A plain folder is not a package: no Show Package Contents.
+        rightTable.typeKey(.F10, modifierFlags: .shift)
+        let folderMenu = app.menus.containing(.menuItem, identifier: "Copy Name").containing(.menuItem, identifier: "Get Info").firstMatch
+        XCTAssertTrue(waitFor { folderMenu.exists }, app.debugDescription)
+        XCTAssertFalse(folderMenu.menuItems["Show Package Contents"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
     func testEditorAndTerminalSettingsTab() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey(",", modifierFlags: .command)

@@ -303,7 +303,11 @@ final class PaneViewController: NSViewController {
     /// Enter: open directories, enter archives (Total Commander), open other files with their default app.
     func openCursor() {
         guard let item = cursorItem else { return }
-        if item.isDirectoryLike {
+        if let local = packagePath(of: item) {
+            // An app or a document package opens like in Finder; Cmd+PageDown or
+            // Show Package Contents goes inside.
+            NSWorkspace.shared.open(URL(fileURLWithPath: local))
+        } else if item.isDirectoryLike {
             navigate(to: item.path)
         } else if model.registry.isContainer(item) {
             openContainer(item, byContent: false)
@@ -312,8 +316,22 @@ final class PaneViewController: NSViewController {
         }
     }
 
+    /// The local path of `item` when it is a macOS package (an app, or a folder macOS treats as one
+    /// document, like .rtfd), on a local disk or a mounted share.
+    func packagePath(of item: FileItem) -> String? {
+        guard item.isDirectoryLike, let local = model.registry.localPath(of: item.path) else { return nil }
+        return NSWorkspace.shared.isFilePackage(atPath: local.path) ? local.path : nil
+    }
+
+    /// Show Package Contents: enters the cursor folder even when it is a package.
+    func enterCursorFolder() {
+        guard let item = cursorItem, item.isDirectoryLike else { return }
+        navigate(to: item.path)
+    }
+
     /// Cmd+PageDown (Total Commander's Ctrl+PageDown): enters the cursor file as an archive
     /// whatever its name, when its content is a format Basil reads (docx, jar, apk are zip files).
+    /// On a folder (also a package such as an app) it goes inside.
     func openCursorAsContainer() {
         guard let item = cursorItem else { return }
         guard case .file = item.kind else {

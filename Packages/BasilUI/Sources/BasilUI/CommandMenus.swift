@@ -11,7 +11,7 @@ enum BuiltinMenus {
         func c(_ ids: CommandID...) -> [N] { ids.map(N.command) }
 
         layout.addMenu("Files", items:
-            c("pane.open", "file.view", "file.edit", "file.newFile", "file.info") + [.separator]
+            c("pane.open", "pane.showPackageContents", "file.view", "file.edit", "file.newFile", "file.info") + [.separator]
             + c("file.copy", "file.move", "file.rename", "file.multiRename", "file.mkdir") + [
                 .submenu("Delete", c("file.delete", "file.deletePermanently") + [.separator] + c("file.appLeftovers")),
                 .separator,

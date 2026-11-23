@@ -37,7 +37,7 @@ enum ContextMenuCommands {
     static func registerLayout(in layout: MenuLayout) {
         func c(_ ids: CommandID...) -> [MenuNode] { ids.map(MenuNode.command) }
         layout.addToContextMenu(
-            c("pane.open", "file.view", "file.edit") + [.separator]
+            c("pane.open", "pane.showPackageContents", "file.view", "file.edit") + [.separator]
             + c("file.unpack", "file.testArchive", "file.pack") + [.separator]
             + c("file.copy", "file.move", "file.copyLink", "file.copyPath", "file.copyName") + [.separator]
             + c("file.rename", "file.delete", "file.deletePermanently") + [.separator]
