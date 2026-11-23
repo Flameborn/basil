@@ -154,14 +154,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         #if DEBUG
         if UITestFixture.isActive { controller.opensBrowser = false }
+        // UI tests: Check for Updates finds a made-up release and never goes online.
+        if UITestFixture.isActive {
+            let offer = ProcessInfo.processInfo.environment["BASIL_UITEST_UPDATE"] == "1"
+            controller.setUpdateSource {
+                guard offer else { return nil }
+                return AvailableUpdate(version: AppVersion("99.0.0")!, title: "Basil 99.0.0",
+                                       notes: "## Added\n- Updates from GitHub releases\n- A new About window",
+                                       page: nil, dmg: URL(string: "https://example.invalid/Basil-99.0.0.dmg")!,
+                                       dmgName: "Basil-99.0.0.dmg", dmgSize: 1, sha256: nil)
+            }
+        }
         #endif
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()
+        // Updates from GitHub releases: automatic checks only in Release builds (UI tests and
+        // development builds never ask); Basil > Check for Updates... works in every build.
+        #if !DEBUG
+        controller.startUpdateChecks()
+        #endif
     }
 
     @objc func showSettings(_ sender: Any?) {
         SettingsWindowController.show(settings: settings)
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        AboutWindowController.show(checkForUpdates: { [weak self] in self?.mainWindowController?.checkForUpdates() })
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        mainWindowController?.performFromMenu("app.checkForUpdates")
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -170,6 +194,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         mainWindowController?.removeTemporaryCopies()
+        // An update was installed: open the new version once this process has gone.
+        if let app = mainWindowController?.updateToRelaunch { UpdateInstaller.relaunchAfterQuit(app) }
         #if DEBUG
         UITestFixture.cleanup()
         #endif
@@ -193,9 +219,10 @@ enum MainMenu {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "Basil")
-        appMenu.addItem(withTitle: "About Basil",
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
-                        keyEquivalent: "")
+        appMenu.addItem(withTitle: "About Basil", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+            .target = settingsTarget
+        appMenu.addItem(withTitle: "Check for Updates...", action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: "")
+            .target = settingsTarget
         appMenu.addItem(.separator())
         let settingsItem = appMenu.addItem(withTitle: "Settings...", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: ",")
         settingsItem.target = settingsTarget

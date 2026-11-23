@@ -219,6 +219,10 @@ enum BuiltinCommands {
                 if let id = w?.customViewID(n) { pane()?.setView(id) }
             })
         }
+        // Basil menu: updates from GitHub releases (no default key).
+        commands.append(C(id: "app.checkForUpdates", title: "Check for Updates...") { _ in
+            w?.checkForUpdates()
+        })
         // Net: Cmd+K's connection manager, Disconnect, and the saved connections 1-20 by name.
         commands.append(C(id: "net.connect", title: "Connect to Server...", defaultKeys: [K(.character("k"), .command)]) { _ in
             w?.showConnections()

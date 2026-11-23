@@ -75,6 +75,10 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var splitCustomSize = "1 GB"
     public var splitDecimalUnits = false
     public var splitCreateSFV = true
+    /// Look for a new release on GitHub at launch and once a day (on by default).
+    public var checkForUpdates = true
+    /// The version the user chose "Skip This Version" for; automatic checks do not offer it.
+    public var skippedUpdateVersion: String?
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
     /// extension and Full no longer shows the Ext column.
     public var viewsVersion = BasilSettings.currentViewsVersion
@@ -118,6 +122,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         splitCustomSize = try c.decodeIfPresent(String.self, forKey: .splitCustomSize) ?? d.splitCustomSize
         splitDecimalUnits = try c.decodeIfPresent(Bool.self, forKey: .splitDecimalUnits) ?? d.splitDecimalUnits
         splitCreateSFV = try c.decodeIfPresent(Bool.self, forKey: .splitCreateSFV) ?? d.splitCreateSFV
+        checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
+        skippedUpdateVersion = try c.decodeIfPresent(String.self, forKey: .skippedUpdateVersion) ?? d.skippedUpdateVersion
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
         if viewsVersion < 2, let full = views.firstIndex(where: { $0.id == ListView.full.id }) {
             for i in views[full].columns.indices where views[full].columns[i].id == .ext {

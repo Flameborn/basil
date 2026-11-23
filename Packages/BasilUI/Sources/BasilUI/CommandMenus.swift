@@ -308,7 +308,7 @@ extension MainWindowController {
         commands.menus.onChange = install
     }
 
-    func performFromMenu(_ id: CommandID) {
+    public func performFromMenu(_ id: CommandID) {
         guard commands.perform(id, in: self) else { return }
         quickLook.paneChanged(activePane)
     }

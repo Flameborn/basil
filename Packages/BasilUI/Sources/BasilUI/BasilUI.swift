@@ -43,6 +43,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     var offeringEditedCopies = false
     /// Host key and password questions of remote connections (`RemoteConnections.swift`).
     private(set) var remotePrompts: RemotePromptsUI!
+    /// Updates from GitHub releases (`Updates.swift`).
+    lazy var updates = UpdateCoordinator(window: self)
 
     /// ~/Library/Caches/Basil/Copies
     public static var defaultCopiesDirectory: URL { TemporaryCopies.defaultRoot }
@@ -97,6 +99,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         // The user's keys (Settings, Keys), saved whenever they change.
         commands.keyOverrides = settings.settings.keyBindings
         SettingsWindowController.commands = commands
+        SettingsWindowController.checkForUpdates = { [weak self] in self?.checkForUpdates() }
         functionBar = FunctionKeyBar(commands: commands, ids: BuiltinCommands.functionBarIDs)
         commands.onKeymapChange = { [weak self] in
             guard let self else { return }

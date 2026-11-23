@@ -20,6 +20,8 @@ public final class SettingsWindowController: NSWindowController {
     private let navigation = SettingsNavigation()
     /// The commands whose keys the Keys tab changes (set by the main window).
     static var commands: CommandRegistry?
+    /// Check Now on the Navigation tab (set by the main window).
+    static var checkForUpdates: (() -> Void)?
 
     public static func show(settings: SettingsStore, tab: SettingsTab = .views) {
         let controller = shared ?? SettingsWindowController(settings: settings)
@@ -328,6 +330,14 @@ struct NavigationSettings: View {
             Text("When on, selecting a folder with Space also calculates its size, like Cmd+Shift+S.")
                 .font(.callout)
                 .foregroundStyle(Theme.secondaryTextColor)
+            Toggle("Check for updates automatically", isOn: $store.settings.checkForUpdates)
+                .accessibilityLabel("Check for updates automatically")
+            Text("Basil looks for a new release on GitHub when it starts and once a day, and asks before installing it. Basil > Check for Updates... looks at any time.")
+                .font(.callout)
+                .foregroundStyle(Theme.secondaryTextColor)
+            if let check = SettingsWindowController.checkForUpdates {
+                Button("Check for Updates Now") { check() }
+            }
         }
         .formStyle(.grouped)
     }

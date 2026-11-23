@@ -30,6 +30,9 @@ targets:
       # Icon Composer document (layers in Assets/); Xcode compiles it into the app icon.
       - path: App/Resources/AppIcon.icon
         buildPhase: resources
+      # Shown by About Basil > License.
+      - path: LICENSE
+        buildPhase: resources
     info:
       path: App/Resources/Info.plist
       properties:
@@ -38,7 +41,7 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         LSApplicationCategoryType: public.app-category.utilities
-        NSHumanReadableCopyright: ""
+        NSHumanReadableCopyright: "Copyright 2026 Flameborn. MIT License."
         NSPrincipalClass: NSApplication
         # Dropbox: the app key (Config/Dropbox.local.xcconfig). The sign-in returns to
         # http://localhost:21745/dropbox, served by Basil while it waits (SignInReturnServer).
