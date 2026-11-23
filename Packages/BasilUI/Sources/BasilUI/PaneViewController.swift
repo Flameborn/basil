@@ -307,8 +307,8 @@ final class PaneViewController: NSViewController {
             navigate(to: item.path)
         } else if model.registry.isContainer(item) {
             openContainer(item, byContent: false)
-        } else if item.path.location == .local {
-            NSWorkspace.shared.open(URL(fileURLWithPath: item.path.path))
+        } else if let local = model.registry.localPath(of: item.path) {
+            NSWorkspace.shared.open(URL(fileURLWithPath: local.path))
         }
     }
 

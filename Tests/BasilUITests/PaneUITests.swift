@@ -1185,6 +1185,61 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { !path.buttons.firstMatch.label.contains("@127.0.0.1:") }, path.debugDescription)
     }
 
+    /// SMB against the BasilRemote tests' Samba container (skipped without Docker or the
+    /// container): the share list, entering a share mounts it, Backspace goes back to the list,
+    /// Disconnect unmounts it.
+    func testSMBConnectBrowseAndDisconnect() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_SMB"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("k", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        if !sheet.waitForExistence(timeout: 2) { leftTable.typeKey("k", modifierFlags: .command) }
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        guard sheet.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'Test SMB server, '")).firstMatch
+            .waitForExistence(timeout: 3) else {
+            throw XCTSkip("No Samba container: start OrbStack and run the BasilRemote SMB tests once")
+        }
+        sheet.buttons["Connect"].click()
+        // macOS may still be logged in to the server from an earlier run: then nothing is asked.
+        let password = app.sheets.firstMatch.secureTextFields["Password"]
+        if password.waitForExistence(timeout: 5) {
+            XCTAssertTrue(waitFor { (password.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+            app.typeText("Basil-test-pw-1\r")
+        }
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["files", "media", "open"] }, timeout: 15),
+                      "\(names(in: leftTable)) \(app.staticTexts["pane.left.status"].value ?? "")")
+        let path = app.groups["pane.left.path"]
+        XCTAssertTrue(waitFor { path.buttons.firstMatch.label.hasPrefix("alice@") }, path.debugDescription)
+        try audit(app) { issue in
+            print("AUDIT smb shares: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        // Into the share media (mounted now), a new folder, back to the share list.
+        leftTable.typeText("m")
+        leftTable.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor({ path.buttons.allElementsBoundByIndex.last?.label == "media" }, timeout: 10), path.debugDescription)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "/Volumes/media"))
+        leftTable.typeKey(.F7, modifierFlags: [])
+        let mkdir = app.sheets.firstMatch
+        XCTAssertTrue(mkdir.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: mkdir)
+        app.typeText("Remote\r")
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable).contains("Remote") }, timeout: 10), "\(names(in: leftTable))")
+        leftTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["files", "media", "open"] }, timeout: 10))
+
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Net"].click()
+        let disconnect = menuBar.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'Disconnect '")).firstMatch
+        XCTAssertTrue(disconnect.waitForExistence(timeout: 2))
+        disconnect.click()
+        XCTAssertTrue(waitFor { !path.buttons.firstMatch.label.hasPrefix("alice@") }, path.debugDescription)
+        XCTAssertTrue(waitFor({ !FileManager.default.fileExists(atPath: "/Volumes/media") }, timeout: 10))
+    }
+
     func testRarArchiveBrowsesAndIsReadOnly() throws {
         app.terminate()
         app.launchEnvironment["BASIL_UITEST_RAR"] = "1"

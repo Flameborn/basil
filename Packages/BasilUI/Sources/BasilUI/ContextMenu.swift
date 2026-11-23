@@ -60,7 +60,7 @@ enum ContextMenuCommands {
             "file.deletePermanently": hasTargets,
             "file.info": hasTargets,
             "file.calculateSize": { _ in w?.targetItems.contains(where: \.isDirectoryLike) ?? false },
-            "tools.terminal": { _ in w?.activePane.model.directory.location == .local },
+            "tools.terminal": { _ in w.map { $0.providers.localPath(of: $0.activePane.model.directory) != nil } ?? false },
         ]
     }
 }
@@ -91,13 +91,13 @@ extension MainWindowController {
     /// Enter does something: a folder, an archive, or a local file (opened with its app).
     var canOpenCursor: Bool {
         guard let item = activePane.cursorItem else { return false }
-        return item.isDirectoryLike || providers.isContainer(item) || item.path.location == .local
+        return item.isDirectoryLike || providers.isContainer(item) || providers.localPath(of: item.path) != nil
     }
 
-    /// F4 works on local files and files in archives (servers not yet).
+    /// F4 works on local files, files on mounted shares and files in archives (servers not yet).
     var canEditCursor: Bool {
         guard cursorIsFile, let item = activePane.cursorItem else { return false }
-        return item.path.location == .local || item.path.location.container != nil
+        return providers.localPath(of: item.path) != nil || item.path.location.container != nil
     }
 
     var targetsIncludeArchive: Bool {

@@ -28,13 +28,15 @@ final class InfoModel {
     @ObservationIgnored var onClose: (() -> Void)?
     @ObservationIgnored var announce: ((String) -> Void)?
 
-    private var url: URL? { item.path.location == .local ? URL(fileURLWithPath: item.path.path) : nil }
+    /// The file on this Mac (also on a mounted share), for its type and apps.
+    private let url: URL?
     var contentType: UTType? { url.flatMap(FileAssociations.contentType(of:)) }
     var isFile: Bool { !item.isDirectoryLike && url != nil }
 
     init(item: FileItem, formatters: DisplayFormatters, registry: ProviderRegistry) {
         self.item = item
         self.formatters = formatters
+        url = registry.localPath(of: item.path).map { URL(fileURLWithPath: $0.path) }
         if item.isDirectoryLike {
             size = item.size.map { "\(formatters.size.string($0)), calculated before" } ?? "Calculating..."
             let path = item.path

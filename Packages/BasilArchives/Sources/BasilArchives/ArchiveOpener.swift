@@ -133,7 +133,8 @@ public final class ArchiveOpener: ContainerOpener {
 
     /// A local file for `path`: the file itself, or a temporary copy read through its provider.
     private func localFile(for path: VFSPath, registry: ProviderRegistry) async throws -> (URL, Bool) {
-        if path.location == .local { return (URL(fileURLWithPath: path.path), false) }
+        // Local files, and files on a mounted share (SMB), are read where they are.
+        if let local = registry.localPath(of: path) { return (URL(fileURLWithPath: local.path), false) }
         let source = try registry.writableProvider(for: path.location)
         let folder = temporaryRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

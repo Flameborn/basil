@@ -55,7 +55,7 @@ final class TemporaryCopies {
 
     /// The local copy for previewing `item`, if it is already extracted and still current.
     func preview(of item: FileItem) -> VFSPath? {
-        if item.path.location == .local { return item.path }
+        if let local = registry.localPath(of: item.path) { return local }
         guard let cached = previews[item.path], cached.size == item.size, cached.modified == item.modified else { return nil }
         return cached.copy
     }

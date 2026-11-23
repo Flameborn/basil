@@ -361,4 +361,70 @@ enum UITestWebDAVServer {
         }
     }
 }
+/// The Samba container of the BasilRemote tests (`basil-test-samba`, made by their first run)
+/// for the SMB UI test (`BASIL_UITEST_SMB=1`): started when Docker (OrbStack) runs, stopped
+/// again by a watchdog when the app dies. The share media is emptied first.
+enum UITestSMBServer {
+    struct Server {
+        let host: String
+        let user = "alice"
+    }
+
+    static let container = "basil-test-samba"
+
+    static func startIfRequested() -> Server? {
+        guard UITestFixture.isActive, ProcessInfo.processInfo.environment["BASIL_UITEST_SMB"] == "1",
+              let docker = ["/opt/homebrew/bin/docker", "/usr/local/bin/docker", NSHomeDirectory() + "/.orbstack/bin/docker"]
+                .first(where: { FileManager.default.isExecutableFile(atPath: $0) }),
+              run(docker, ["start", container]) != nil,
+              let host = run(docker, ["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container])?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else { return nil }
+        for _ in 0..<200 where !answers(host) { usleep(100_000) }
+        _ = run(docker, ["exec", container, "sh", "-c", "rm -rf /shares/media/*"])
+        let watchdog = Process()
+        watchdog.executableURL = URL(fileURLWithPath: "/bin/sh")
+        watchdog.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 1; done; '\(docker)' stop -t 2 \(container)"]
+        try? watchdog.run()
+        return Server(host: host)
+    }
+
+    /// Whether Samba accepts connections on port 445 yet.
+    private static func answers(_ host: String) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(445).bigEndian
+        inet_pton(AF_INET, host, &address.sin_addr)
+        // Non-blocking with a short wait: a connect to an address that is not up yet can hang.
+        _ = fcntl(fd, F_SETFL, O_NONBLOCK)
+        let started = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if started == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var poller = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&poller, 1, 200) == 1 else { return false }
+        var error: Int32 = 0
+        var length = socklen_t(MemoryLayout<Int32>.size)
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &length)
+        return error == 0
+    }
+
+    private static func run(_ tool: String, _ arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        guard (try? process.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return process.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+}
 #endif

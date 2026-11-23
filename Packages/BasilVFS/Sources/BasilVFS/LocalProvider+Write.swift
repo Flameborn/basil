@@ -94,8 +94,20 @@ extension LocalProvider: WritableProvider {
     public func rename(_ from: VFSPath, to: VFSPath, replacing: Bool) async throws {
         try await LocalIO.run {
             guard renamex_np(from.path, to.path, replacing ? 0 : UInt32(RENAME_EXCL)) == 0 else {
-                let code = errno
+                var code = errno
                 if code == EXDEV { throw VFSError.unsupported("rename across volumes") }
+                // smbfs, msdos and exfat have no exclusive rename: check the target first, then
+                // rename. A target made in between is replaced, which these volumes cannot prevent.
+                if !replacing, code == ENOTSUP || code == EINVAL {
+                    var target = Darwin.stat(), source = Darwin.stat()
+                    if lstat(to.path, &target) == 0 {
+                        // The same item under another case (case-insensitive volume) may be renamed.
+                        guard lstat(from.path, &source) == 0, source.st_dev == target.st_dev,
+                              source.st_ino == target.st_ino else { throw VFSError.alreadyExists(to) }
+                    }
+                    if Darwin.rename(from.path, to.path) == 0 { return }
+                    code = errno
+                }
                 throw Self.writeError(code, code == EEXIST ? to : from)
             }
         }

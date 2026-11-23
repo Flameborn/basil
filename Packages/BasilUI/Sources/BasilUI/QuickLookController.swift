@@ -58,8 +58,9 @@ final class QuickLookController: NSObject, @preconcurrency QLPreviewPanelDataSou
         guard let pane else { return false }
         let selected = pane.model.selectedItems
         let source = selected.isEmpty ? (pane.cursorItem.map { [$0] } ?? []) : selected
-        // Folders inside archives have no local copy to preview; local folders do.
-        let files = source.filter { $0.path.location == .local || !$0.isDirectoryLike }
+        // Folders inside archives have no local copy to preview; local folders (also on a
+        // mounted share) do.
+        let files = source.filter { pane.model.registry.localPath(of: $0.path) != nil || !$0.isDirectoryLike }
         guard !files.isEmpty else { return false }
         let changed = files.map(\.path) != items.map(\.file.path)
         if changed {

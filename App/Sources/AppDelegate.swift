@@ -70,6 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     target: RemoteTarget(service: .webdavs, host: "127.0.0.1", port: server.port, user: server.user,
                                          path: "/dav", authentication: .password))]
             }
+            if let server = UITestSMBServer.startIfRequested() {
+                settings.settings.connections = [SavedConnection(
+                    name: "Test SMB server",
+                    target: RemoteTarget(service: .smb, host: server.host, port: nil, user: server.user,
+                                         path: nil, authentication: .password))]
+            }
             if let server = UITestFTPServer.startIfRequested(), let root = start?.left {
                 settings.settings.connections = [SavedConnection(
                     name: "Test FTP server",
@@ -92,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let davTrustFile = dataDirectory.appendingPathComponent("Trusted WebDAV certificates.txt")
         providers.register(connector: WebDAVConnector(secure: true, trustFile: davTrustFile))
         providers.register(connector: WebDAVConnector(secure: false, trustFile: davTrustFile))
+        // SMB through macOS's own client: shares are mounted in /Volumes like Finder does.
+        providers.register(connector: SMBConnector())
         // Dropbox, when the build has an app key (Config/Dropbox.local.xcconfig). Its sign-in comes
         // back to http://localhost:21745/dropbox, which Basil serves while it waits.
         if let key = Bundle.main.object(forInfoDictionaryKey: "BasilDropboxAppKey") as? String,

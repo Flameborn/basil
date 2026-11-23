@@ -156,8 +156,8 @@ extension MainWindowController {
         guard let item = activePane.cursorItem else { return announce("No items") }
         if item.isDirectoryLike { return announce("\(item.name) is a folder") }
         guard ensureReadable(activePane.model.directory) else { return }
-        guard item.path.location == .local || item.path.location.container != nil else {
-            return announce("Only local files and files in archives can be edited for now")
+        guard providers.localPath(of: item.path) != nil || item.path.location.container != nil else {
+            return announce("Only local files, files on mounted shares and files in archives can be edited for now")
         }
         guard let apps = EditorRules.apps(for: item.name, in: settings.settings.editorRules) else {
             return edit(item.path, app: nil)
@@ -173,17 +173,18 @@ extension MainWindowController {
         activePane.popUpMenuAtCursor(menu)
     }
 
-    /// Opens a local file in the editor, or a temporary copy of a file inside an archive
-    /// (`editInArchive`, ArchiveEditing.swift).
+    /// Opens a local file (or one on a mounted share, in place) in the editor, or a temporary
+    /// copy of a file inside an archive (`editInArchive`, ArchiveEditing.swift).
     func edit(_ path: VFSPath, app: String?) {
-        if path.location == .local { return openInEditor(path, app: app) }
+        if let local = providers.localPath(of: path) { return openInEditor(local, app: app) }
         editInArchive(path, app: app)
     }
 
     /// Cmd+Shift+T: opens the terminal from Settings in the current pane's folder.
     func openTerminal() {
-        let directory = activePane.model.directory
-        guard directory.location == .local else { return announce("Only local folders can be opened in a terminal") }
+        guard let directory = providers.localPath(of: activePane.model.directory) else {
+            return announce("Only local folders and folders on mounted shares can be opened in a terminal")
+        }
         let s = settings.settings
         Task {
             do {

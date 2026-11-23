@@ -18,6 +18,9 @@ let package = Package(
         .package(path: "../BasilOperations"),
     ],
     targets: [
+        // Lists SMB shares through macOS's own SMB plugin for NetFS (NetFSPlugin.h is not in
+        // NetFS's Swift module).
+        .target(name: "CNetFSShares", linkerSettings: [.linkedFramework("NetFS")]),
         .target(
             name: "BasilRemote",
             dependencies: [
@@ -26,7 +29,9 @@ let package = Package(
                 .product(name: "CLibSSH2", package: "LibSSH2"),
                 .product(name: "CBasilTLS", package: "LibSSH2"),
                 .product(name: "SwiftyDropbox", package: "SwiftyDropbox"),
-            ]
+                "CNetFSShares",
+            ],
+            linkerSettings: [.linkedFramework("NetFS")]
         ),
         .testTarget(name: "BasilRemoteTests", dependencies: [
             "BasilRemote",
