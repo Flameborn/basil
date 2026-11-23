@@ -218,6 +218,7 @@ extension KeyChord {
 extension MainWindowController {
     /// Puts the command menus (Files, Mark, Commands, Net, Show, Tabs) into `mainMenu` after the item at
     /// `index` (the app menu and the Edit menu come first), and keeps them in step with the layout.
+    /// The Edit menu then moves after the first command menu, in the Mac order File, Edit, ...
     public func installCommandMenus(in mainMenu: NSMenu, at index: Int) {
         BuiltinMenus.register(in: commands.menus)
         ContextMenuCommands.registerLayout(in: commands.menus)
@@ -232,6 +233,10 @@ extension MainWindowController {
             installed.forEach(mainMenu.removeItem)
             installed = builder.topLevelItems()
             for (offset, item) in installed.enumerated() { mainMenu.insertItem(item, at: index + offset) }
+            if let files = installed.first, let edit = mainMenu.items.first(where: { $0.submenu?.title == "Edit" }) {
+                mainMenu.removeItem(edit)
+                mainMenu.insertItem(edit, at: mainMenu.index(of: files) + 1)
+            }
         }
         install()
         commands.menus.onChange = install

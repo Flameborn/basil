@@ -16,13 +16,16 @@ enum ContextMenuCommands {
             C(id: "pane.contextMenu", title: "Show Context Menu", defaultKeys: [KeyChord(.function(10), .shift)]) { _ in
                 w?.activePane.paneTable.showContextMenuAtCursor()
             },
-            C(id: "file.copyLink", title: "Copy Link", isApplicable: { _ in w?.canCopyLinks ?? false }) { _ in
+            C(id: "file.copyLink", title: "Copy Link",
+              defaultKeys: [KeyChord(.character("c"), [.command, .option, .shift])], isApplicable: { _ in w?.canCopyLinks ?? false }) { _ in
                 w?.copyLinks()
             },
-            C(id: "file.copyPath", title: "Copy Path", isApplicable: { _ in w?.hasTargets ?? false }) { _ in
+            C(id: "file.copyPath", title: "Copy Path",
+              defaultKeys: [KeyChord(.character("c"), [.command, .option])], isApplicable: { _ in w?.hasTargets ?? false }) { _ in
                 w?.copyToClipboard(\.clipboardPath, what: "Path")
             },
-            C(id: "file.copyName", title: "Copy Name", isApplicable: { _ in w?.hasTargets ?? false }) { _ in
+            C(id: "file.copyName", title: "Copy Name",
+              defaultKeys: [KeyChord(.character("c"), .command)], isApplicable: { _ in w?.hasTargets ?? false }) { _ in
                 w?.copyToClipboard(\.name, what: "Name")
             },
         ]

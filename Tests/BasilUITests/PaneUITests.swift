@@ -365,6 +365,19 @@ final class PaneUITests: XCTestCase {
         menuBar.menuBarItems["Commands"].click()
         XCTAssertTrue(menuBar.menuItems["Copy Link"].exists)
         app.typeKey(.escape, modifierFlags: [])
+
+        // Cmd+C copies the name, Cmd+Option+C the path.
+        leftTable.typeKey("c", modifierFlags: .command)
+        XCTAssertTrue(waitFor { NSPasteboard.general.string(forType: .string) == "notes.md" })
+        leftTable.typeKey("c", modifierFlags: [.command, .option])
+        XCTAssertTrue(waitFor { NSPasteboard.general.string(forType: .string) == fixture + "/notes.md" },
+                      NSPasteboard.general.string(forType: .string) ?? "")
+
+        // Mac menu order: Files comes before Edit.
+        let titles = menuBar.menuBarItems.allElementsBoundByIndex.map(\.title)
+        let files = try XCTUnwrap(titles.firstIndex(of: "Files")), edit = try XCTUnwrap(titles.firstIndex(of: "Edit"))
+        XCTAssertEqual(edit, files + 1, "\(titles)")
+        XCTAssertLessThan(edit, try XCTUnwrap(titles.firstIndex(of: "Mark")), "\(titles)")
     }
 
     func testPathBarGoesToAnyPartOfThePath() throws {
