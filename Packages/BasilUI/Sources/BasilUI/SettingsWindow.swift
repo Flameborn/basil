@@ -305,9 +305,14 @@ struct NavigationSettings: View {
 
     var body: some View {
         Form {
-            Toggle("Go to the root when switching to a volume", isOn: $store.settings.goToRootOnVolumeSwitch)
-                .accessibilityLabel("Go to the root when switching to a volume")
-            Text("When off, switching to a volume from the drive menu returns to the last folder you visited on it.")
+            Toggle("Go to the root when choosing a volume", isOn: $store.settings.goToRootOnVolumeSwitch)
+                .accessibilityLabel("Go to the root when choosing a volume")
+            Text("When off, choosing a volume from the drive menu returns to the last folder you visited on it.")
+                .font(.callout)
+                .foregroundStyle(Theme.secondaryTextColor)
+            Toggle("Space calculates folder sizes", isOn: $store.settings.spaceCalculatesFolderSizes)
+                .accessibilityLabel("Space calculates folder sizes")
+            Text("When on, selecting a folder with Space also calculates its size, like Cmd+Shift+S.")
                 .font(.callout)
                 .foregroundStyle(Theme.secondaryTextColor)
         }

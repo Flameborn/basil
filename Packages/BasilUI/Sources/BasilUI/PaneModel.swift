@@ -29,7 +29,7 @@ final class PaneModel {
     private(set) var showHidden = false
     private(set) var filter: NameFilter?
     /// Calculated folder sizes (Cmd+Shift+S), kept until the pane shows another folder.
-    private var folderSizes: [VFSPath: Int64] = [:]
+    private(set) var folderSizes: [VFSPath: Int64] = [:]
 
     private var generation = 0
     /// Incremented per rows rebuild; only the newest rebuild is applied (filter keystrokes race otherwise).

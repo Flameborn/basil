@@ -91,7 +91,7 @@ enum BuiltinCommands {
             C(id: "cursor.last", title: "Last Item", defaultKeys: [K(.end)]) { _ in pane()?.moveCursor(to: .max) },
 
             // Selection (Total Commander "marking"): the cursor and the selection are separate.
-            C(id: "select.toggle", title: "Select or Deselect", defaultKeys: [K(.space)]) { _ in pane()?.toggleSelectionAtCursor() },
+            C(id: "select.toggle", title: "Select or Deselect", defaultKeys: [K(.space)]) { _ in pane()?.toggleSelectionAtCursor(calculateSize: true) },
             C(id: "select.toggleDown", title: "Select and Move Down", defaultKeys: [K(.down, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: 1) },
             C(id: "select.toggleUp", title: "Select and Move Up", defaultKeys: [K(.up, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: -1) },
             C(id: "select.allFiles", title: "Select All Files",

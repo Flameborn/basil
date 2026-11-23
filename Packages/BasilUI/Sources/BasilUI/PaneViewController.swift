@@ -370,13 +370,16 @@ final class PaneViewController: NSViewController {
 
     // MARK: Selection (Total Commander "marking"; the cursor is separate)
 
-    func toggleSelectionAtCursor(advance: Int = 0) {
+    /// Space (and Shift+Up/Down). With `calculateSize` and the "Space calculates folder sizes"
+    /// setting, selecting a folder also calculates its size (Total Commander's option).
+    func toggleSelectionAtCursor(advance: Int = 0, calculateSize: Bool = false) {
         guard let row = cursorRow else { return }
         let item = model.rows[row]
         model.toggleSelection(item.path)
         let count = model.selected.count
         if model.selected.contains(item.path) {
             delegate?.pane(self, announce: "Selected, \(itemCount(count))")
+            if calculateSize, settings.settings.spaceCalculatesFolderSizes { calculateSizeOnSelect(item) }
         } else {
             delegate?.pane(self, announce: count > 0 ? "Deselected, \(itemCount(count))" : "Deselected")
         }
@@ -412,6 +415,41 @@ final class PaneViewController: NSViewController {
                 self.delegate?.pane(self, announce: Self.describe(error))
             }
         }
+    }
+
+    /// Folders selected with Space wait here and are calculated one after another, so the Size
+    /// column gets every result. Only the last one's size is spoken ("Alpha, 1.5 MB"), and only
+    /// while it is still selected.
+    private var spaceSizeQueue: [FileItem] = []
+    private var spaceSizeTask: Task<Void, Never>?
+    private var spaceSizeRun = 0
+
+    private func calculateSizeOnSelect(_ item: FileItem) {
+        guard item.isDirectoryLike, model.folderSizes[item.path] == nil,
+              !spaceSizeQueue.contains(where: { $0.path == item.path }) else { return }
+        spaceSizeQueue.append(item)
+        guard spaceSizeTask == nil else { return }
+        spaceSizeRun += 1
+        let run = spaceSizeRun
+        spaceSizeTask = Task { [weak self] in
+            while let self, !Task.isCancelled, !self.spaceSizeQueue.isEmpty {
+                let next = self.spaceSizeQueue.removeFirst()
+                guard next.path.parent == self.model.directory else { continue }
+                guard let totals = try? await self.model.calculateSizes(of: [next.path])[next.path] else { continue }
+                guard !Task.isCancelled else { break }
+                self.updateStatus()
+                if self.spaceSizeQueue.isEmpty, self.model.selected.contains(next.path) {
+                    self.delegate?.pane(self, announce: "\(next.name), \(self.settings.formatters.size.string(totals.bytes))")
+                }
+            }
+            if let self, self.spaceSizeRun == run { self.spaceSizeTask = nil }
+        }
+    }
+
+    private func cancelSpaceSizes() {
+        spaceSizeQueue.removeAll()
+        spaceSizeTask?.cancel()
+        spaceSizeTask = nil
     }
 
     /// "Alpha, 1.5 MB, 120 files, 8 folders" or "3 folders, 4.2 GB, 1,200 files, 30 folders".
@@ -569,6 +607,7 @@ final class PaneViewController: NSViewController {
             if shownDirectory != model.directory {
                 shownDirectory = model.directory
                 sizeTask?.cancel()
+                cancelSpaceSizes()
                 rememberVolumeDirectory()
                 tabsDirectoryChanged()
                 delegate?.paneDidChangeDirectory(self)

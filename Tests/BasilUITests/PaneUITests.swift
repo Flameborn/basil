@@ -201,6 +201,37 @@ final class PaneUITests: XCTestCase {
                       "\(cellLabels(leftTable.tableRows.element(boundBy: 0)))")
     }
 
+    /// With "Space calculates folder sizes" on (Settings, Navigation), Space on a folder also
+    /// calculates its size.
+    func testSpaceCalculatesFolderSize() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey(",", modifierFlags: .command)
+        let settings = app.windows["Basil Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Navigation'")).firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
+        tab.click()
+        let toggle = settings.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == 'Space calculates folder sizes'")).firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 2), settings.debugDescription)
+        XCTAssertEqual(toggle.value as? Int, 0, "off by default")
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: settings) { return true }
+            print("AUDIT navigation settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        toggle.click()
+        XCTAssertTrue(waitFor { (toggle.value as? Int) == 1 })
+        settings.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(waitFor { !settings.exists })
+
+        leftTable.click()
+        leftTable.typeKey(.home, modifierFlags: [])
+        leftTable.typeKey(" ", modifierFlags: [])
+        XCTAssertTrue(waitFor { self.cellLabels(self.leftTable.tableRows.element(boundBy: 0)).dropFirst().first?.hasPrefix("dir, ") == true },
+                      "\(cellLabels(leftTable.tableRows.element(boundBy: 0)))")
+    }
+
     func testGoToPathWithSuggestions() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         leftTable.typeKey("g", modifierFlags: .command)
