@@ -26,6 +26,17 @@ struct IndexScanner: Sendable {
                             devices: devices)
     }
 
+    /// A volume other than the startup disk, mounted at `root`: only that device, without its
+    /// Spotlight, FSEvents and version stores.
+    static func volume(_ root: String) -> IndexScanner {
+        var info = Darwin.stat()
+        let devices: Set<Int32>? = lstat(root, &info) == 0 ? [info.st_dev] : nil
+        let base = root == "/" ? "" : root
+        return IndexScanner(skippedPaths: Set([".Spotlight-V100", ".fseventsd", ".DocumentRevisions-V100", ".TemporaryItems"]
+                                                .map { base + "/" + $0 }),
+                            devices: devices)
+    }
+
     /// Whether this scanner would index `path` (it is not in or below a skipped folder).
     func covers(_ path: String) -> Bool {
         !skippedPaths.contains { path == $0 || path.hasPrefix($0 + "/") }

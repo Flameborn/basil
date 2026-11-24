@@ -45,6 +45,9 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 ## Decisions log
 
+- 2026-11-24 (searchfs measured, so not used under the user's rule "only where clearly faster"): on the startup disk's data volume searchfs took 21.8 s for 3.18 million entries (getattrlistbulk, levels in parallel: 16 s for 3.68 million with the system volume); on a USB SSD after remounting (cold) 9.8 s against 12.6 s, warm 0.58 s against 1.3 s; but searchfs on APFS refuses ATTR_CMN_ACCESSMASK (EINVAL), so permissions would need one more call per entry. `VolumeScanBenchmark` (BASIL_SCAN_ROOT=/Volumes/X) times the scanner on any volume.
+- 2026-11-24 (index of other volumes, chosen without asking, change if wanted): the Settings list shows every mounted volume Finder shows plus ticked ones that are not mounted; a volume is remembered by its UUID (local) or its address without password (network). Disks without an FSEvents history are scanned again on each mount, like network volumes. A search of a folder takes in ticked volumes mounted below it (searching "/" finds names on them); a folder only a volume index could cover in part (/Volumes itself) is walked live instead. Network rescans keep the old index searchable until the new scan is done.
+
 - 2026-11-24 (user): Find Files is a TC-style window (Option+F7) with a results list; "Show in Pane" lists the results in the active pane as a folder of their own (TC's Feed to listbox), where file commands work. The first version also searches text inside files. Basil's own index is built automatically in the background (with a setting to turn it off). Engine choice defaults to Automatic: the own index for name searches it covers once it is ready, otherwise a live walk; Spotlight only when chosen.
 - 2026-11-24 (user): Find Files has "Search inside archives" (TC's Search archives; off by default, remembered). Decided by Claude, change if wrong: the live walk opens every archive Basil reads (also .lst file lists and archives inside archives) and searches it like a folder (its own folders only with Search subfolders on); names and text both work. Basil's index and Spotlight do not look inside archives, so Automatic walks when it is on. An encrypted archive asks for its password like opening it does (Cancel skips it). In the results, items inside archives can be viewed, edited, copied out and renamed; delete, move and Multi-Rename are refused with a reason. Archives stay open while results show their items and while a search runs.
 - 2026-11-24 (user): Multi-Rename works in search results like in TC; Quick Look (F3) and Edit (F4) work there too. Names are checked against each item's own folder (every folder of the batch is listed first), and renamed items stay in the results under their new names (Shift+F6 too); an item whose rename failed keeps its old name.
@@ -66,6 +69,10 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 | Date | Decision |
 |---|---|
+| 2026-11-24 | User: order of the remaining work: search index extras (searchfs, other volumes), then the remote extras below, then Plugins (M7) and Sync (M9); theming last (very low priority) |
+| 2026-11-24 | User: Lua plugins reach files only through Basil's providers and queue operations (always allowed); network, running shell commands and LuaJIT's FFI are permissions the plugin declares in its manifest, asked once when the plugin is first loaded and remembered |
+| 2026-11-24 | User: other volumes are indexed when ticked in Settings (startup disk ticked), remembered by volume UUID and indexed whenever mounted; network volumes get FSEvents for changes from this Mac plus a background rescan every N hours (setting, default 6) and on mount; an unmounted volume's index is kept but left out of searches, and missed changes are replayed from the disk's FSEvents history when it is back (rescan when that is gone); searchfs is used for the first scan only where it is clearly faster than getattrlistbulk, with identical results |
+| 2026-11-24 | User wants: Nextcloud browser login (Login Flow v2), Copy Link on Nextcloud (public share), Copy Link on S3 (presigned URL), F5 on a Google Drive folder shortcut copies the target's contents, per-type Google export formats, Google exports over 10 MB through exportLinks, packing in place on mounted SMB shares. Not wanted for now: Dropbox team space |
 | 2026-11-24 | User: strictly one global queue (no parallel queues) |
 | 2026-11-24 | User: S3 uploads skip the .basil-partial-* object in secure mode too (S3 objects appear only whole); the source checks and verification still run before the upload is committed |
 | 2026-11-24 | User: themes can be edited, created, imported and exported (a Themes tab: duplicate the built-in theme, change each token for light and dark, live WCAG contrast check that refuses unreadable pairs, JSON files) |
@@ -246,7 +253,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Decided 2026-11-24 (user: vendored, static xcframework from bootstrap.sh). How should LuaJIT be built and linked (prebuilt static lib/xcframework from `scripts/bootstrap.sh`)?
 - [x] Done 2026-11-24 (user: yes, like TC): Multi-Rename works in search results.
 - [x] Decided 2026-11-24 (user: strictly one global queue). Should there be several queues in parallel (for example one per destination device), or strictly one global queue?
-- [ ] Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
+- [x] Decided 2026-11-24 (user: permissions in the manifest, see Decisions). Lua plugin sandbox: which APIs plugins can reach (filesystem only through VFS? network? shell?)
 - [ ] Decided 2026-11-24 (user: yes, edit, create, import, export; see Decisions), not built yet. Themes: should users be able to edit/create colour themes (and import/export them)?
 
 - [x] Fixed 2026-11-19: dark-mode contrast audit failures. Real ones: system secondary text (3.3 to 3.9:1 in light mode), the faint system progress-bar track inside the queue row (1.4:1), the Multi-Rename Modified column running past the window edge. False positives now skipped in tests, each checked against the audit's own screenshot: the main window dimmed behind a sheet, inactive window titles, elements of other windows or scrolled out of the audited window, the system delete alert's "This cannot be undone." (7.7:1 on glass). All 26 UI tests pass in dark mode.
@@ -402,7 +409,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Search protocol + live directory-walk engine (2026-11-24)
 - [x] Spotlight engine (MDQuery on its own queue; Spotlight narrows, every hit checked against the query) (2026-11-24)
 - [x] Own index: initial scan (getattrlistbulk, levels in parallel), custom binary store, FSEvents event-ID replay, parallel matcher (2026-11-24)
-- [ ] Index: searchfs for the first scan (getattrlistbulk only so far), other volumes
+- [x] Index: other volumes ticked in Settings (local disks with FSEvents replay, network volumes rescanned on mount and every N hours); searchfs measured and not used (2026-11-24)
 - [x] Search UI: Find Files window (Option+F7), results in a pane (2026-11-24)
 
 ### M9 - Sync (later)

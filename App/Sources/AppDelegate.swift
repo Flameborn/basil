@@ -183,7 +183,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               dataDirectory: dataDirectory, secrets: secrets,
                                               remoteSecrets: remoteSecrets,
                                               copiesDirectory: copiesDirectory, git: git,
-                                              searchEngines: searchEngines, searchIndex: searchIndex)
+                                              searchEngines: searchEngines,
+                                              searchIndexes: SearchIndexes(folder: indexFolder, boot: searchIndex))
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
         #if DEBUG

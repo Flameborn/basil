@@ -18,13 +18,28 @@ public actor FilenameIndex {
         case scanning(Int)
         /// Ready, with the number of entries.
         case ready(Int)
+        /// Ready (searches use the index as it is) while the tree is scanned again in the
+        /// background (network volumes), with the entries found so far by that scan.
+        case refreshing(Int, scanned: Int)
         case failed(String)
 
-        public var isReady: Bool { if case .ready = self { true } else { false } }
+        public var isReady: Bool {
+            switch self {
+            case .ready, .refreshing: true
+            default: false
+            }
+        }
     }
 
     public nonisolated let file: URL
     public nonisolated let root: String
+    /// The index of a whole volume other than the startup disk: it may be mounted at another
+    /// path next time (the file is chosen by the volume's identity) and is only scanned while
+    /// that volume is mounted there.
+    public nonisolated let isVolume: Bool
+    /// A network volume: FSEvents reports only changes made from this Mac, so the tree is scanned
+    /// again when it starts (the volume was mounted) and every `rescanInterval`.
+    public nonisolated let isNetwork: Bool
     nonisolated let scanner: IndexScanner
     private nonisolated let stateBox = Mutex(State.off)
     private nonisolated let observers = Mutex<[@Sendable (State) -> Void]>([])
@@ -36,6 +51,10 @@ public actor FilenameIndex {
     /// Changes that arrived during a scan, applied once it is done.
     private var buffered: [FSChange] = []
     private var scanning = false
+    /// The running scan replaces an index that stays searchable meanwhile.
+    private var refreshing = false
+    private var rescanInterval: Duration?
+    private var rescanTask: Task<Void, Never>?
     private var dirty = false
     private var saveTask: Task<Void, Never>?
     /// How long changes wait before the file is written again.
@@ -46,10 +65,17 @@ public actor FilenameIndex {
         self.init(file: file, root: root, scanner: nil)
     }
 
-    init(file: URL, root: String, scanner: IndexScanner?) {
+    init(file: URL, root: String, scanner: IndexScanner?, isVolume: Bool = false, isNetwork: Bool = false) {
         self.file = file
         self.root = root
+        self.isVolume = isVolume
+        self.isNetwork = isNetwork
         self.scanner = scanner ?? (root == "/" ? .bootVolume() : IndexScanner(skippedPaths: [], devices: nil))
+    }
+
+    /// The index of the volume mounted at `root` (not the startup disk).
+    public static func volume(at root: String, file: URL, isNetwork: Bool) -> FilenameIndex {
+        FilenameIndex(file: file, root: root, scanner: .volume(root), isVolume: true, isNetwork: isNetwork)
     }
 
     /// The startup disk's index in `folder`.
@@ -83,27 +109,94 @@ public actor FilenameIndex {
         guard watcher == nil, scanTask == nil else { return }
         setState(.loading)
         let uuid = Self.volumeUUID(of: root)
-        if let loaded = try? IndexStore.read(from: file), loaded.rootPath == root, loaded.volumeUUID == uuid, loaded.lastEventID > 0 {
+        if let loaded = try? IndexStore.read(from: file), loaded.rootPath == root || isVolume, loaded.volumeUUID == uuid,
+           loaded.lastEventID > 0 {
+            // A volume mounted at another path this time ("KINGSTON 1"): same tree, new root.
+            loaded.rootPath = root
             store = loaded
             watch(since: loaded.lastEventID)
             setState(.ready(loaded.liveCount))
+            // Network volumes and disks without an FSEvents history (disk images attached with
+            // -nobrowse, some file systems) cannot say what changed meanwhile: scan them again.
+            if isNetwork || (isVolume && uuid.isEmpty) { refresh() }
         } else {
             rebuild()
         }
+        scheduleRescans()
+    }
+
+    /// How often a network volume is scanned again in the background (nil: only when mounted).
+    public func setRescanInterval(_ interval: Duration?) {
+        rescanInterval = interval
+        scheduleRescans()
+    }
+
+    private func scheduleRescans() {
+        rescanTask?.cancel()
+        rescanTask = nil
+        guard isNetwork, let interval = rescanInterval, watcher != nil || scanTask != nil else { return }
+        rescanTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let due = await self.secondsUntilRescan(interval)
+                try? await Task.sleep(for: .seconds(max(60, due)))
+                if Task.isCancelled { return }
+                await self.rescanIfDue(interval)
+            }
+        }
+    }
+
+    private func secondsUntilRescan(_ interval: Duration) -> Double {
+        guard let store else { return 60 }
+        return Double(store.scannedAt) + Double(interval.components.seconds) - Date().timeIntervalSince1970
+    }
+
+    private func rescanIfDue(_ interval: Duration) {
+        guard scanTask == nil, secondsUntilRescan(interval) <= 0 else { return }
+        refresh()
+    }
+
+    /// Scans the tree again in the background while searches keep using the current index, then
+    /// replaces it (network volumes, whose changes from other computers FSEvents does not see).
+    public func refresh() {
+        guard let store, scanTask == nil else {
+            if store == nil, scanTask == nil { rebuild() }
+            return
+        }
+        guard isMountedHere() else { return }
+        refreshing = true
+        scanning = true
+        buffered = []
+        setState(.refreshing(store.liveCount, scanned: 0))
+        startScan()
+    }
+
+    /// Whether the volume this index is for is still mounted at `root` (always true for folders).
+    nonisolated func isMountedHere() -> Bool {
+        guard isVolume, let devices = scanner.devices else { return true }
+        var info = Darwin.stat()
+        return lstat(root, &info) == 0 && devices.contains(info.st_dev)
     }
 
     /// Scans the whole tree again (Settings, Rebuild Index; or when history is lost).
     public func rebuild() {
+        guard isMountedHere() else { return }
         scanTask?.cancel()
         watcher?.stop()
         watcher = nil
         consumer?.cancel()
         buffered = []
         scanning = true
+        refreshing = false
         setState(.scanning(0))
         // Changes from now on are collected while scanning, then applied.
         watch(since: FSEventsGetCurrentEventId())
+        startScan()
+    }
+
+    private func startScan() {
         let scanner = scanner, root = root, uuid = Self.volumeUUID(of: root)
+        let current = refreshing ? store?.liveCount : nil
         scanTask = Task.detached(priority: .utility) { [weak self] in
             let cancelled: @Sendable () -> Bool = { Task.isCancelled }
             do {
@@ -111,7 +204,7 @@ public actor FilenameIndex {
                 let built = try scanner.scan(root, isCancelled: cancelled) { count in
                     guard Date().timeIntervalSince(last) > 0.5 else { return }
                     last = Date()
-                    self?.publish(.scanning(count))
+                    self?.publish(current.map { .refreshing($0, scanned: count) } ?? .scanning(count))
                 }
                 built.volumeUUID = uuid
                 await self?.finishScan(built)
@@ -125,6 +218,15 @@ public actor FilenameIndex {
     private func finishScan(_ built: IndexStore) {
         scanTask = nil
         scanning = false
+        let wasRefreshing = refreshing
+        refreshing = false
+        // A volume unmounted during the scan gives an empty tree: keep what there was.
+        guard isMountedHere() else {
+            buffered = []
+            if let store, wasRefreshing { setState(.ready(store.liveCount)) } else { setState(.failed("The volume is no longer mounted")) }
+            return
+        }
+        built.scannedAt = Int64(Date().timeIntervalSince1970)
         store = built
         let changes = buffered
         buffered = []
@@ -137,6 +239,12 @@ public actor FilenameIndex {
     private func failScan(_ error: Error) {
         scanTask = nil
         scanning = false
+        buffered = []
+        if refreshing, let store {
+            refreshing = false
+            setState(.ready(store.liveCount))
+            return
+        }
         setState(.failed(error.localizedDescription))
     }
 
@@ -144,6 +252,10 @@ public actor FilenameIndex {
     public func stop(deleting: Bool = false) {
         scanTask?.cancel()
         scanTask = nil
+        rescanTask?.cancel()
+        rescanTask = nil
+        scanning = false
+        refreshing = false
         watcher?.stop()
         watcher = nil
         consumer?.cancel()
@@ -207,10 +319,11 @@ public actor FilenameIndex {
     private func received(_ changes: [FSChange]) {
         if scanning {
             buffered += changes
-            return
+            // While refreshing, the index being searched stays current too.
+            guard refreshing else { return }
         }
         apply(changes)
-        if let store { setState(.ready(store.liveCount)) }
+        if !scanning, let store { setState(.ready(store.liveCount)) }
     }
 
     /// Applies FSEvents changes to the index. Internal for tests.
@@ -222,6 +335,8 @@ public actor FilenameIndex {
             let flags = Int(change.flags)
             if flags & kFSEventStreamEventFlagHistoryDone != 0 { continue }
             let path = mapped(change.path)
+            // An unmounted volume: its index is stopped and kept (`SearchIndexes`).
+            if flags & kFSEventStreamEventFlagUnmount != 0 || !isMountedHere() { continue }
             if flags & kFSEventStreamEventFlagRootChanged != 0 { return rebuild() }
             if flags & (kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped) != 0 {
                 if path == root { return rebuild() }

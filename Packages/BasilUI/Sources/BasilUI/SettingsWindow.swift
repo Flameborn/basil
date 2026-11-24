@@ -348,22 +348,45 @@ struct NavigationSettings: View {
     }
 }
 
-/// Basil's own filename index (Find Files): on or off, what it is doing, Rebuild.
+/// Basil's own filename indexes (Find Files): which volumes, what each is doing, Rebuild, and how
+/// often network volumes are scanned again.
 struct SearchIndexSettings: View {
     @Bindable var store: SettingsStore
     let index: SearchIndexStatus
 
     var body: some View {
-        Toggle("Index the startup disk for fast name searches", isOn: $store.settings.searchIndex)
-            .accessibilityLabel("Index the startup disk for fast name searches")
-        Text("Find Files then finds names on this Mac's startup disk at once. The index is built in the background and kept up to date while Basil runs; changes made while Basil was closed are read at the next start.")
+        Text("Search index")
+            .font(.headline)
+            .accessibilityAddTraits(.isHeader)
+        Text("Find Files finds names at once on the volumes ticked here. Each index is built in the background and kept up to date while Basil runs; changes made while Basil was closed or the disk was not connected are read when it is back. Network volumes also see changes made from other computers only when they are scanned again.")
             .font(.callout)
             .foregroundStyle(Theme.secondaryTextColor)
-        Text(index.text)
-            .accessibilityLabel(index.text)
-            .accessibilityIdentifier("settings.indexStatus")
-        Button("Rebuild Index") { index.rebuild() }
-            .disabled(!store.settings.searchIndex)
+        ForEach(index.rows) { row in
+            let title = Self.title(row)
+            Toggle(title, isOn: Binding(get: { index.isOn(row) }, set: { index.set(row, on: $0) }))
+                .accessibilityLabel(title)
+            HStack {
+                Text(row.status)
+                    .accessibilityLabel(row.status)
+                    .accessibilityIdentifier("settings.indexStatus." + (row.id == "boot" ? "boot" : row.name))
+                Spacer()
+                Button("Rebuild Index") { index.rebuild(row) }
+                    .accessibilityLabel("Rebuild Index of \(row.name)")
+                    .disabled(!index.isOn(row) || !row.isMounted)
+            }
+        }
+        Stepper(value: $store.settings.networkIndexRescanHours, in: 1...168) {
+            Text("Scan network volumes again every \(store.settings.networkIndexRescanHours) hours")
+        }
+        .accessibilityLabel("Scan network volumes again every \(store.settings.networkIndexRescanHours) hours")
+    }
+
+    static func title(_ row: SearchIndexStatus.Row) -> String {
+        if row.id == "boot" { return "\(row.name), startup disk" }
+        var title = row.name
+        if row.isNetwork { title += ", network volume" }
+        if !row.isMounted { title += ", not mounted" }
+        return title
     }
 }
 

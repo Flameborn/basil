@@ -69,6 +69,8 @@ final class IndexStore: @unchecked Sendable {
     var lastEventID: UInt64 = 0
     /// Identifies the volume's FSEvents history (FSEventsCopyUUIDForDevice).
     var volumeUUID = ""
+    /// When the tree was last scanned whole (seconds since 1970; 0 when unknown).
+    var scannedAt: Int64 = 0
     var removedCount = 0
 
     var liveCount: Int { records.count - removedCount }
@@ -244,6 +246,7 @@ final class IndexStore: @unchecked Sendable {
         result.addRoot(rootPath)
         result.lastEventID = lastEventID
         result.volumeUUID = volumeUUID
+        result.scannedAt = scannedAt
         var queue: [(old: UInt32, new: UInt32)] = [(0, 0)]
         var head = 0
         while head < queue.count {
@@ -289,9 +292,10 @@ final class IndexStore: @unchecked Sendable {
         let uuid = Array(volumeUUID.utf8.prefix(40))
         put(UInt16(uuid.count), at: 48)
         for (i, b) in uuid.enumerated() { header[50 + i] = b }
-        let root = Array(rootPath.utf8.prefix(Self.headerSize - 92))
+        let root = Array(rootPath.utf8.prefix(Self.headerSize - 92 - 8))
         put(UInt16(root.count), at: 90)
         for (i, b) in root.enumerated() { header[92 + i] = b }
+        put(scannedAt, at: Self.headerSize - 8)
 
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let partial = url.deletingLastPathComponent().appendingPathComponent(".basil-partial-\(UUID().uuidString)")
@@ -331,7 +335,8 @@ final class IndexStore: @unchecked Sendable {
         let uuidLength = Int(get(UInt16.self, at: 48))
         store.volumeUUID = String(decoding: data[50..<50 + min(uuidLength, 40)], as: UTF8.self)
         let rootLength = Int(get(UInt16.self, at: 90))
-        store.rootPath = String(decoding: data[92..<92 + min(rootLength, headerSize - 92)], as: UTF8.self)
+        store.rootPath = String(decoding: data[92..<92 + min(rootLength, headerSize - 92 - 8)], as: UTF8.self)
+        store.scannedAt = get(Int64.self, at: headerSize - 8)
         store.records = [IndexRecord](unsafeUninitializedCapacity: count) { buffer, initialized in
             data.withUnsafeBytes { raw in
                 _ = memcpy(buffer.baseAddress!, raw.baseAddress! + headerSize, recordBytes)

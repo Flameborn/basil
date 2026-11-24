@@ -57,10 +57,9 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let searchEngines: SearchEngines
     /// The Find Files window (Option+F7), kept with its last search while the app runs.
     var findWindow: FindFilesWindowController?
-    /// Basil's own filename index of the startup disk, when the app made one.
-    public let searchIndex: FilenameIndex?
-    var searchIndexRunning = false
-    private var searchIndexStatus: SearchIndexStatus?
+    /// Basil's own filename indexes (the startup disk and volumes ticked in Settings), when the app made them.
+    public let searchIndexes: SearchIndexes?
+    var searchIndexStatus: SearchIndexStatus?
     private var searchIndexToken: UUID?
     /// Updates from GitHub releases (`Updates.swift`).
     lazy var updates = UpdateCoordinator(window: self)
@@ -88,10 +87,10 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 copiesDirectory: URL = MainWindowController.defaultCopiesDirectory,
                 git: GitService? = nil,
                 searchEngines: SearchEngines = SearchEngines([LiveSearchEngine()]),
-                searchIndex: FilenameIndex? = nil) {
+                searchIndexes: SearchIndexes? = nil) {
         self.dataDirectory = dataDirectory
         self.searchEngines = searchEngines
-        self.searchIndex = searchIndex
+        self.searchIndexes = searchIndexes
         self.git = git
         self.remoteSecrets = remoteSecrets
         self.copies = TemporaryCopies(root: copiesDirectory, registry: providers)
@@ -133,10 +132,10 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         commands.keyOverrides = settings.settings.keyBindings
         SettingsWindowController.commands = commands
         SettingsWindowController.checkForUpdates = { [weak self] in self?.checkForUpdates() }
-        if let searchIndex {
+        if let searchIndexes {
             // Automatic asks the index first; Spotlight is never picked by Automatic.
-            searchEngines.register(IndexSearchEngine(index: searchIndex), first: true)
-            let status = SearchIndexStatus(index: searchIndex)
+            searchEngines.register(IndexSearchEngine(indexes: searchIndexes.active), first: true)
+            let status = SearchIndexStatus(indexes: searchIndexes, settings: settings)
             searchIndexStatus = status
             SettingsWindowController.searchIndex = status
         }
@@ -170,9 +169,10 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 self?.right.refreshAnnotations(after: .zero)
             }
         }
-        if searchIndex != nil {
+        if searchIndexes != nil {
             searchIndexToken = settings.onChange { [weak self] _ in self?.applySearchIndexSetting() }
             applySearchIndexSetting()
+            observeVolumesForSearchIndex()
         }
         for pane in [left, right] {
             pane.persistsTabs = persistsDirectories

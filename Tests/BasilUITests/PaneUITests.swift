@@ -215,6 +215,11 @@ final class PaneUITests: XCTestCase {
             .matching(NSPredicate(format: "label == 'Space calculates folder sizes'")).firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 2), settings.debugDescription)
         XCTAssertEqual(toggle.value as? Int, 0, "off by default")
+        // The search index lists the startup disk (on) with its status, and other volumes.
+        let boot = settings.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH ', startup disk'")).firstMatch
+        XCTAssertTrue(boot.waitForExistence(timeout: 2), settings.debugDescription)
+        XCTAssertEqual(boot.value as? Int, 1)
+        XCTAssertTrue(settings.staticTexts["settings.indexStatus.boot"].exists)
         try audit(app) { issue in
             if self.isCoveredElsewhere(issue, by: settings) { return true }
             print("AUDIT navigation settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")

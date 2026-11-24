@@ -88,6 +88,10 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var skippedUpdateVersion: String?
     /// Keep Basil's own filename index of the startup disk for fast name searches (on by default).
     public var searchIndex = true
+    /// Other volumes ticked for indexing in Settings, by identity (see `IndexedVolume`).
+    public var indexedVolumes: [IndexedVolume] = []
+    /// Hours between background rescans of indexed network volumes (they also rescan when mounted).
+    public var networkIndexRescanHours = 6
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
     /// extension and Full no longer shows the Ext column.
     public var viewsVersion = BasilSettings.currentViewsVersion
@@ -136,6 +140,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
         skippedUpdateVersion = try c.decodeIfPresent(String.self, forKey: .skippedUpdateVersion) ?? d.skippedUpdateVersion
         searchIndex = try c.decodeIfPresent(Bool.self, forKey: .searchIndex) ?? d.searchIndex
+        indexedVolumes = try c.decodeIfPresent([IndexedVolume].self, forKey: .indexedVolumes) ?? d.indexedVolumes
+        networkIndexRescanHours = try c.decodeIfPresent(Int.self, forKey: .networkIndexRescanHours) ?? d.networkIndexRescanHours
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
         if viewsVersion < 2, let full = views.firstIndex(where: { $0.id == ListView.full.id }) {
             for i in views[full].columns.indices where views[full].columns[i].id == .ext {
@@ -204,5 +210,21 @@ public final class SettingsStore {
 
     private func save() {
         if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: key) }
+    }
+}
+
+/// A volume other than the startup disk that Basil's filename index covers. `id` stays the same
+/// across mounts: "uuid:<volume UUID>" for local disks, "url:<address>" for network volumes
+/// (smb://user@host/share), "name:<name>" when a local disk has no UUID.
+public struct IndexedVolume: Codable, Hashable, Sendable {
+    public var id: String
+    /// The name it had when last seen, shown while it is not mounted.
+    public var name: String
+    public var isNetwork: Bool
+
+    public init(id: String, name: String, isNetwork: Bool) {
+        self.id = id
+        self.name = name
+        self.isNetwork = isNetwork
     }
 }

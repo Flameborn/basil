@@ -334,3 +334,15 @@ private func contains(_ bytes: [UInt8], _ query: TextQuery) async throws -> Bool
         await index.stop()
     }
 }
+
+/// Scans the folder or volume BASIL_SCAN_ROOT with the getattrlistbulk scanner (skipped without
+/// it): used to compare against searchfs, which was not faster (see progress.md, 2026-11-24).
+@Suite struct VolumeScanBenchmark {
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BASIL_SCAN_ROOT"] != nil))
+    func scansVolume() throws {
+        let root = ProcessInfo.processInfo.environment["BASIL_SCAN_ROOT"]!
+        let started = Date()
+        let store = try IndexScanner(skippedPaths: [], devices: nil).scan(root, isCancelled: { false }) { _ in }
+        print("SCAN \(root): \(store.records.count) entries in \(Date().timeIntervalSince(started)) s")
+    }
+}
