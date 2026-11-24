@@ -128,6 +128,8 @@ enum BuiltinCommands {
             C(id: "sort.size", title: "Sort by Size", defaultKeys: [K(.function(6), [.control, .shift])], isChecked: sorted(.size)) { _ in pane()?.setSort(.size) },
             C(id: "sort.unsorted", title: "Unsorted", defaultKeys: [K(.function(7), [.control, .shift])], isChecked: sorted(.unsorted)) { _ in pane()?.setSort(.unsorted) },
 
+            // Total Commander's Alt+F7 (Option+F keys are actions).
+            C(id: "tools.findFiles", title: "Find Files...", defaultKeys: [K(.function(7), .option)]) { _ in w?.findFiles() },
             C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
 

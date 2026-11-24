@@ -8,6 +8,7 @@ import BasilCore
 import BasilGit
 import BasilIntegrations
 import BasilOperations
+import BasilSearch
 import BasilVFS
 
 /// The main dual-pane window. Owns both panes, tracks the active one, and is the
@@ -48,6 +49,15 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let git: GitService?
     /// Where server passwords (and Git logins) are remembered.
     let remoteSecrets: any SecretStore
+    /// Find Files' engines (live walk, Spotlight, the own index; plugins add more).
+    public let searchEngines: SearchEngines
+    /// The Find Files window (Option+F7), kept with its last search while the app runs.
+    var findWindow: FindFilesWindowController?
+    /// Basil's own filename index of the startup disk, when the app made one.
+    public let searchIndex: FilenameIndex?
+    var searchIndexRunning = false
+    private var searchIndexStatus: SearchIndexStatus?
+    private var searchIndexToken: UUID?
     /// Updates from GitHub releases (`Updates.swift`).
     lazy var updates = UpdateCoordinator(window: self)
 
@@ -72,8 +82,12 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 secrets: any SecretStore = Keychain.archivePasswords,
                 remoteSecrets: any SecretStore = Keychain.remoteSecrets,
                 copiesDirectory: URL = MainWindowController.defaultCopiesDirectory,
-                git: GitService? = nil) {
+                git: GitService? = nil,
+                searchEngines: SearchEngines = SearchEngines([LiveSearchEngine()]),
+                searchIndex: FilenameIndex? = nil) {
         self.dataDirectory = dataDirectory
+        self.searchEngines = searchEngines
+        self.searchIndex = searchIndex
         self.git = git
         self.remoteSecrets = remoteSecrets
         self.copies = TemporaryCopies(root: copiesDirectory, registry: providers)
@@ -115,6 +129,13 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         commands.keyOverrides = settings.settings.keyBindings
         SettingsWindowController.commands = commands
         SettingsWindowController.checkForUpdates = { [weak self] in self?.checkForUpdates() }
+        if let searchIndex {
+            // Automatic asks the index first; Spotlight is never picked by Automatic.
+            searchEngines.register(IndexSearchEngine(index: searchIndex), first: true)
+            let status = SearchIndexStatus(index: searchIndex)
+            searchIndexStatus = status
+            SettingsWindowController.searchIndex = status
+        }
         functionBar = FunctionKeyBar(commands: commands, ids: BuiltinCommands.functionBarIDs)
         commands.onKeymapChange = { [weak self] in
             guard let self else { return }
@@ -144,6 +165,10 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 self?.left.refreshAnnotations(after: .zero)
                 self?.right.refreshAnnotations(after: .zero)
             }
+        }
+        if searchIndex != nil {
+            searchIndexToken = settings.onChange { [weak self] _ in self?.applySearchIndexSetting() }
+            applySearchIndexSetting()
         }
         for pane in [left, right] {
             pane.persistsTabs = persistsDirectories
@@ -206,7 +231,9 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// "Downloads - Basil"; inside a Git repository with the branch: "Beta (main) - Basil".
     func updateTitle() {
         let branch = activePane.gitBranch.map { " (\($0))" } ?? ""
-        window?.title = "\(activePane.model.directory.displayName)\(branch) - Basil"
+        let directory = activePane.model.directory
+        let name = Listings.info(directory.location)?.title ?? directory.displayName
+        window?.title = "\(name)\(branch) - Basil"
     }
 
     func paneDidUpdateAnnotations(_ pane: PaneViewController) {
@@ -313,7 +340,7 @@ extension MainWindowController: PaneViewControllerDelegate {
         closeUnusedContainers()
         if persistsDirectories {
             // Inside an archive, the folder holding it is remembered: providers do not survive a restart.
-            let directory = pane.model.directory
+            let directory = Listings.info(pane.model.directory.location)?.origin ?? pane.model.directory
             let outermost = directory.outermostContainer
             let local = outermost == directory ? directory : outermost.parent
             if let local, local.location == .local { defaults.set(local.path, forKey: pane.side.defaultsKey) }

@@ -1,5 +1,6 @@
 import AppKit
 import BasilCore
+import BasilVFS
 
 /// One folder tab of a pane (Total Commander folder tabs). The active tab's live state is in the
 /// pane's model; the others keep where they were.
@@ -124,6 +125,11 @@ extension PaneViewController {
         // Inside an archive, the folder holding it is remembered: providers do not survive a restart.
         let stored = tabs.map { tab -> PaneTab in
             var tab = tab
+            // Search results are remembered as the folder searched.
+            if let listing = Listings.info(tab.directory.location) {
+                tab.directory = listing.origin
+                tab.cursor = nil
+            }
             let outermost = tab.directory.outermostContainer
             if outermost != tab.directory, let folder = outermost.parent {
                 tab.directory = folder

@@ -36,6 +36,9 @@ extension MainWindowController {
             if let loading = pane.model.loadingTarget { keep.append(loading.location) }
             keep += pane.tabs.map(\.directory.location)
         }
+        // Search results go once nothing shows them; the archive they were found in stays while they are shown.
+        providers.closeListings(keeping: Set(keep))
+        keep += keep.compactMap { Listings.info($0)?.origin.location }
         providers.closeContainers(keeping: keep)
     }
 

@@ -97,9 +97,27 @@ public struct ColumnDefinition: Sendable {
         public let formatters: DisplayFormatters
         /// What annotators supplied for the pane's folder, by column.
         public let annotations: [ColumnID: ColumnAnnotation]
-        public init(formatters: DisplayFormatters, annotations: [ColumnID: ColumnAnnotation] = [:]) {
+        /// Set in a list of items from many folders (search results): the Name column shows each
+        /// item's path relative to this folder ("Music/song.mp3") and reads "song.mp3, in Music".
+        public let namesRelativeTo: VFSPath?
+        public init(formatters: DisplayFormatters, annotations: [ColumnID: ColumnAnnotation] = [:],
+                    namesRelativeTo: VFSPath? = nil) {
             self.formatters = formatters
             self.annotations = annotations
+            self.namesRelativeTo = namesRelativeTo
+        }
+
+        /// The folder part shown before the name in a list of items from many folders: the path
+        /// from `namesRelativeTo` ("Music/Live"), "" right inside it, the whole folder path for
+        /// items elsewhere. nil in an ordinary folder.
+        public func folderPart(of item: FileItem) -> String? {
+            guard let base = namesRelativeTo, let parent = item.path.parent else { return nil }
+            if parent == base { return "" }
+            if parent.hasPrefix(base) {
+                let skip = base.components.count
+                return parent.components.dropFirst(skip).joined(separator: "/")
+            }
+            return parent.location == .local ? parent.path : parent.description
         }
 
         public func annotation(_ column: ColumnID, for item: FileItem) -> String? {
@@ -162,7 +180,13 @@ private final class ColumnStorage: @unchecked Sendable {
 
     static let builtins: [ColumnDefinition] = [
         // The full name, extension included, also in views that show the Ext column.
-        ColumnDefinition(id: .name, title: "Name", defaultWidth: 300, sortKey: .name) { item, _ in item.name },
+        ColumnDefinition(id: .name, title: "Name", defaultWidth: 300, sortKey: .name, text: { item, ctx in
+            guard let folder = ctx.folderPart(of: item), !folder.isEmpty else { return item.name }
+            return folder.hasSuffix("/") ? folder + item.name : folder + "/" + item.name
+        }, spoken: { item, ctx in
+            guard let folder = ctx.folderPart(of: item), !folder.isEmpty else { return nil }
+            return "\(item.name), in \(folder)"
+        }),
         ColumnDefinition(id: .ext, title: "Ext", defaultWidth: 52, sortKey: .ext) { item, _ in
             item.isDirectoryLike ? "" : item.nameAndExtension.ext
         },

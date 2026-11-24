@@ -1,5 +1,6 @@
 import AppKit
 import BasilCore
+import BasilVFS
 
 /// The path header of a pane: one button per path part ("Macintosh HD", "Users", "erion",
 /// "Downloads"), like ForkLift. Clicking a part, VO+Space on it, or Return / Space after Cmd+L
@@ -124,10 +125,14 @@ final class PathBar: ThemedBox {
 
     /// The parts of a path. A local path starts with its volume ("Macintosh HD", or the volume
     /// under /Volumes); inside an archive the parts go through the archive's own folders, then
-    /// the archive, then the folders inside it.
+    /// the archive, then the folders inside it. Search results come after the folder searched.
     nonisolated static func segments(of directory: VFSPath) -> [Segment] {
         var result: [Segment] = []
         var root = VFSPath(location: directory.location, path: "/")
+        if let listing = Listings.info(directory.location) {
+            // Search results: the folder searched, then the results.
+            return segments(of: listing.origin) + [Segment(title: listing.title, path: root)]
+        }
         if let container = directory.location.container {
             result = segments(of: container.parent ?? container)
             result.append(Segment(title: container.name, path: root))

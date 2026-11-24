@@ -233,7 +233,8 @@ final class PaneViewController: NSViewController {
     }
 
     private func makeColumnContext() -> ColumnDefinition.Context {
-        ColumnDefinition.Context(formatters: settings.formatters, annotations: annotations)
+        ColumnDefinition.Context(formatters: settings.formatters, annotations: annotations,
+                                 namesRelativeTo: Listings.info(model.directory.location)?.origin)
     }
 
     /// Asks the column annotators about the shown folder again, shortly (folder loads and
@@ -386,7 +387,10 @@ final class PaneViewController: NSViewController {
     /// Backspace: the parent folder. At the root of an archive, the folder holding the archive,
     /// with the cursor on it.
     func goToParent() {
-        if let parent = model.directory.parent {
+        if let listing = Listings.info(model.directory.location) {
+            // Search results: back to the folder searched.
+            navigate(to: listing.origin, cursor: cursorPath.flatMap { listing.origin.childLeading(to: $0) })
+        } else if let parent = model.directory.parent {
             navigate(to: parent, cursor: model.directory)
         } else if let container = model.directory.location.container, let folder = container.parent {
             navigate(to: folder, cursor: container)
@@ -662,6 +666,7 @@ final class PaneViewController: NSViewController {
     /// The folder's name as the command line shows and speaks it; the top of a disk by its volume name.
     var commandLineFolderName: String {
         let directory = model.directory
+        if let listing = Listings.info(directory.location) { return listing.title }
         guard directory.isRoot else { return directory.name }
         if directory.location == .local,
            let name = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
@@ -715,17 +720,21 @@ final class PaneViewController: NSViewController {
                 filterBar.reset()
                 filterBar.isHidden = true
             }
+            let changedDirectory = shownDirectory != model.directory
+            if changedDirectory {
+                // The old folder's answers do not apply; keep the columns until the new ones
+                // arrive, so the table does not jump in and out of the Git column. Before the
+                // rows are drawn: search results show names relative to the folder searched.
+                annotations = annotations.mapValues { _ in ColumnAnnotation() }
+                columnContext = makeColumnContext()
+            }
             table.reloadData()
             let target = cursor.flatMap { path in model.rows.firstIndex { $0.path == path } } ?? 0
             moveCursor(to: target)
             updateHeader()
             updateStatus()
-            if shownDirectory != model.directory {
+            if changedDirectory {
                 shownDirectory = model.directory
-                // The old folder's answers do not apply; keep the columns until the new ones
-                // arrive, so the table does not jump in and out of the Git column.
-                annotations = annotations.mapValues { _ in ColumnAnnotation() }
-                columnContext = makeColumnContext()
                 sizeTask?.cancel()
                 cancelSpaceSizes()
                 rememberVolumeDirectory()

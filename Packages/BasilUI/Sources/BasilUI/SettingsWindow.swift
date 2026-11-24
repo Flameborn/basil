@@ -22,6 +22,8 @@ public final class SettingsWindowController: NSWindowController {
     static var commands: CommandRegistry?
     /// Check Now on the Navigation tab (set by the main window).
     static var checkForUpdates: (() -> Void)?
+    /// The search index's status and Rebuild on the Navigation tab (set by the main window).
+    static var searchIndex: SearchIndexStatus?
 
     public static func show(settings: SettingsStore, tab: SettingsTab = .views) {
         let controller = shared ?? SettingsWindowController(settings: settings)
@@ -338,8 +340,30 @@ struct NavigationSettings: View {
             if let check = SettingsWindowController.checkForUpdates {
                 Button("Check for Updates Now") { check() }
             }
+            if let index = SettingsWindowController.searchIndex {
+                SearchIndexSettings(store: store, index: index)
+            }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Basil's own filename index (Find Files): on or off, what it is doing, Rebuild.
+struct SearchIndexSettings: View {
+    @Bindable var store: SettingsStore
+    let index: SearchIndexStatus
+
+    var body: some View {
+        Toggle("Index the startup disk for fast name searches", isOn: $store.settings.searchIndex)
+            .accessibilityLabel("Index the startup disk for fast name searches")
+        Text("Find Files then finds names on this Mac's startup disk at once. The index is built in the background and kept up to date while Basil runs; changes made while Basil was closed are read at the next start.")
+            .font(.callout)
+            .foregroundStyle(Theme.secondaryTextColor)
+        Text(index.text)
+            .accessibilityLabel(index.text)
+            .accessibilityIdentifier("settings.indexStatus")
+        Button("Rebuild Index") { index.rebuild() }
+            .disabled(!store.settings.searchIndex)
     }
 }
 

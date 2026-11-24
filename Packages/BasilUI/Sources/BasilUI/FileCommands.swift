@@ -14,7 +14,7 @@ extension MainWindowController {
         guard !items.isEmpty else { return announce("No items") }
         guard let window, ensureReadable(activePane.model.directory) else { return }
         let sourceFolder = activePane.model.directory
-        if mode == .move, !ensureWritable(sourceFolder) { return }
+        if mode == .move, !ensureWritable(sourceFolder, items: true) { return }
         let verb = mode == .copy ? "Copy" : "Move"
         let what = items.count == 1 ? items[0].name : FeedbackText.items(items.count)
         let other = otherPane.model.directory
@@ -51,7 +51,7 @@ extension MainWindowController {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
         let directory = activePane.model.directory
-        guard let window, ensureReadable(directory), ensureWritable(directory, archives: false) else { return }
+        guard let window, ensureReadable(directory), ensureWritable(directory, archives: false, items: true) else { return }
         let pane = activePane
         Task {
             if items.count > 1 {
@@ -100,6 +100,9 @@ extension MainWindowController {
     func multiRename() {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
+        if Listings.info(activePane.model.directory.location) != nil {
+            return activePane.report("Multi-Rename does not work in search results yet. Go to the folder of the items first.")
+        }
         guard ensureWritable(activePane.model.directory, archives: false) else { return }
         let pane = activePane
         let log = dataDirectory.appendingPathComponent("LastMultiRename.json")
@@ -235,10 +238,11 @@ extension MainWindowController {
     func delete(permanently: Bool) {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
-        guard let window, ensureWritable(activePane.model.directory) else { return }
+        guard let window, ensureWritable(activePane.model.directory, items: true) else { return }
         let what = items.count == 1 ? items[0].name : FeedbackText.items(items.count)
-        let canTrash = (try? providers.writableProvider(for: activePane.model.directory.location))?
-            .capabilities.contains(.trash) ?? false
+        // In search results the items' own place decides (the folder searched).
+        let place = Listings.info(activePane.model.directory.location)?.origin.location ?? activePane.model.directory.location
+        let canTrash = (try? providers.writableProvider(for: place))?.capabilities.contains(.trash) ?? false
         let toTrash = !permanently && canTrash
         let archive = activePane.model.directory.location.container
         let alert = NSAlert()
@@ -287,8 +291,21 @@ extension MainWindowController {
 
     /// False, with a spoken and shown reason, when items in `directory` can't be changed.
     /// Inside an archive that a container writer can change, true unless `archives` is false
-    /// (commands that do not work inside archives yet).
-    func ensureWritable(_ directory: VFSPath, archives: Bool = true) -> Bool {
+    /// (commands that do not work inside archives yet). In search results nothing can be created;
+    /// with `items` (commands that change the found items: move, delete, duplicate) the folder
+    /// searched decides.
+    func ensureWritable(_ directory: VFSPath, archives: Bool = true, items: Bool = false) -> Bool {
+        if let listing = Listings.info(directory.location) {
+            guard items else {
+                activePane.report("Search results only list items found elsewhere. Choose a folder instead.")
+                return false
+            }
+            guard listing.origin.location.container == nil else {
+                activePane.report("Items found inside an archive can only be copied out of it.")
+                return false
+            }
+            return ensureWritable(listing.origin, archives: archives)
+        }
         let capabilities = (try? providers.provider(for: directory.location))?.capabilities ?? []
         if capabilities.contains(.write) { return true }
         guard let archive = directory.location.container else {

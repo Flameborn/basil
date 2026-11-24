@@ -81,6 +81,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var checkForUpdates = true
     /// The version the user chose "Skip This Version" for; automatic checks do not offer it.
     public var skippedUpdateVersion: String?
+    /// Keep Basil's own filename index of the startup disk for fast name searches (on by default).
+    public var searchIndex = true
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
     /// extension and Full no longer shows the Ext column.
     public var viewsVersion = BasilSettings.currentViewsVersion
@@ -127,6 +129,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         splitCreateSFV = try c.decodeIfPresent(Bool.self, forKey: .splitCreateSFV) ?? d.splitCreateSFV
         checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? d.checkForUpdates
         skippedUpdateVersion = try c.decodeIfPresent(String.self, forKey: .skippedUpdateVersion) ?? d.skippedUpdateVersion
+        searchIndex = try c.decodeIfPresent(Bool.self, forKey: .searchIndex) ?? d.searchIndex
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
         if viewsVersion < 2, let full = views.firstIndex(where: { $0.id == ListView.full.id }) {
             for i in views[full].columns.indices where views[full].columns[i].id == .ext {

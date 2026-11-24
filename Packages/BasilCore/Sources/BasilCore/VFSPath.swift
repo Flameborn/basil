@@ -97,6 +97,16 @@ public struct VFSPath: Hashable, Sendable, Codable, CustomStringConvertible {
         return name
     }
 
+    /// The item right inside `self` on the way to `descendant` ("/a" and "/a/b/c" give "/a/b"),
+    /// or nil when `descendant` is not below `self`.
+    public func childLeading(to descendant: VFSPath) -> VFSPath? {
+        guard descendant != self, descendant.hasPrefix(self) else { return nil }
+        let parts = descendant.components
+        let depth = components.count
+        guard parts.count > depth else { return nil }
+        return appending(parts[depth])
+    }
+
     /// Whether `self` is `other` or lies below it in the same provider location.
     public func hasPrefix(_ other: VFSPath) -> Bool {
         guard location == other.location else { return false }

@@ -5,6 +5,7 @@ import BasilGit
 import BasilIntegrations
 import BasilOperations
 import BasilRemote
+import BasilSearch
 import BasilUI
 import BasilVFS
 
@@ -167,11 +168,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             providers.register(connector: OneDriveConnector(clientID: "uitest", secrets: remoteSecrets))
         }
         #endif
+        // Find Files: Automatic asks the index first (added by the window), then walks; Spotlight when chosen.
+        let searchEngines = SearchEngines([LiveSearchEngine(), SpotlightSearchEngine()])
+        let indexFolder = dataDirectory.appendingPathComponent("Index", isDirectory: true)
+        var searchIndex = FilenameIndex.bootVolume(in: indexFolder)
+        #if DEBUG
+        // UI tests index only the fixture, never the whole disk.
+        if UITestFixture.isActive, let root = start?.left {
+            searchIndex = FilenameIndex(file: indexFolder.appendingPathComponent("Fixture.basilindex"), root: root.path)
+        }
+        #endif
         let controller = MainWindowController(providers: providers, commands: commands, settings: settings,
                                               queue: queue, defaults: defaults, startDirectories: start,
                                               dataDirectory: dataDirectory, secrets: secrets,
                                               remoteSecrets: remoteSecrets,
-                                              copiesDirectory: copiesDirectory, git: git)
+                                              copiesDirectory: copiesDirectory, git: git,
+                                              searchEngines: searchEngines, searchIndex: searchIndex)
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
         #if DEBUG
@@ -225,6 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         mainWindowController?.removeTemporaryCopies()
+        mainWindowController?.saveSearchIndex()
         // An update was installed: open the new version once this process has gone.
         if let app = mainWindowController?.updateToRelaunch { UpdateInstaller.relaunchAfterQuit(app) }
         #if DEBUG
