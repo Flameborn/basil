@@ -557,7 +557,8 @@ func noPartials(_ box: Sandbox, _ folder: String = "") throws -> Bool {
         let data = randomData(2 * mb)
         let src = try box.write("a.bin", data)
         let once = Once()
-        let hooks = streamOnly { _, index in if index == 1 { once { try? append(src, randomData(10)) } } }
+        // Rewrites bytes already read: an append could race with the read of the next chunk.
+        let hooks = streamOnly { _, index in if index == 1 { once { try? overwrite(src, at: 0, randomData(10)) } } }
         let monitor = TestMonitor()
         let r = try await makeEngine(monitor, options: plain, hooks: hooks)
             .transferFile(src, to: box.path("b.bin"), mode: .copy, local, local)

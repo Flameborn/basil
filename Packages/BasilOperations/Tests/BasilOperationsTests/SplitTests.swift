@@ -28,7 +28,7 @@ struct SplitSizeTests {
 }
 
 @MainActor
-@Suite struct SplitOperationTests {
+@Suite final class SplitOperationTests {
     let registry: ProviderRegistry = {
         let r = ProviderRegistry()
         r.register(LocalProvider())
@@ -39,6 +39,8 @@ struct SplitSizeTests {
         try? FileManager.default.createDirectory(at: u.appendingPathComponent("out"), withIntermediateDirectories: true)
         return u
     }()
+
+    deinit { try? FileManager.default.removeItem(at: dir) }
 
     func path(_ name: String) -> VFSPath { .local(dir.appendingPathComponent(name).path) }
 
