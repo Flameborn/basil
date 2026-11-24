@@ -117,3 +117,11 @@ public final class ProviderRegistry: Sendable {
         return p
     }
 }
+
+/// A provider whose listings show a cheaper date than the one it keeps for each file (S3 lists
+/// when it stored an object; the file's own date needs one more request per file). Features
+/// that compare dates (Synchronize Directories) ask it for the kept dates of the files they use.
+public protocol KeptDatesProvider: FileSystemProvider {
+    /// The items with their kept modification dates where there is one (others unchanged).
+    func withKeptDates(_ items: [FileItem]) async -> [FileItem]
+}

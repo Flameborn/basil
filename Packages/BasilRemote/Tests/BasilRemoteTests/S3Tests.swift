@@ -300,6 +300,24 @@ struct S3Tests {
         #expect(try await !names(c, c.start).contains(bucket.name))
     }
 
+    @Test func keptDatesForSynchronizing() async throws {
+        let (c, bucket) = try await connectWithBucket()
+        defer { Task { await c.close() } }
+        let file = bucket.appending("dated.txt")
+        let writer = try await c.s3.createFile(file)
+        try await writer.write(Data("d".utf8), at: 0)
+        _ = try await writer.apply(FileMetadata(modified: timespec(tv_sec: 1_600_000_000, tv_nsec: 0)))
+        await writer.close()
+        try await c.s3.makeDirectory(bucket.appending("Sub"))
+        var listed: [FileItem] = []
+        for try await batch in c.s3.list(bucket) { listed += batch }
+        // Listings show when S3 stored it; the kept date is asked for on request.
+        #expect(listed.first { $0.name == "dated.txt" }?.modified != Date(timeIntervalSince1970: 1_600_000_000))
+        let kept = await c.s3.withKeptDates(listed)
+        #expect(kept.first { $0.name == "dated.txt" }?.modified == Date(timeIntervalSince1970: 1_600_000_000))
+        #expect(kept.first { $0.name == "Sub" }?.kind == .directory)
+    }
+
     @Test func copyLinkGivesAPresignedAddressThatExpires() async throws {
         let (c, bucket) = try await connectWithBucket()
         defer { Task { await c.close() } }

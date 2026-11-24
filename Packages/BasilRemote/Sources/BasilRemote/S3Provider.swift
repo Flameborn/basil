@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 /// (not atomic: a folder is renamed object by object). File dates are kept in the object's
 /// x-amz-meta-mtime (rclone's convention); listings show when S3 stored the object.
 /// Fingerprints carry the ETag, which changes with the content.
-public final class S3Provider: WritableProvider, ConnectedProvider, SharedLinkProvider, @unchecked Sendable {
+public final class S3Provider: WritableProvider, ConnectedProvider, SharedLinkProvider, KeptDatesProvider, @unchecked Sendable {
     public let location: ProviderLocation
     let service: S3Service
     /// Buckets the connection may use when the keys cannot list buckets (from the Start folder).
@@ -311,6 +311,35 @@ public final class S3Provider: WritableProvider, ConnectedProvider, SharedLinkPr
             metadata.modified = timespec(tv_sec: Int(date.timeIntervalSince1970), tv_nsec: 0)
         }
         return metadata
+    }
+
+    /// Synchronize Directories: each file's x-amz-meta-mtime, eight HEAD requests at a time.
+    public func withKeptDates(_ items: [FileItem]) async -> [FileItem] {
+        var result = items
+        await withTaskGroup(of: (Int, Date?).self) { group in
+            var next = 0
+            func add() {
+                while next < items.count, items[next].kind != .file { next += 1 }
+                guard next < items.count else { return }
+                let index = next, item = items[next]
+                next += 1
+                group.addTask {
+                    guard case .file(let response)? = try? await self.find(item.path),
+                          let seconds = Self.storedDate(response) else { return (index, nil) }
+                    return (index, Date(timeIntervalSince1970: Double(seconds)))
+                }
+            }
+            for _ in 0..<8 { add() }
+            for await (index, date) in group {
+                if let date {
+                    let item = result[index]
+                    result[index] = FileItem(path: item.path, kind: item.kind, size: item.size, modified: date, created: item.created,
+                                             permissions: item.permissions, isHidden: item.isHidden, fileID: item.fileID)
+                }
+                add()
+            }
+        }
+        return result
     }
 
     static func storedDate(_ response: HTTPResponse) -> Int? {

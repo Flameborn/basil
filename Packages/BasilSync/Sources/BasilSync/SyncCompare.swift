@@ -122,10 +122,16 @@ public enum SyncComparer {
 
         func list(_ folder: VFSPath?) async throws -> [FileItem] {
             guard let folder else { return [] }
+            let provider = try registry.provider(for: folder.location)
             var items: [FileItem] = []
-            for try await batch in try registry.provider(for: folder.location).list(folder) {
+            for try await batch in provider.list(folder) {
                 try Task.checkCancellation()
                 items += batch
+            }
+            // Dates are compared: where listings show another date than the kept one (S3), ask for it.
+            if let kept = provider as? any KeptDatesProvider {
+                let wanted = items.filter(wanted)
+                return await kept.withKeptDates(wanted)
             }
             return items
         }

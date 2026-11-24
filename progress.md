@@ -77,6 +77,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 | Date | Decision |
 |---|---|
+| 2026-11-24 | User: Synchronize Directories reads S3's kept dates (x-amz-meta-mtime, a HEAD per file) for the files it compares; browsing keeps S3's own date. SMB: a password typed right after a session of that server ended is checked properly before it is saved. ownCloud gets its own chunked uploads and trash bin. OneDrive uploads with a known, stable source size go up directly in pieces, without the temporary file (falling back to it when the source changes) |
 | 2026-11-24 | User: Synchronize Directories opens from Commands > Synchronize Directories... with no default key, starting with the two panes' folders. In the results Comma copies to the left, Period to the right, = leaves a file alone, minus or Delete removes it from this sync; Space selects rows so a key changes them all (also VoiceOver actions and a context menu). A file that differs with the same date (within the tolerance) gets no direction ("different"); otherwise the newer date decides. Options default: subfolders on; date tolerance 0 seconds (dates compared in whole seconds), ignore 1-hour differences off, compare content off; all remembered |
 | 2026-11-24 | User: plugins are folders in Application Support/Basil/Plugins with a plugin.json manifest (name, version, description, permissions, entry file; code in main.lua and more .lua files), read without running plugin code. API v1 covers commands with menus and keys, columns, file operations (Basil's own and plugin queue items), Lua providers and Multi-Rename placeholders. Settings > Plugins lists them (on/off, permissions, Reload, Reveal in Finder, load errors); new plugins are off until turned on, which is when permissions are asked. Example plugins in the repo (not installed): word count column, Open on GitHub, hello world |
 | 2026-11-24 | User: Copy Link on S3 asks each time how long the presigned link works (1 hour, 1 day, 7 days; the last choice remembered). Copy Link on Nextcloud makes a public read-only link without password or expiry and reuses an existing public link. Google export formats are chosen per Google Drive connection (one pop-up per document type in the editor). F5 on a Drive shortcut to a folder copies the target's contents into a folder named like the shortcut |
@@ -298,12 +299,12 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Done 2026-11-24 (read-only public link, an existing one reused): Copy Link on Nextcloud (a public share link through its OCS sharing API), like Dropbox's? Not built yet.
 - [x] Done 2026-11-24 (warns once per server): WebDAV over plain HTTP sends the password readable by anyone on the network (Basic) and the files unencrypted. Should the editor or the first connection warn, as asked for FTP?
 - [x] Done 2026-11-24: logged in secure mode. WebDAV sources: fingerprints have the ETag, size and whole-second dates; a server whose ETag does not change with the content would hide a rewrite at the same size within one second. The queue log does not say so yet.
-- [ ] ownCloud: only the user-files top is used; its own chunked upload and trash bin (different paths) are not. Wanted?
+- [x] Decided 2026-11-24 (yes): ownCloud: only the user-files top is used; its own chunked upload and trash bin (different paths) are not. Wanted?
 - [x] Done 2026-11-24: logged in secure mode. SMB sources: smbfs answers stat from its attribute cache, so Basil opens a file before taking its fingerprint (that asks the server). Changes by another SMB client are seen (tested). A file changed on the server by a program running there (not through SMB, for example a download on a NAS) while Basil holds it open may not be seen, because the server does not tell the Mac about it. The queue log does not say so yet.
-- [ ] SMB: macOS keeps a logged-in session for a few seconds after the last share of a server was unmounted and accepts any password while it lasts. Connecting again with a wrong password in that time works and, with "Remember in Keychain", would save the wrong password. Rare; worth handling?
+- [x] Decided 2026-11-24 (check before saving): SMB: macOS keeps a logged-in session for a few seconds after the last share of a server was unmounted and accepts any password while it lasts. Connecting again with a wrong password in that time works and, with "Remember in Keychain", would save the wrong password. Rare; worth handling?
 - [x] Done 2026-11-24 (packing and changing archives in place on mounted shares): SMB: packing (Option+F5) writes archives only to local folders (as on every server); on a mounted share they could be written in place like local ones (`LocalBackedProvider`). Wanted?
 - [x] Done 2026-11-24 (user: skip the partial object on S3; `createFileInPlace`). S3 in secure copy mode: the copy engine uploads to a `.basil-partial-*` object and renames it into place, which on S3 is a server-side copy of the whole object plus a delete (about double the time for big files on slow services). S3 objects appear only whole anyway (PUT and multipart completion are atomic), so S3 could skip the partial object. Wanted?
-- [ ] S3 listings show when S3 stored each object, not the kept date (x-amz-meta-mtime needs one HEAD per file). Sync (M9) will need to compare dates: read them for sync only?
+- [x] Decided 2026-11-24 (sync reads the kept dates): S3 listings show when S3 stored each object, not the kept date (x-amz-meta-mtime needs one HEAD per file). Sync (M9) will need to compare dates: read them for sync only?
 - [x] Done 2026-11-24: logged in secure mode. S3 sources: fingerprints are size, Last-Modified (whole seconds) and the ETag, which changes with the content, so changes are seen. The queue log does not say that S3 has no fsync (an object counts as stored once the server answered).
 - [x] Done 2026-11-24 (presigned, asks 1 hour / 1 day / 7 days): Copy Link on S3 (a presigned URL with an expiry, or the public URL)? Not built.
 - [ ] SMB server-side copies: macOS's smbfs has no clonefile, so copies inside a share stream through the Mac. Moves inside a share are renames on the server.
@@ -315,7 +316,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [ ] OneDrive app registration: register Basil in the Microsoft Entra admin center (steps in README), put the client ID in Config/OneDrive.local.xcconfig, then a first real sign-in and upload.
 - [ ] OneDrive: "Shared with me" has no place, because Microsoft's API for it stopped returning data in November 2026. Shared folders added to My files work. Revisit if Microsoft offers a replacement (the Search API is the community's suggestion, work accounts only).
 - [x] Done 2026-11-24 (live through each change feed): OneDrive folders are not watched; Graph's delta query could make panes live. Wanted?
-- [ ] OneDrive: uploads over 4 MB are written to a local temporary file before they go up (Graph needs the total size with every piece), so large uploads need that much free space on the Mac's temporary volume. Fine?
+- [x] Decided 2026-11-24 (upload directly when the source size is known): OneDrive: uploads over 4 MB are written to a local temporary file before they go up (Graph needs the total size with every piece), so large uploads need that much free space on the Mac's temporary volume. Fine?
 - [x] Done 2026-11-24 (user: yes, also asking for a URL): Push of a branch without an upstream asks to publish it to an existing remote or a new one (name and URL).
 - [x] Done 2026-11-24 (user: yes, while the pane is in that repository): the pane watches the repository's .git folder and refreshes the Git column when it changes.
 - [ ] OneDrive: OneNote notebooks are listed as folders; what copying one gives has not been tried with a real account.
@@ -326,7 +327,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] `git init`, `.gitignore`, `project.yml`, app target, package skeletons (Basil* packages)
 - [x] `scripts/bootstrap.sh` for vendored deps: builds Vendor/libssh2 (OpenSSL + libssh2) and 7zz (2026-11-22), LuaJIT (2026-11-24). BLAKE3, libarchive, UnRAR and 7-Zip need none: vendored as sources in `Vendor/BLAKE3`, `Vendor/libarchive`, `Vendor/unrar` (SwiftPM) and `Vendor/7zip` (its own build.sh)
 - [x] Signing with stable local identity `dev` (Config/Base.xcconfig)
-- [ ] Document / prompt for the Full Disk Access flow in-app
+- [x] Document / prompt for the Full Disk Access flow in-app (the Full Disk Access window at launch, 2026-11-24)
 - [x] Local build + test commands working (in CLAUDE.md)
 
 ### M1 - Core browsing
@@ -342,7 +343,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Read status bar (Option+I)
 - [x] Go to folder or file (Cmd+G) with suggestions; Finder Go keys
 - [x] Folder sizes (Cmd+Shift+S); Info sheet (Cmd+I) with default-app change
-- [ ] Explain the Full Disk Access permission in the app (currently only an error message in the status line)
+- [x] Explain the Full Disk Access permission in the app (the Full Disk Access window at launch, 2026-11-24)
 
 ### M2 - Operations
 - [x] Operation queue (serial, pause/reorder/cancel, per-item log) + queue window (Cmd+J); tested with a Debug-menu test operation until real operations exist
