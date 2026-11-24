@@ -130,6 +130,8 @@ enum BuiltinCommands {
 
             // Total Commander's Alt+F7 (Option+F keys are actions).
             C(id: "tools.findFiles", title: "Find Files...", defaultKeys: [K(.function(7), .option)]) { _ in w?.findFiles() },
+            // Like TC, no default key (Settings > Keys can give it one).
+            C(id: "tools.sync", title: "Synchronize Directories...") { _ in w?.synchronizeDirectories() },
             C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
 

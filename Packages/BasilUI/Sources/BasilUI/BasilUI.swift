@@ -58,6 +58,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let searchEngines: SearchEngines
     /// The Find Files window (Option+F7), kept with its last search while the app runs.
     var findWindow: FindFilesWindowController?
+    /// The Synchronize Directories window, kept with its last comparison while the app runs.
+    var syncWindow: SyncWindowController?
     /// Basil's own filename indexes (the startup disk and volumes ticked in Settings), when the app made them.
     public let searchIndexes: SearchIndexes?
     var searchIndexStatus: SearchIndexStatus?

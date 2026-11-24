@@ -461,13 +461,26 @@ final class CompareWindowController: NSWindowController, NSWindowDelegate, NSTab
 /// Sends keys to the compare window's handler before the controls see them.
 final class CompareNSWindow: NSWindow {
     var onKey: ((KeyChord) -> Bool)?
+    /// The character typed (whatever keys the layout needs for it, Shift included), for keys
+    /// that mean a character (the sync list's comma, period, equals and minus). Asked first,
+    /// only without Cmd, Ctrl or Option.
+    var onCharacter: ((String) -> Bool)?
+
+    private func typed(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, let onCharacter,
+              event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let text = event.characters, text.count == 1 else { return false }
+        return onCharacter(text)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if typed(event) { return true }
         if event.type == .keyDown, let chord = KeyChord(event: event), onKey?(chord) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if typed(event) { return }
         if event.type == .keyDown, let chord = KeyChord(event: event), onKey?(chord) == true { return }
         super.sendEvent(event)
     }

@@ -38,7 +38,7 @@ enum BuiltinMenus {
             .submenu("Git", c("git.commit", "git.branches", "git.log", "git.fileLog", "git.blame") + [.separator]
                 + c("git.pull", "git.push", "git.fetch")),
             .separator,
-        ] + c("tools.findFiles") + [.separator]
+        ] + c("tools.findFiles", "tools.sync") + [.separator]
             + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show")
             + [.separator] + c("file.copyLink", "file.copyPath", "file.copyName", "pane.contextMenu"))
 

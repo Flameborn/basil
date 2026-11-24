@@ -36,7 +36,7 @@ Progress, completed milestones and open questions are tracked in **`progress.md`
 | Search | Two engines: **Spotlight** (`NSMetadataQuery`/`MDQuery`) and Basil's own **Everything-style filename index** stored in a **custom binary format** |
 | Chunk hash | **BLAKE3** (official C implementation with NEON). It is cryptographic, so it has no known collisions, unlike XXH3. Hashing runs in a pipeline alongside the reads and writes, so it never adds wait time. |
 | Search index | Covers the **local boot volume by default**. Other volumes, including network ones, can be added later. It stores **name, size, dates and attributes** so results can be filtered. |
-| Sync | Works like **Total Commander's "Synchronize directories"** and is stateless. See the Sync section below. It does not use librsync; files are transferred by the secure copy engine. Planned for later. |
+| Sync | Works like **Total Commander's "Synchronize directories"** and is stateless. See the Sync section below. It does not use librsync; files are transferred by the secure copy engine. |
 | Quick filter | **Cmd+S** pops up an edit field (anchored to the pane) where the filter is typed; the pane filters live as you type. Typing letters directly in a pane does NOT filter - it jumps to the first matching name (type-ahead). Wildcards (`*.mp3`), substring (`apple`), `;`-separated patterns, `\|` exclusions, optional regex mode. Cleared on directory change. |
 | Look | **Total Commander-like**: flat dense grid, custom colour scheme, drive/button bar, function-key bar at the bottom. Colours come from theme tokens, never hard-coded, and must meet WCAG contrast. **Light and dark variants** that follow the system appearance. |
 | Keybindings | **Total Commander defaults, Mac-adapted**: F3 view, F4 edit, F5 copy, F6 move, Shift+F6 rename, F7 mkdir, F8 delete, Tab switch pane, Space select; Ctrl/Alt combos become Cmd/Option where natural (Cmd+M multi-rename), plus Finder's Go keys (Cmd+Shift+H, Cmd+Shift+O, Cmd+Option+L, ...). Everything remappable through CommandRegistry. |
@@ -77,7 +77,7 @@ Packages/               one local SwiftPM package per module, each with a <Name>
   BasilSync/            directory compare + sync planning, executed as queue operations          (-> Core, VFS, Operations)
   BasilPlugins/         LuaJIT bridge, plugin manifest/loader, Lua API surface                   (-> Core, VFS, Operations, Vendor/luajit)
   BasilIntegrations/    terminal launcher, viewer/editor associations (F3/F4), sound effects     (-> Core)
-  BasilUI/              AppKit panes/main window, SwiftUI dialogs and settings                   (-> Core, VFS, Operations, Integrations, Git, Search, Plugins)
+  BasilUI/              AppKit panes/main window, SwiftUI dialogs and settings                   (-> Core, VFS, Operations, Integrations, Git, Search, Plugins, Sync)
 Vendor/                 third-party sources + build scripts (libarchive, 7-Zip, UnRAR, libssh2, LuaJIT, BLAKE3, ...)
 ```
 
@@ -151,7 +151,7 @@ This is a dialog for the selected files. It offers:
 
 The batch runs as a single queue operation. It detects target collisions, resolves cycles (for example a->b, b->a) through temporary names, and writes an undo log. Lua plugins can add placeholder fields. The preview grid must be fully accessible.
 
-### Sync (Total Commander style)
+### Sync (Total Commander style, implemented)
 
 Sync compares two directories (left and right panes), optionally including subdirectories. Files are compared by date and size, optionally by content (BLAKE3), with a configurable timestamp tolerance.
 
@@ -159,6 +159,8 @@ Sync compares two directories (left and right panes), optionally including subdi
 - **Asymmetric mode:** files that exist only on the target side are deleted.
 - **Stateless:** like Total Commander, sync keeps no history database, so a file that exists on one side only is offered as a copy, not detected as a deletion.
 - **Execution:** sync turns into queue operations that use the secure copy engine.
+- BasilSync `SyncCompare.swift`: `SyncOptions` (subfolders on, byContent, toleranceSeconds 0, ignoreHour, asymmetric, filter in quick-filter syntax; Codable, remembered as `sync.options` in the pane-state defaults), `SyncComparer.compare` (both sides listed through their providers, names matched without case or normalisation, files of a folder listed before its subfolders; a folder on one side only is one entry with `folderFiles` and its total size, walked file by file when a filter is set; dates compared in whole seconds with the tolerance and the 1-hour option; same size with byContent: both read in 1 MB chunks at the same offsets and compared byte for byte, equal content is equal whatever the dates; same size and date: equal; same date otherwise: `different` with no direction), `SyncEntry` (state, proposed and chosen `SyncAction`: none, copyRight, copyLeft, deleteRight; `allows`). `SyncOperation.swift` (kind `.sync`): one queue item, copies through `SecureCopyEngine` with `replaceExisting`, missing folders made first, asymmetric deletes to the Trash where the place has one (`useTrash`, off in tests), Retry / Skip through `QueueTransferMonitor.handleError`, `summary` in words. Tests `SyncCompareTests`, `SyncOperationTests`.
+- UI (`SyncWindow.swift`, AppKit, one per main window): Commands > Synchronize Directories... (`tools.sync`, no default key) with the left and right panes' folders (relative paths and ~ work), Files filter, Date tolerance, Subfolders, Compare content, Ignore 1-hour differences, Asymmetric, Show checkboxes (copy to the right, to the left, equal, different, one side only), status ("1 to copy to the right (469 B), 40 equal."; spoken), the list (`CompareTableView`, one sentence per row: "Inner, folder, only on the left, copy to the right, left 469 B, 1 file, date, right missing"; colours from the compare theme, words say the same), Synchronize Now (asks with the summary, queues, compares again when done), Close. In the list: comma or < copies to the left, period or > to the right, = leaves alone, minus, Delete or Backspace removes from this sync, Space selects (the keys then change all selected), Cmd+A selects all; also a context menu. The character keys are read from the typed character (`CompareNSWindow.onCharacter`), so layouts where = needs Shift work. UI test `testSynchronizeDirectoriesComparesAndCopies`.
 
 ### Copy engine (implemented)
 
