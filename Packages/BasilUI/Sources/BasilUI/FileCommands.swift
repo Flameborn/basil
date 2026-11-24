@@ -180,9 +180,6 @@ extension MainWindowController {
         guard let item = activePane.cursorItem else { return announce("No items") }
         if item.isDirectoryLike { return announce("\(item.name) is a folder") }
         guard ensureReadable(activePane.model.directory) else { return }
-        guard providers.localPath(of: item.path) != nil || item.path.location.container != nil else {
-            return announce("Only local files, files on mounted shares and files in archives can be edited for now")
-        }
         guard let apps = EditorRules.apps(for: item.name, in: settings.settings.editorRules) else {
             return edit(item.path, app: nil)
         }
@@ -198,10 +195,11 @@ extension MainWindowController {
     }
 
     /// Opens a local file (or one on a mounted share, in place) in the editor, or a temporary
-    /// copy of a file inside an archive (`editInArchive`, ArchiveEditing.swift).
+    /// copy of a file inside an archive or on a server (ArchiveEditing.swift).
     func edit(_ path: VFSPath, app: String?) {
         if let local = providers.localPath(of: path) { return openInEditor(local, app: app) }
-        editInArchive(path, app: app)
+        if path.location.container != nil { return editInArchive(path, app: app) }
+        editOnServer(path, app: app)
     }
 
     /// Cmd+Shift+T: opens the terminal from Settings in the current pane's folder.
@@ -353,6 +351,7 @@ extension MainWindowController {
             case .unstableSource: return .unstableSource(.skip)
             case .itemFailed: return .itemFailed(.fail)
             case .folderExists: return .folderExists(.skip, forAll: false)
+            case .changedOnServer: return .changedOnServer(replace: false)
             }
         }
         window.makeKeyAndOrderFront(nil)
@@ -406,6 +405,14 @@ extension MainWindowController {
             let index = await present(alert, in: window)
             let forAll = alert.suppressionButton?.state == .on
             return .folderExists(choices.indices.contains(index) ? choices[index].1 : .cancel, forAll: forAll)
+        case .changedOnServer(let c):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "\(c.path.name) was changed on \(c.server) since you opened it"
+            alert.informativeText = "Replace it with your copy?\nWhen you opened it: \(describe(c.then))\nNow: \(describe(c.now))\nIn \(c.path.parent?.path ?? "")"
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            return .changedOnServer(replace: await present(alert, in: window) == 0)
         }
     }
 

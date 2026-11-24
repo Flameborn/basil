@@ -21,6 +21,8 @@ public struct OperationKind: RawRepresentable, Hashable, Sendable, Codable, Expr
     public static let unpack: OperationKind = "unpack"
     public static let split: OperationKind = "split"
     public static let combine: OperationKind = "combine"
+    /// F4 on a server: an edited copy put back.
+    public static let upload: OperationKind = "upload"
     /// Operations without a kind of their own (for example the debug test operation).
     public static let other: OperationKind = "other"
 }
@@ -59,6 +61,7 @@ public enum OperationKindCatalog {
         OperationKindInfo(kind: .verifyChecksums, name: "Verify Checksums", pastTense: "verified"),
         OperationKindInfo(kind: .split, name: "Split File", pastTense: "split"),
         OperationKindInfo(kind: .combine, name: "Combine Files", pastTense: "combined"),
+        OperationKindInfo(kind: .upload, name: "Upload Edited File", pastTense: "uploaded"),
         OperationKindInfo(kind: .other, name: "Other", pastTense: "done"),
     ]
 

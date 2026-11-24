@@ -279,6 +279,45 @@ private final class Monitor: TransferMonitor {
         #expect(FileManager.default.fileExists(atPath: box.path + "/to/m.txt"))
     }
 
+    /// F4 on the server: the edited copy goes up over the unchanged file; after someone else
+    /// changed the file, the upload asks and Cancel keeps their version.
+    @MainActor
+    @Test func uploadsAnEditedCopyAndAsksAfterAChangeOnTheServer() async throws {
+        let box = try RemoteSandbox()
+        let (registry, sftp, root) = try await connect(box)
+        defer { Task { await registry.disconnect(root.location) } }
+        let served = URL(fileURLWithPath: box.path).appendingPathComponent("notes.txt")
+        try Data("server text".utf8).write(to: served)
+        let remote = root.appending("notes.txt")
+        let downloaded = try await sftp.fingerprint(of: remote)
+        let copy = try localFile(box, "notes.txt", Data("edited text, longer".utf8))
+        let queue = FileOperationQueue()
+        var asked = 0
+        queue.promptHandler = { _, prompt in
+            guard case .changedOnServer = prompt else { return .itemFailed(.cancel) }
+            asked += 1
+            return .changedOnServer(replace: false)
+        }
+        func upload(_ then: FileFingerprint?) async -> (QueueItem, UploadEditedCopyOperation) {
+            let op = UploadEditedCopyOperation(copy: copy, destination: remote, downloaded: then, server: "test",
+                                               registry: registry, options: SecureCopyOptions())
+            let item = queue.add(op)
+            while !item.state.isDone { try? await Task.sleep(for: .milliseconds(20)) }
+            return (item, op)
+        }
+        let (first, op) = await upload(downloaded)
+        #expect(first.state == .finished)
+        #expect(asked == 0)
+        #expect(try Data(contentsOf: served) == Data("edited text, longer".utf8))
+        let uploaded = try #require(op.result.fingerprint)
+
+        try Data("someone else".utf8).write(to: served)
+        let (second, _) = await upload(uploaded)
+        #expect(asked == 1)
+        #expect(second.state == .cancelled)
+        #expect(try Data(contentsOf: served) == Data("someone else".utf8))
+    }
+
     // Local source changing while it is copied to the server: the delta pass writes into the
     // remote partial file at offsets and truncates it.
 

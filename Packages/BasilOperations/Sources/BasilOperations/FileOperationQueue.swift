@@ -6,6 +6,7 @@
 // memory: it does not survive app restarts.
 
 import BasilCore
+import BasilVFS
 import Foundation
 import Observation
 import Synchronization
@@ -33,6 +34,8 @@ public enum QueuePrompt: Sendable {
     case itemFailed(ItemFailure)
     /// Unpack: the folder the archive would be unpacked into already exists.
     case folderExists(FolderExists)
+    /// F4 on a server: the file changed there since Basil downloaded the copy being uploaded.
+    case changedOnServer(ChangedOnServer)
 }
 
 public enum QueuePromptAnswer: Sendable, Equatable {
@@ -41,6 +44,25 @@ public enum QueuePromptAnswer: Sendable, Equatable {
     case itemFailed(ItemFailureChoice)
     /// `forAll`: the same answer for the other archives of this operation.
     case folderExists(FolderExistsChoice, forAll: Bool)
+    /// true: replace the server's file with the edited copy.
+    case changedOnServer(replace: Bool)
+}
+
+/// "notes.txt was changed on the server since you opened it": uploading the edited copy would
+/// replace someone else's change.
+public struct ChangedOnServer: Sendable, Equatable {
+    public let path: VFSPath
+    /// Where the file lives, e.g. "alice@example.com".
+    public let server: String
+    public let then: FileFingerprint
+    public let now: FileFingerprint
+
+    public init(path: VFSPath, server: String, then: FileFingerprint, now: FileFingerprint) {
+        self.path = path
+        self.server = server
+        self.then = then
+        self.now = now
+    }
 }
 
 /// "photos already exists in Downloads": unpacking would put the archive's items into it.
@@ -293,6 +315,7 @@ public final class FileOperationQueue {
         case .unstableSource(let u): question = "\(u.path.name) keeps changing"
         case .itemFailed(let f): question = "\(f.question): \(f.reason)"
         case .folderExists(let f): question = "\(f.folder.name) already exists"
+        case .changedOnServer(let c): question = "\(c.path.name) was changed on the server"
         }
         item.log.append("Waiting for a decision: \(question)")
         onEvent?(event(.needsDecision, item, reason: question))
@@ -303,6 +326,7 @@ public final class FileOperationQueue {
             case .unstableSource: return .unstableSource(.skip)
             case .itemFailed: return .itemFailed(.fail)
             case .folderExists: return .folderExists(.newName, forAll: false)
+            case .changedOnServer: return .changedOnServer(replace: false)
             }
         }
         return await handler(item, prompt)

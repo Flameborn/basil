@@ -282,7 +282,7 @@ extension MainWindowController: PaneViewControllerDelegate {
     /// Nothing is announced: VoiceOver reads the item under the cursor.
     func paneDidChangeDirectory(_ pane: PaneViewController) {
         if pane.side == activeSide { updateTitle() }
-        copies.dropPreviews(keeping: shownContainers)
+        copies.dropPreviews(keeping: shownContainers, shownLocations: Set([left, right].map(\.model.directory.location)))
         closeUnusedContainers()
         if persistsDirectories {
             // Inside an archive, the folder holding it is remembered: providers do not survive a restart.
