@@ -1,0 +1,7 @@
+{
+  "id": "basil.example.hello",
+  "name": "Hello World",
+  "version": "1.0",
+  "description": "A template: one command that says hello and how many items it got.",
+  "author": "Basil examples"
+}

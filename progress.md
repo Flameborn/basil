@@ -45,6 +45,8 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 ## Decisions log
 
+- 2026-11-24 (plugins, chosen without asking, change if wanted): a plugin's copy, move, new folder and rename go to the queue at once; its deletes are confirmed first like F8 ("A plugin wants to move 3 items to the Trash."). Refusing the permissions leaves the plugin off. Permissions added to plugin.json later are not given until the plugin is turned off and on again. Plugin commands go to Commands > Plugins unless the plugin names a menu, and to the context menu's Plugins submenu with context = true; they have no keys unless the plugin gives defaults. Plugin providers are read only for now. A runaway Lua loop only blocks its own plugin (its own queue); there is no time limit yet. The Settings window is wider (1400) so the Plugins tab fits.
+
 - 2026-11-24 (Google Drive details, chosen without asking, change if wanted): only the shortcut F5 is pressed on is followed; shortcuts inside the copied folder are copied as links, so a shortcut to a folder above it cannot copy forever. CSV and TSV exports of Sheets hold the first sheet only (Google's limit), said in the pop-up. Large documents use the export link only after files.export refused them, so ordinary exports stay on the API.
 
 - 2026-11-24 (Nextcloud browser sign-in, chosen without asking, change if wanted): it is the automatic login of WebDAV connections ("Browser sign-in on Nextcloud, else password"; Password stays selectable), so existing connections with a password in the Keychain keep working without the browser (the kept secret is tried first). The app password is always kept in the Keychain (it is Basil's own token, like Dropbox's), named after the login Nextcloud reports, and the saved connection's User is filled in from it. Nextcloud lists the app password as "Basil (Mac)" under the account's devices. Deleting the saved connection revokes it on the server.
@@ -319,7 +321,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 ### M0 - Foundation
 - [x] `git init`, `.gitignore`, `project.yml`, app target, package skeletons (Basil* packages)
-- [x] `scripts/bootstrap.sh` for vendored deps: builds Vendor/libssh2 (OpenSSL + libssh2) and 7zz (2026-11-22); LuaJIT still to add (blocked on its build question). BLAKE3, libarchive, UnRAR and 7-Zip need none: vendored as sources in `Vendor/BLAKE3`, `Vendor/libarchive`, `Vendor/unrar` (SwiftPM) and `Vendor/7zip` (its own build.sh)
+- [x] `scripts/bootstrap.sh` for vendored deps: builds Vendor/libssh2 (OpenSSL + libssh2) and 7zz (2026-11-22), LuaJIT (2026-11-24). BLAKE3, libarchive, UnRAR and 7-Zip need none: vendored as sources in `Vendor/BLAKE3`, `Vendor/libarchive`, `Vendor/unrar` (SwiftPM) and `Vendor/7zip` (its own build.sh)
 - [x] Signing with stable local identity `dev` (Config/Base.xcconfig)
 - [ ] Document / prompt for the Full Disk Access flow in-app
 - [x] Local build + test commands working (in CLAUDE.md)
@@ -408,8 +410,8 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Log (repository or one file, changed files, diff in a commit) and Blame windows (2026-11-24)
 
 ### M7 - Plugins
-- [ ] LuaJIT bridge, plugin manifest + loader, API for commands/columns/providers
-- [ ] Example plugins
+- [x] LuaJIT bridge, plugin manifest + loader, API for commands, menus, keys, columns, providers, placeholders, queue items, files, shell and network; Settings > Plugins (2026-11-24)
+- [x] Example plugins: hello world, word count column, open on GitHub (2026-11-24)
 
 ### M8 - Search
 - [x] Search protocol + live directory-walk engine (2026-11-24)

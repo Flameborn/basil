@@ -476,6 +476,33 @@ enum UITestSMBServer {
 /// The S3 gateway container of the BasilRemote tests (`basil-test-s3`, made by their first run)
 /// for the S3 UI test (`BASIL_UITEST_S3=1`): started when Docker (OrbStack) runs, emptied (no
 /// buckets), and stopped again by a watchdog when the app dies.
+extension UITestFixture {
+    /// A plugin for `PluginUITests`: one command that asks a name and says hello, and a column.
+    static func installTestPlugin(in folder: URL) {
+        let plugin = folder.appendingPathComponent("hello")
+        try? FileManager.default.createDirectory(at: plugin, withIntermediateDirectories: true)
+        let manifest = #"""
+        { "id": "uitest.hello", "name": "Hello Test", "version": "1.0", "description": "Says hello." }
+        """#
+        let main = #"""
+        basil.command{ id = "hello", title = "Say Hello", keys = { "Ctrl+Shift+H" }, context = true, run = function(ctx)
+          local name = basil.ask("Who are you?", "Basil")
+          if name then
+            basil.mkdir(basil.join(ctx.pane.folder, name))
+            basil.announce("Hello " .. name .. ", cursor on " .. (ctx.pane.cursor and ctx.pane.cursor.name or "nothing"))
+          end
+        end }
+        basil.column{ id = "length", title = "Name Length", fill = function(folder, items)
+          local result = {}
+          for _, item in ipairs(items) do result[item.name] = tostring(#item.name) end
+          return result
+        end }
+        """#
+        try? manifest.write(to: plugin.appendingPathComponent("plugin.json"), atomically: true, encoding: .utf8)
+        try? main.write(to: plugin.appendingPathComponent("main.lua"), atomically: true, encoding: .utf8)
+    }
+}
+
 enum UITestS3Server {
     struct Server {
         let host: String

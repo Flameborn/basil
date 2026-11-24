@@ -1,10 +1,11 @@
 import AppKit
 import BasilCore
 import BasilIntegrations
+import BasilPlugins
 import SwiftUI
 
 public enum SettingsTab: String, Hashable, Sendable {
-    case views, display, navigation, bookmarks, copying, editing, sounds, keys
+    case views, display, navigation, bookmarks, copying, editing, sounds, keys, plugins
 }
 
 @MainActor
@@ -24,6 +25,8 @@ public final class SettingsWindowController: NSWindowController {
     static var checkForUpdates: (() -> Void)?
     /// The search index's status and Rebuild on the Navigation tab (set by the main window).
     static var searchIndex: SearchIndexStatus?
+    /// The plugins for the Plugins tab (set by the main window).
+    static var plugins: PluginManager?
 
     public static func show(settings: SettingsStore, tab: SettingsTab = .views) {
         let controller = shared ?? SettingsWindowController(settings: settings)
@@ -35,7 +38,7 @@ public final class SettingsWindowController: NSWindowController {
 
     private init(settings: SettingsStore) {
         let window = SettingsNSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1240, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 600),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -111,9 +114,14 @@ struct SettingsView: View {
                     .tabItem { Text("Keys") }
                     .tag(SettingsTab.keys)
             }
+            if let plugins = SettingsWindowController.plugins {
+                PluginSettings(manager: plugins)
+                    .tabItem { Text("Plugins") }
+                    .tag(SettingsTab.plugins)
+            }
         }
         .padding()
-        .frame(minWidth: 1240, minHeight: 520)
+        .frame(minWidth: 1400, minHeight: 520)
     }
 }
 

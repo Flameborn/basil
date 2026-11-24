@@ -30,7 +30,7 @@ final class FakeHost: PluginHost, WorkspaceContext {
     var targetItems: [FileItem] { items }
     func navigate(to directory: VFSPath) { navigated.append(directory) }
     func announce(_ message: String) { announced.append(message) }
-    func queue(_ operation: any QueueOperation) { queue.add(operation) }
+    func enqueue(_ operation: any QueueOperation) { queue.add(operation) }
     func transfer(_ sources: [VFSPath], to target: VFSPath, move: Bool) { transfers.append((sources, target, move)) }
     func delete(_ items: [VFSPath], toTrash: Bool) { deleted.append((items, toTrash)) }
     func makeDirectory(_ path: VFSPath) { made.append(path) }
@@ -368,6 +368,34 @@ struct Setup {
         #expect(s.commands.command(CommandID(rawValue: "plugin.quiet.x")) == nil)
         await s.manager.startEnabled()
         #expect(s.commands.command(CommandID(rawValue: "plugin.quiet.x")) != nil)
+    }
+
+    /// The examples in Plugins/Examples load and work (Open on GitHub is only loaded: running it opens a browser).
+    @Test func theExamplePluginsWork() async throws {
+        let s = try Setup()
+        let examples = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../Plugins/Examples")
+            .standardizedFileURL
+        try FileManager.default.createDirectory(at: s.folder, withIntermediateDirectories: true)
+        for name in ["hello-world", "word-count", "open-on-github"] {
+            try FileManager.default.copyItem(at: examples.appendingPathComponent(name), to: s.folder.appendingPathComponent(name))
+        }
+        try "one two\nthree".write(to: s.root.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+        try "not counted".write(to: s.root.appendingPathComponent("image.png"), atomically: true, encoding: .utf8)
+        s.host.answers = [.confirmed]
+        for id in ["basil.example.hello", "basil.example.wordcount", "basil.example.github"] {
+            await s.enable(id)
+            #expect(s.entry(id)?.isLoaded == true, "\(id): \(s.entry(id)?.problem ?? "")")
+        }
+        #expect(s.entry("basil.example.github")?.granted == [.shell])
+        #expect(s.commands.command(CommandID(rawValue: "plugin.basil.example.github.open")) != nil)
+
+        let words = await s.registry.annotations(for: .local(s.root.path))[ColumnID(rawValue: "plugin.basil.example.wordcount.words")]
+        #expect(words?.byName == ["notes.md": "3"])
+
+        s.host.items = [FileItem(path: .local(s.root.path + "/notes.md"), kind: .file)]
+        s.commands.perform(CommandID(rawValue: "plugin.basil.example.hello.hello"), in: s.host)
+        #expect(await s.wait { !s.host.announced.isEmpty })
+        #expect(s.host.announced == ["Hello from a plugin, notes.md in \(s.root.lastPathComponent)"])
     }
 
     @Test func keyNamesAreRead() {

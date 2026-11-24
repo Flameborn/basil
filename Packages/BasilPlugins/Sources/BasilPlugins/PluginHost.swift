@@ -11,7 +11,7 @@ public protocol PluginHost: AnyObject {
     var workspace: (any WorkspaceContext)? { get }
     /// The folder the other pane shows.
     var otherDirectory: VFSPath? { get }
-    func queue(_ operation: any QueueOperation)
+    func enqueue(_ operation: any QueueOperation)
     /// F5 / F6 to `target` (a folder).
     func transfer(_ sources: [VFSPath], to target: VFSPath, move: Bool)
     /// F8 (to the Trash where there is one) or Shift+F8.

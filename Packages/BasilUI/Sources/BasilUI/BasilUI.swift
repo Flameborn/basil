@@ -8,6 +8,7 @@ import BasilCore
 import BasilGit
 import BasilIntegrations
 import BasilOperations
+import BasilPlugins
 import BasilSearch
 import BasilVFS
 
@@ -61,6 +62,13 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let searchIndexes: SearchIndexes?
     var searchIndexStatus: SearchIndexStatus?
     private var searchIndexToken: UUID?
+    /// The Lua plugins (Settings > Plugins); set by the app, which starts them.
+    public var plugins: PluginManager? {
+        didSet {
+            plugins?.host = self
+            SettingsWindowController.plugins = plugins
+        }
+    }
     /// Updates from GitHub releases (`Updates.swift`).
     lazy var updates = UpdateCoordinator(window: self)
 

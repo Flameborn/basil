@@ -399,7 +399,7 @@ public final class Plugin: @unchecked Sendable {
                     OperationKindCatalog.register(kindInfo)
                     self.state.withLock { s in if !s.kinds.contains(kindInfo.kind) { s.kinds.append(kindInfo.kind) } }
                 }
-                host.queue(operation)
+                host.enqueue(operation)
                 return .values([])
             }
         }

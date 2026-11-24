@@ -14,6 +14,7 @@ let package = Package(
         .package(path: "../BasilIntegrations"),
         .package(path: "../BasilGit"),
         .package(path: "../BasilSearch"),
+        .package(path: "../BasilPlugins"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "BasilIntegrations", package: "BasilIntegrations"),
                 .product(name: "BasilGit", package: "BasilGit"),
                 .product(name: "BasilSearch", package: "BasilSearch"),
+                .product(name: "BasilPlugins", package: "BasilPlugins"),
             ]
         ),
         .testTarget(name: "BasilUITests", dependencies: ["BasilUI"]),

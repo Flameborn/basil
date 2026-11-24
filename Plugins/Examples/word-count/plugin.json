@@ -1,0 +1,7 @@
+{
+  "id": "basil.example.wordcount",
+  "name": "Word Count",
+  "version": "1.0",
+  "description": "A Words column with the number of words of text files up to 1 MB. Add it to a view in Settings > Views and Columns.",
+  "author": "Basil examples"
+}

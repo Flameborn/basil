@@ -1,0 +1,8 @@
+{
+  "id": "basil.example.github",
+  "name": "Open on GitHub",
+  "version": "1.0",
+  "description": "Opens the cursor file's page on GitHub, on the current branch. Asks git for the repository's address, so it needs the shell permission.",
+  "author": "Basil examples",
+  "permissions": ["shell"]
+}

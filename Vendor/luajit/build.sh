@@ -25,10 +25,12 @@ make -s -C "$src/src" -j"$jobs" BUILDMODE=static libluajit.a >/dev/null
 
 stage="$out/stage"
 rm -rf "$stage"
-mkdir -p "$stage/include"
+# The headers go in a folder of their own: Xcode copies every xcframework's headers into one
+# include folder, and LibSSH2.xcframework has its module map at the top already.
+mkdir -p "$stage/include/CLuaJIT"
 cp "$src/src/libluajit.a" "$stage/libBasilLuaJIT.a"
-for h in lua.h lualib.h lauxlib.h luaconf.h luajit.h; do cp "$src/src/$h" "$stage/include/"; done
-cat > "$stage/include/module.modulemap" <<'MAP'
+for h in lua.h lualib.h lauxlib.h luaconf.h luajit.h; do cp "$src/src/$h" "$stage/include/CLuaJIT/"; done
+cat > "$stage/include/CLuaJIT/module.modulemap" <<'MAP'
 module CLuaJIT {
     header "lua.h"
     header "lualib.h"
@@ -38,7 +40,7 @@ module CLuaJIT {
 }
 MAP
 
-stamp="$(cat "$stage/libBasilLuaJIT.a" "$stage/include/"* | shasum -a 256 | cut -d' ' -f1)"
+stamp="$( (cd "$stage" && find . -type f | sort && cat libBasilLuaJIT.a include/CLuaJIT/*) | shasum -a 256 | cut -d' ' -f1)"
 if [ "$(cat "$out/.xcframework-stamp" 2>/dev/null || true)" != "$stamp" ] || [ ! -d "$out/LuaJIT.xcframework" ]; then
     rm -rf "$out/new"
     xcodebuild -create-xcframework -library "$stage/libBasilLuaJIT.a" -headers "$stage/include" \

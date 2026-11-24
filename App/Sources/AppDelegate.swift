@@ -4,6 +4,7 @@ import BasilCore
 import BasilGit
 import BasilIntegrations
 import BasilOperations
+import BasilPlugins
 import BasilRemote
 import BasilSearch
 import BasilUI
@@ -210,9 +211,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         #endif
+        // Lua plugins in Application Support/Basil/Plugins (UI tests: the test data folder).
+        let pluginFolder = PluginManager.defaultFolder(in: dataDirectory)
+        #if DEBUG
+        if UITestFixture.isActive { UITestFixture.installTestPlugin(in: pluginFolder) }
+        #endif
+        let plugins = PluginManager(folder: pluginFolder, registry: providers, commands: commands, settings: settings)
+        controller.plugins = plugins
         controller.showWindow(nil)
         mainWindowController = controller
         NSApp.activate()
+        Task { await plugins.startEnabled() }
         // Updates from GitHub releases: automatic checks only in Release builds (UI tests and
         // development builds never ask); Basil > Check for Updates... works in every build.
         #if !DEBUG
@@ -242,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        mainWindowController?.plugins?.stopAll()
         mainWindowController?.removeTemporaryCopies()
         mainWindowController?.saveSearchIndex()
         // An update was installed: open the new version once this process has gone.
