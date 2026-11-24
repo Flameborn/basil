@@ -5,11 +5,14 @@ public struct Bookmark: Codable, Hashable, Sendable, Identifiable {
     public var id: UUID
     public var name: String
     public var path: VFSPath
+    /// For a folder on a server: how to connect when the server is not connected (no secrets).
+    public var target: RemoteTarget?
 
-    public init(id: UUID = UUID(), name: String, path: VFSPath) {
+    public init(id: UUID = UUID(), name: String, path: VFSPath, target: RemoteTarget? = nil) {
         self.id = id
         self.name = name
         self.path = path
+        self.target = target
     }
 }
 

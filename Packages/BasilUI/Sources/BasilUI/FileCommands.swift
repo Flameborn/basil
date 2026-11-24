@@ -22,7 +22,7 @@ extension MainWindowController {
         Task {
             guard let text = await askText(in: window, message: "\(verb) \(what) to:", initial: initial,
                                            confirm: verb, fieldLabel: "Target folder") else { return }
-            let target = text == initial ? other : resolve(text, relativeTo: activePane.model.directory)
+            let target = text == initial ? other : await resolveTarget(text, relativeTo: activePane.model.directory)
             guard let target else { return }
             guard ensureWritable(target) else { return }
             let s = settings.settings

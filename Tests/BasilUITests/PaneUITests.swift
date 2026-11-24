@@ -1421,6 +1421,12 @@ final class PaneUITests: XCTestCase {
         app.typeText("Remote\r")
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("Remote") }, "\(names(in: leftTable))")
 
+        // Bookmark the server folder (Cmd+D), to open it again after disconnecting.
+        let folderName = path.buttons.allElementsBoundByIndex.last?.label ?? ""
+        leftTable.typeKey("d", modifierFlags: .command)
+        XCTAssertTrue(app.menuItems["Add Current Folder to Bookmarks"].waitForExistence(timeout: 2))
+        app.menuItems["Add Current Folder to Bookmarks"].click()
+
         let menuBar = app.menuBars.firstMatch
         menuBar.menuBarItems["Net"].click()
         let disconnect = menuBar.menuItems.matching(NSPredicate(format: "title BEGINSWITH 'Disconnect '")).firstMatch
@@ -1432,6 +1438,41 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(menuBar.menuItems["Test server"].waitForExistence(timeout: 2))
         XCTAssertFalse(menuBar.menuItems["Disconnect"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
+
+        // The bookmark connects again (the host key was trusted once only, so it is asked again).
+        leftTable.typeKey("d", modifierFlags: .command)
+        let bookmark = app.menuItems[folderName]
+        XCTAssertTrue(bookmark.waitForExistence(timeout: 2), "\(folderName)")
+        bookmark.click()
+        let again = app.sheets.firstMatch
+        XCTAssertTrue(waitFor { again.buttons["Trust Once"].exists }, "\(app.staticTexts["pane.left.status"].value ?? "")")
+        again.buttons["Trust Once"].click()
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable).contains("Remote") }, timeout: 10), "\(names(in: leftTable))")
+        XCTAssertTrue(path.buttons.firstMatch.label.contains("@127.0.0.1:"), path.debugDescription)
+
+        // F5 from the local right pane: the field shows the server folder's address
+        // (sftp://user@host:port/path); a typed folder below it is used on that server.
+        rightTable.click()
+        // The right pane shows the empty Beta folder: make something to copy.
+        rightTable.typeKey(.F7, modifierFlags: [])
+        let made = app.sheets.firstMatch
+        XCTAssertTrue(made.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: made)
+        app.typeText("Uploaded\r")
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable).contains("Uploaded") },
+                      "\(names(in: rightTable)) \(app.staticTexts["pane.right.status"].value ?? "") \(app.groups["pane.right.path"].value ?? "")")
+        rightTable.typeKey(.F5, modifierFlags: [])
+        let copy = app.sheets.firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 3))
+        waitForFieldFocus(in: copy)
+        let field = copy.textFields.firstMatch
+        XCTAssertTrue(((field.value as? String) ?? "").hasPrefix("sftp://"), "\(field.value ?? "")")
+        app.typeKey(.rightArrow, modifierFlags: [])
+        app.typeText("/Remote\r")
+        rightTable.typeKey(.tab, modifierFlags: [])
+        leftTable.typeText("Remote")
+        leftTable.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["Uploaded"] }, timeout: 10), "\(names(in: leftTable))")
     }
 
     /// FTPS explicit against pure-ftpd (built by scripts/build-test-ftpd.sh): the editor shows

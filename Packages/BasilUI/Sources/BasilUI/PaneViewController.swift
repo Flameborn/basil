@@ -9,6 +9,10 @@ protocol PaneViewControllerDelegate: AnyObject {
     func pane(_ pane: PaneViewController, announce message: String)
     func paneDidChangeDirectory(_ pane: PaneViewController)
     func paneRequestsSettings(_ pane: PaneViewController)
+    /// Opens a bookmark, connecting to its server first when needed.
+    func pane(_ pane: PaneViewController, open bookmark: Bookmark)
+    /// How the connection of a location was made, for bookmarks of server folders.
+    func pane(_ pane: PaneViewController, remoteTargetFor location: ProviderLocation) -> RemoteTarget?
     func paneCursorDidChange(_ pane: PaneViewController)
     /// What the column annotators say about the shown folder changed (the Git branch).
     func paneDidUpdateAnnotations(_ pane: PaneViewController)
@@ -606,7 +610,10 @@ final class PaneViewController: NSViewController {
             menu.addItem(.separator())
             menu.addItem(.sectionHeader(title: "Bookmarks"))
             for bookmark in bookmarks {
-                add(bookmark.name) { [weak self] in self?.navigate(to: bookmark.path) }
+                add(bookmark.name) { [weak self] in
+                    guard let self else { return }
+                    if let delegate { delegate.pane(self, open: bookmark) } else { navigate(to: bookmark.path) }
+                }
             }
         }
         menu.addItem(.separator())
@@ -626,7 +633,8 @@ final class PaneViewController: NSViewController {
             delegate?.pane(self, announce: "Already in bookmarks")
             return
         }
-        settings.settings.bookmarks.append(Bookmark(name: dir.name, path: dir))
+        let target = delegate?.pane(self, remoteTargetFor: dir.outermostContainer.location)
+        settings.settings.bookmarks.append(Bookmark(name: dir.name, path: dir, target: target))
         delegate?.pane(self, announce: "Bookmark added")
     }
 

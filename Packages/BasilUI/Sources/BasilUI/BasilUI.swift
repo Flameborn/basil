@@ -51,6 +51,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     let remoteSecrets: any SecretStore
     /// Unencrypted servers accepted with Connect Anyway while Basil runs.
     var unencryptedAcceptedNow: Set<String> = []
+    /// The target each open connection was made with (bookmarks keep it to reconnect).
+    var connectionTargets: [ProviderLocation: RemoteTarget] = [:]
     /// Find Files' engines (live walk, Spotlight, the own index; plugins add more).
     public let searchEngines: SearchEngines
     /// The Find Files window (Option+F7), kept with its last search while the app runs.
@@ -353,6 +355,14 @@ extension MainWindowController: PaneViewControllerDelegate {
 
     func paneRequestsSettings(_ pane: PaneViewController) {
         showSettings(tab: .bookmarks)
+    }
+
+    func pane(_ pane: PaneViewController, open bookmark: Bookmark) {
+        openBookmark(bookmark, in: pane)
+    }
+
+    func pane(_ pane: PaneViewController, remoteTargetFor location: ProviderLocation) -> RemoteTarget? {
+        connectionTargets[location]
     }
 }
 

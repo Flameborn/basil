@@ -221,8 +221,9 @@ extension MainWindowController {
 
     /// Connects in the active pane and shows the start folder. Spoken: "Connecting to ..." when it
     /// takes longer than a second, then "Connected to erion@example.com".
-    func connect(_ target: RemoteTarget, saved id: UUID? = nil) {
-        let pane = activePane
+    func connect(_ target: RemoteTarget, saved id: UUID? = nil, in chosen: PaneViewController? = nil,
+                 then destination: VFSPath? = nil) {
+        let pane = chosen ?? activePane
         // "Connecting to erion@example.com", "Connecting to Dropbox".
         var name = target.address
         if let connector = providers.connector(for: target.service), !connector.usesServerAddress {
@@ -249,7 +250,12 @@ extension MainWindowController {
                    let index = settings.settings.connections.firstIndex(where: { $0.id == id }) {
                     settings.settings.connections[index].target = updated
                 }
-                pane.navigate(to: start)
+                connectionTargets[start.location] = connected?.signedInTarget ?? target
+                if let destination, destination.outermostContainer.location == start.location {
+                    pane.navigate(to: destination)
+                } else {
+                    pane.navigate(to: start)
+                }
                 announce("Connected to \(title)")
             } catch is RemoteCancelled {
                 pane.report("Connection cancelled")
@@ -260,6 +266,84 @@ extension MainWindowController {
                 announce(message)
             }
         }
+    }
+
+    // MARK: Bookmarks and typed addresses
+
+    /// A bookmark: local folders and folders of open connections at once; a server folder that is
+    /// not connected connects first (with the bookmark's target, else a saved connection of that
+    /// server), then goes there.
+    func openBookmark(_ bookmark: Bookmark, in pane: PaneViewController) {
+        let location = bookmark.path.outermostContainer.location
+        if location.provider == .local || (try? providers.provider(for: location)) != nil {
+            return pane.navigate(to: bookmark.path)
+        }
+        let saved = savedConnection(for: location)
+        guard let target = bookmark.target ?? saved?.target else {
+            return pane.report("\(bookmark.name) is on \(location.instance), which is not connected, and no saved connection matches it")
+        }
+        connect(target, saved: saved?.id, in: pane, then: bookmark.path)
+    }
+
+    /// The saved connection that leads to a location: same service, and its account or host in
+    /// the location's name ("alice@example.com:2222", a Dropbox email).
+    func savedConnection(for location: ProviderLocation) -> SavedConnection? {
+        let instance = location.instance.lowercased()
+        let candidates = settings.settings.connections.filter { $0.target.service == location.provider }
+        return candidates.first { c in
+            let t = c.target
+            if let user = t.user?.lowercased(), !t.host.isEmpty,
+               instance == "\(user)@\(t.host.lowercased())" || instance.hasPrefix("\(user)@\(t.host.lowercased()):") { return true }
+            return false
+        } ?? candidates.first { c in
+            let t = c.target
+            return (t.user.map { instance == $0.lowercased() } ?? false)
+                || (!t.host.isEmpty && instance.contains(t.host.lowercased()))
+        }
+    }
+
+    /// The F5/F6 target field: "sftp://alice@host/path" and the like name a server folder. An
+    /// open connection whose address starts the text is used as it is; otherwise Basil connects
+    /// (asking what connecting asks) and copies to the folder the address names. Anything else is
+    /// a path in the active pane's place. Nil when connecting failed (reported) or was cancelled.
+    func resolveTarget(_ text: String, relativeTo directory: VFSPath) async -> VFSPath? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("://") else { return resolve(trimmed, relativeTo: directory) }
+        for connection in providers.openConnections {
+            let location = connection.location
+            let prefix = location.provider.rawValue + "://" + location.instance
+            guard trimmed.lowercased().hasPrefix(prefix.lowercased()) else { continue }
+            let rest = String(trimmed.dropFirst(prefix.count))
+            guard rest.isEmpty || rest.hasPrefix("/") else { continue }
+            return VFSPath(location: location, path: rest.isEmpty ? "/" : rest)
+        }
+        guard var target = RemoteTarget.parse(trimmed, defaultService: ProviderID("sftp")) else {
+            activePane.report("\(trimmed) is not an address Basil can connect to")
+            return nil
+        }
+        if providers.connector(for: target.service) == nil,
+           let named = providers.remoteConnectors.first(where: { $0.schemeAliases.contains(target.service.rawValue) }) {
+            target.service = named.service
+        }
+        guard providers.connector(for: target.service) != nil else {
+            activePane.report("Basil cannot connect with \(target.service.rawValue.uppercased())")
+            return nil
+        }
+        guard await confirmUnencrypted(target) else { return nil }
+        activePane.report("Connecting to \(target.address)")
+        do {
+            let start = try await providers.connect(target, prompts: remotePrompts)
+            connectionTargets[start.location] = target
+            activePane.report("Connected to \(target.address)")
+            return start
+        } catch is RemoteCancelled {
+            activePane.report("Connection cancelled")
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            activePane.report(message)
+            announce(message)
+        }
+        return nil
     }
 
     /// Plain FTP, WebDAV or S3 over HTTP: asks once per server (Connect Anyway / Cancel, with
