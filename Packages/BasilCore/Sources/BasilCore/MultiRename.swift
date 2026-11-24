@@ -107,6 +107,7 @@ public enum MultiRenamePlaceholders {
     private static let storage = PlaceholderStorage()
 
     public static func register(_ definition: Definition) { storage.set(definition) }
+    public static func unregister(_ name: String) { storage.remove(name) }
     public static func definition(_ name: String) -> Definition? { storage.get(name) }
     public static var all: [Definition] { storage.all() }
 }
@@ -124,6 +125,12 @@ private final class PlaceholderStorage: @unchecked Sendable {
         }
     }
     func get(_ name: String) -> Definition? { lock.withLock { defs[name] } }
+    func remove(_ name: String) {
+        lock.withLock {
+            defs[name] = nil
+            order.removeAll { $0 == name }
+        }
+    }
     func all() -> [Definition] { lock.withLock { order.compactMap { defs[$0] } } }
 }
 

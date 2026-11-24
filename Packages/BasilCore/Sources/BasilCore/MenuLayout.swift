@@ -36,6 +36,25 @@ public final class MenuLayout {
         onChange?()
     }
 
+    /// Takes a command out of every menu and the context menu (a plugin turned off); submenus
+    /// left empty are removed too.
+    public func remove(_ id: CommandID) {
+        func strip(_ nodes: [MenuNode]) -> [MenuNode] {
+            nodes.compactMap { node in
+                switch node {
+                case .command(let c): return c == id ? nil : node
+                case .submenu(let title, let children):
+                    let kept = strip(children)
+                    return kept.isEmpty && !children.isEmpty ? nil : .submenu(title, kept)
+                case .separator: return node
+                }
+            }
+        }
+        for i in menus.indices { menus[i].items = strip(menus[i].items) }
+        contextMenu = strip(contextMenu)
+        onChange?()
+    }
+
     /// Appends `items` to the pane context menu, or to a submenu of it.
     public func addToContextMenu(_ items: [MenuNode], submenu path: [String] = []) {
         contextMenu = Self.append(items, into: contextMenu, path: path[...])

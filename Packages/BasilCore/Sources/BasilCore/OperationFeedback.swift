@@ -69,6 +69,8 @@ public enum OperationKindCatalog {
         if let i = all.firstIndex(where: { $0.kind == info.kind }) { all[i] = info } else { all.append(info) }
     }
 
+    public static func unregister(_ kind: OperationKind) { all.removeAll { $0.kind == kind } }
+
     public static func info(_ kind: OperationKind) -> OperationKindInfo {
         all.first { $0.kind == kind } ?? OperationKindInfo(kind: kind, name: kind.rawValue.capitalized, pastTense: "done")
     }

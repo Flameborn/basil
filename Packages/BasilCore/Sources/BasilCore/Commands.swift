@@ -74,6 +74,49 @@ public struct KeyChord: Hashable, Sendable, Codable, CustomStringConvertible {
 
     private static let numpadNames = ["-": "Minus", "+": "Plus", "*": "Multiply", "/": "Divide",
                                       ".": "Decimal", "=": "Equals", ",": "Comma"]
+
+    /// Reads a key written the way `description` writes it ("Cmd+Shift+L", "Option+F5",
+    /// "Ctrl+Page Down", "Numpad Plus"); also "Alt", "Command", "Control", "Enter", "Escape".
+    /// nil when it names no key.
+    public init?(parsing text: String) {
+        var parts = text.split(separator: "+", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        // "Cmd++" and "Numpad +": a plus as the key itself.
+        if parts.count >= 2, parts.last == "", parts[parts.count - 2] == "" { parts.removeLast(2); parts.append("+") }
+        guard let keyName = parts.popLast(), !keyName.isEmpty else { return nil }
+        var modifiers: Modifiers = []
+        for part in parts {
+            switch part.lowercased() {
+            case "cmd", "command": modifiers.insert(.command)
+            case "option", "opt", "alt": modifiers.insert(.option)
+            case "ctrl", "control": modifiers.insert(.control)
+            case "shift": modifiers.insert(.shift)
+            default: return nil
+            }
+        }
+        let lower = keyName.lowercased()
+        let named: [String: Key] = ["tab": .tab, "return": .enter, "enter": .enter, "backspace": .backspace,
+                                    "forward delete": .forwardDelete, "delete": .forwardDelete, "space": .space,
+                                    "esc": .escape, "escape": .escape, "up": .up, "down": .down, "left": .left,
+                                    "right": .right, "home": .home, "end": .end, "page up": .pageUp, "page down": .pageDown]
+        if let key = named[lower] {
+            self.init(key, modifiers)
+        } else if lower.hasPrefix("f"), let n = Int(lower.dropFirst()), (1...20).contains(n) {
+            self.init(.function(n), modifiers)
+        } else if lower.hasPrefix("numpad ") {
+            let name = String(keyName.dropFirst(7))
+            if let symbol = Self.numpadNames.first(where: { $0.value.lowercased() == name.lowercased() })?.key {
+                self.init(.numpad(symbol), modifiers)
+            } else if name.count == 1 {
+                self.init(.numpad(name), modifiers)
+            } else {
+                return nil
+            }
+        } else if keyName.count == 1 {
+            self.init(.character(keyName), modifiers)
+        } else {
+            return nil
+        }
+    }
 }
 
 /// What commands can see and do in the file manager window.
@@ -144,6 +187,16 @@ public final class CommandRegistry {
     }
 
     public func command(_ id: CommandID) -> Command? { commands[id] }
+
+    /// Removes a command (a plugin turned off): its default keys go, menus leave it out, and the
+    /// user's own keys for it stay saved for when it comes back.
+    public func unregister(_ id: CommandID) {
+        guard commands.removeValue(forKey: id) != nil else { return }
+        registrationOrder.removeAll { $0 == id }
+        defaultKeymap = defaultKeymap.filter { $0.value != id }
+        applicabilityChecks[id] = nil
+        onKeymapChange?()
+    }
 
     private var applicabilityChecks: [CommandID: @MainActor (any WorkspaceContext) -> Bool] = [:]
 

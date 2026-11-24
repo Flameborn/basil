@@ -20,6 +20,11 @@ extension ProviderRegistry {
 
     public var columnAnnotators: [any ColumnAnnotator] { annotators.withLock { $0 } }
 
+    /// Removes the annotators of a column (a plugin turned off).
+    public func unregisterAnnotators(of column: ColumnID) {
+        annotators.withLock { $0.removeAll { $0.column == column } }
+    }
+
     /// Every annotator's answer for `directory`, by column.
     public func annotations(for directory: VFSPath) async -> [ColumnID: ColumnAnnotation] {
         var result: [ColumnID: ColumnAnnotation] = [:]

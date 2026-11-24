@@ -172,6 +172,8 @@ public enum ColumnCatalog {
     public static func definition(_ id: ColumnID) -> ColumnDefinition? { storage.get(id) }
     public static var all: [ColumnDefinition] { storage.all() }
     public static func register(_ definition: ColumnDefinition) { storage.set(definition) }
+    /// Removes a column a plugin added (views that list it keep it for when it comes back).
+    public static func unregister(_ id: ColumnID) { storage.remove(id) }
 }
 
 private final class ColumnStorage: @unchecked Sendable {
@@ -185,6 +187,12 @@ private final class ColumnStorage: @unchecked Sendable {
 
     func get(_ id: ColumnID) -> ColumnDefinition? { lock.withLock { defs[id] } }
     func all() -> [ColumnDefinition] { lock.withLock { order.compactMap { defs[$0] } } }
+    func remove(_ id: ColumnID) {
+        lock.withLock {
+            defs[id] = nil
+            order.removeAll { $0 == id }
+        }
+    }
     func set(_ d: ColumnDefinition) {
         lock.withLock {
             if defs[d.id] == nil { order.append(d.id) }

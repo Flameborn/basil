@@ -90,6 +90,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var searchIndex = true
     /// Other volumes ticked for indexing in Settings, by identity (see `IndexedVolume`).
     public var indexedVolumes: [IndexedVolume] = []
+    /// Plugins by id: turned on or off, and the permissions the user granted.
+    public var plugins: [String: PluginSetting] = [:]
     /// How long the last S3 link made with Copy Link worked (seconds; Copy Link offers it first).
     public var linkLifetimeSeconds = 86_400
     /// Hours between background rescans of indexed network volumes (they also rescan when mounted).
@@ -143,6 +145,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         skippedUpdateVersion = try c.decodeIfPresent(String.self, forKey: .skippedUpdateVersion) ?? d.skippedUpdateVersion
         searchIndex = try c.decodeIfPresent(Bool.self, forKey: .searchIndex) ?? d.searchIndex
         indexedVolumes = try c.decodeIfPresent([IndexedVolume].self, forKey: .indexedVolumes) ?? d.indexedVolumes
+        plugins = try c.decodeIfPresent([String: PluginSetting].self, forKey: .plugins) ?? d.plugins
         linkLifetimeSeconds = try c.decodeIfPresent(Int.self, forKey: .linkLifetimeSeconds) ?? d.linkLifetimeSeconds
         networkIndexRescanHours = try c.decodeIfPresent(Int.self, forKey: .networkIndexRescanHours) ?? d.networkIndexRescanHours
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
@@ -229,5 +232,17 @@ public struct IndexedVolume: Codable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.isNetwork = isNetwork
+    }
+}
+
+/// One plugin's state in Settings > Plugins.
+public struct PluginSetting: Codable, Hashable, Sendable {
+    public var enabled: Bool
+    /// Permission names granted ("network", "shell", "ffi").
+    public var granted: [String]
+
+    public init(enabled: Bool, granted: [String] = []) {
+        self.enabled = enabled
+        self.granted = granted
     }
 }
