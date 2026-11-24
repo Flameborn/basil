@@ -338,6 +338,62 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { !window.exists })
     }
 
+    /// Log: commits and changed files read as sentences, Return on a file opens its diff in that
+    /// commit. Blame of the cursor file reads author first; the uncommitted line says so.
+    func testLogAndBlameWindows() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_GIT"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable).count == 2 })
+        app.typeKey(.tab, modifierFlags: [])
+        rightTable.typeText("tr")
+        XCTAssertTrue(waitFor { self.rightTable.tableRows.element(boundBy: 1).isSelected })
+        let menuBar = app.menuBars.firstMatch
+        func git(_ item: String) {
+            menuBar.menuBarItems["Commands"].click()
+            menuBar.menuItems["Git"].hover()
+            menuBar.menuItems[item].click()
+        }
+        func element(_ container: XCUIElement, _ format: String, _ value: String) -> XCUIElement {
+            container.descendants(matching: .any).matching(NSPredicate(format: format, value)).firstMatch
+        }
+
+        git("Log...")
+        let log = app.windows["Log of Beta"]
+        XCTAssertTrue(log.waitForExistence(timeout: 5), app.debugDescription)
+        let commits = log.tables["log.commits"]
+        XCTAssertTrue(waitFor { element(commits, "label CONTAINS %@", ", first, Basil Test, ").exists }, commits.debugDescription)
+        let files = log.tables["log.files"]
+        let added = element(files, "label == %@", "Added, tracked.txt")
+        XCTAssertTrue(waitFor { added.exists }, files.debugDescription)
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: log) { return true }
+            print("AUDIT log: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        added.click()
+        log.typeKey(.return, modifierFlags: [])
+        let diff = app.windows.matching(NSPredicate(format: "title BEGINSWITH 'tracked.txt in '")).firstMatch
+        XCTAssertTrue(diff.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(waitFor { element(diff, "label == %@", "Added, line 1: one").exists }, diff.debugDescription)
+        diff.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !diff.exists })
+        log.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !log.exists })
+
+        git("Blame...")
+        let blame = app.windows["Blame of tracked.txt"]
+        XCTAssertTrue(blame.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(waitFor { element(blame, "label == %@", "Not committed yet, line 1: two").exists }, blame.debugDescription)
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: blame) { return true }
+            print("AUDIT blame: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        blame.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !blame.exists })
+    }
+
     /// Compare by Content: the cursor file in each pane, a text comparison with one difference,
     /// Binary mode, Show only differences; two identical selected files get a message with OK.
     func testCompareByContent() throws {

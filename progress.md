@@ -2,6 +2,8 @@
 
 ## Current state (2026-11-24)
 
+M6 Git done (2026-11-24): Log... shows the branch's commits ("a1b2c3d, Fix the parser, Flameborn, 2 days ago"), the selected commit's message and changed files, and Return on a file opens its diff in that commit; Log of File... does the same for the cursor file's history; Blame... reads every line author first ("Flameborn, 3 days ago, line 12: let x = 2"), lines not committed yet say so, F8 jumps between them. Next: the user trying Git with VoiceOver; then M8 Search (M7 Plugins waits on the LuaJIT questions).
+
 Git, Branches (2026-11-24): Commands > Git > Branches... lists local then remote branches ("main, current, up to date with origin/main, Fix the parser, 2 days ago"). Return checks out (a remote branch becomes the local branch tracking it), Cmd+N makes a new branch (and switches to it unless unticked), Shift+F6 renames, Delete deletes (an unmerged branch asks a second time), Merge into Current and Fetch; checkout and merge run in the queue. Next: Log and Blame.
 
 Git, second step (2026-11-24): Commands > Git > Commit... opens a Commit window for the repository of the active pane: every change of the repository as one sentence per row ("tracked.txt, Modified, not staged"), Space stages or unstages, the diff of the cursor file as rows like "Added, line 12: ...", a message field, Amend last commit, Push after committing (remembered), Discard Changes (asks, runs in the queue, new files go to the Trash), Cmd+Return commits. Pull, Push and Fetch are queue items (Commands > Git, and a Git submenu in the context menu). When git needs a login it starts Basil itself as its askpass program, which asks through the running app: a password sheet with Remember in Keychain, ssh's yes/no questions as Yes / No; nothing secret is on a command line. No default keys. Next: Branches window, then Log and Blame.
@@ -350,7 +352,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Commit window (stage, unstage, diff, message, amend, discard, push after commit) (2026-11-24)
 - [x] Pull / push / fetch as queue items with the GIT_ASKPASS login sheet (2026-11-24)
 - [x] Branches window (local and remote, checkout, new, rename, delete, merge) (2026-11-24)
-- [ ] Log and Blame windows
+- [x] Log (repository or one file, changed files, diff in a commit) and Blame windows (2026-11-24)
 
 ### M7 - Plugins
 - [ ] LuaJIT bridge, plugin manifest + loader, API for commands/columns/providers

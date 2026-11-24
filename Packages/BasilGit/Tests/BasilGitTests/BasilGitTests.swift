@@ -443,3 +443,49 @@ final class ScriptedLogin: GitLogin, @unchecked Sendable {
         #expect(branches[1].upstreamGone && branches[1].isCurrent)
     }
 }
+
+@Suite struct GitHistoryTests {
+    @Test func logFilesDiffAndBlame() async throws {
+        let repo = try await TestRepository()
+        try repo.write("a.txt", "one\ntwo\n")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "first\n\nwith a body")
+        try repo.write("a.txt", "one\n2\n")
+        try repo.write("b.txt", "b\n")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "second")
+        try await repo.run("mv", "b.txt", "c.txt")
+        try await repo.run("commit", "-q", "-m", "rename b")
+        try repo.write("a.txt", "one\n2\nthree\n")
+
+        let log = try await repo.git.log(root: repo.path)
+        #expect(log.map(\.subject) == ["rename b", "second", "first"])
+        #expect(log[2].message == "first\n\nwith a body")
+        #expect(log[2].parents.isEmpty && log[1].parents.count == 1)
+        #expect(log[0].author == "Basil Test")
+
+        #expect(try await repo.git.files(of: log[0], root: repo.path) == [GitCommitFile(path: "c.txt", change: .renamed(from: "b.txt"))])
+        let second = try await repo.git.files(of: log[1], root: repo.path)
+        #expect(second.map(\.text) == ["Modified", "Added"])
+        #expect(second.map(\.path) == ["a.txt", "b.txt"])
+        #expect(try await repo.git.files(of: log[2], root: repo.path).map(\.path) == ["a.txt"])
+
+        let diff = try await repo.git.diff(of: second[0], in: log[1], root: repo.path)
+        #expect(diff.lines.filter { $0.kind != .same && $0.kind != .hunk }.map(GitDiff.spoken)
+                == ["Removed, line 2: two", "Added, line 2: 2"])
+        let firstDiff = try await repo.git.diff(of: GitCommitFile(path: "a.txt", change: .added), in: log[2], root: repo.path)
+        #expect(firstDiff.lines.filter { $0.kind == .added }.count == 2)
+
+        let fileLog = try await repo.git.log(root: repo.path, path: "c.txt")
+        #expect(fileLog.map(\.subject) == ["rename b", "second"])
+
+        let blame = try await repo.git.blame("a.txt", root: repo.path)
+        #expect(blame.map(\.line) == [1, 2, 3])
+        #expect(blame.map(\.summary) == ["first", "second", ""])
+        #expect(blame[2].isUncommitted && blame[2].author == "Not committed yet")
+        #expect(blame[0].author == "Basil Test" && blame[0].text == "one")
+
+        let empty = try await TestRepository()
+        #expect(try await empty.git.log(root: empty.path).isEmpty)
+    }
+}

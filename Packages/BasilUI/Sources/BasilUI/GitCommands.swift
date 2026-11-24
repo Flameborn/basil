@@ -14,15 +14,22 @@ enum GitCommands {
         weak var w = window
         typealias C = CommandRegistry.Command
         let inRepository: @MainActor (any WorkspaceContext) -> Bool = { _ in w?.activePane.isInGitRepository ?? false }
+        let onFile: @MainActor (any WorkspaceContext) -> Bool = { _ in
+            guard let pane = w?.activePane, pane.isInGitRepository, let item = pane.cursorItem else { return false }
+            return !item.isDirectoryLike
+        }
         let commands = [
             C(id: "git.commit", title: "Commit...", isApplicable: inRepository) { _ in w?.openCommitWindow() },
             C(id: "git.branches", title: "Branches...", isApplicable: inRepository) { _ in w?.openBranchesWindow() },
+            C(id: "git.log", title: "Log...", isApplicable: inRepository) { _ in w?.openLogWindow(forCursorFile: false) },
+            C(id: "git.fileLog", title: "Log of File...", isApplicable: onFile) { _ in w?.openLogWindow(forCursorFile: true) },
+            C(id: "git.blame", title: "Blame...", isApplicable: onFile) { _ in w?.openBlameWindow() },
             C(id: "git.pull", title: "Pull", isApplicable: inRepository) { _ in w?.queueGitRemote(.pull) },
             C(id: "git.push", title: "Push", isApplicable: inRepository) { _ in w?.queueGitRemote(.push) },
             C(id: "git.fetch", title: "Fetch", isApplicable: inRepository) { _ in w?.queueGitRemote(.fetch) },
         ]
         for command in commands { registry.register(command) }
-        registry.menus.addToContextMenu([.separator, .submenu("Git", ["git.commit", "git.branches", "git.pull", "git.push"].map(MenuNode.command))])
+        registry.menus.addToContextMenu([.separator, .submenu("Git", ["git.commit", "git.branches", "git.log", "git.fileLog", "git.blame", "git.pull", "git.push"].map(MenuNode.command))])
     }
 }
 
