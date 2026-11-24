@@ -248,6 +248,55 @@ final class PaneUITests: XCTestCase {
         try audit(app) { _ in false }
     }
 
+    /// Commit window: the changes read as sentences, the diff of the cursor file, Space stages,
+    /// Cmd+Return commits and the pane's Git column follows.
+    func testCommitWindowStagesAndCommits() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_GIT"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable).count == 2 })
+        app.typeKey(.tab, modifierFlags: [])
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Commands"].click()
+        menuBar.menuItems["Git"].hover()
+        menuBar.menuItems["Commit..."].click()
+        let window = app.windows["Commit in Beta"]
+        XCTAssertTrue(window.waitForExistence(timeout: 5), app.debugDescription)
+        let changes = window.tables["commit.changes"]
+        func row(_ label: String) -> XCUIElement {
+            changes.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+        }
+        XCTAssertTrue(waitFor { row("new.txt, Untracked, not staged").exists }, changes.debugDescription)
+        XCTAssertTrue(row("tracked.txt, Modified, not staged").exists, changes.debugDescription)
+        let diff = window.tables["commit.diff"]
+        let added = diff.descendants(matching: .any).matching(NSPredicate(format: "label == 'Added, line 1: new'")).firstMatch
+        XCTAssertTrue(waitFor { added.exists }, diff.debugDescription)
+        let summary = window.staticTexts["commit.summary"]
+        XCTAssertTrue(waitFor { ((summary.value as? String) ?? "").contains("2 changes, 0 staged") }, "\(summary.value ?? "")")
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: window) { return true }
+            print("AUDIT commit: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        // The cursor is on new.txt (first row): Space stages it.
+        window.typeKey(.space, modifierFlags: [])
+        XCTAssertTrue(waitFor { row("new.txt, Added, staged").exists }, changes.debugDescription)
+        let message = window.textViews["commit.message"]
+        message.click()
+        message.typeText("Add new.txt")
+        window.typeKey(.return, modifierFlags: .command)
+        XCTAssertTrue(waitFor { !row("new.txt, Added, staged").exists && row("tracked.txt, Modified, not staged").exists },
+                      changes.debugDescription)
+        XCTAssertTrue(waitFor { ((summary.value as? String) ?? "").contains("1 change, 0 staged") }, "\(summary.value ?? "")")
+        // The pane: new.txt is committed, so its Git cell is gone.
+        let newRow = rightTable.tableRows.matching(NSPredicate(format: "label BEGINSWITH 'new.txt'")).firstMatch
+        XCTAssertTrue(waitFor { !self.cellLabels(newRow).contains("Untracked") && !self.cellLabels(newRow).contains("Added") },
+                      rightTable.debugDescription)
+        window.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !window.exists })
+    }
+
     /// Compare by Content: the cursor file in each pane, a text comparison with one difference,
     /// Binary mode, Show only differences; two identical selected files get a message with OK.
     func testCompareByContent() throws {

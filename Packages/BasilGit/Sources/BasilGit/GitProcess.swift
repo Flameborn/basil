@@ -22,7 +22,9 @@ struct GitProcess: Sendable {
             let lines = stderr.split(whereSeparator: \.isNewline).map { String($0) }
             let fatal = lines.filter { $0.hasPrefix("fatal: ") || $0.hasPrefix("error: ") }
                 .map { String($0.drop { $0 != " " }.dropFirst()) }
-            let text = (fatal.isEmpty ? lines : fatal).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            var text = (fatal.isEmpty ? lines : fatal).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            // Some refusals ("nothing to commit") come on stdout.
+            if text.isEmpty { text = self.text.trimmingCharacters(in: .whitespacesAndNewlines) }
             return text.isEmpty ? "git ended with status \(status)" : text
         }
     }
@@ -38,14 +40,19 @@ struct GitProcess: Sendable {
         env["PAGER"] = "cat"
         env["LC_ALL"] = "C.UTF-8"
         env["TERM"] = "dumb"
+        // Never an editor: messages come from Basil (commit -F -), merges keep git's message.
+        env["GIT_EDITOR"] = "true"
+        env["GIT_SEQUENCE_EDITOR"] = "true"
+        env["GIT_MERGE_AUTOEDIT"] = "no"
         for (key, value) in extra { env[key] = value }
         return env
     }
 
     /// Runs git to the end. `input` is written to its standard input (a commit message), which
     /// is closed afterwards.
+    /// `started` gets git's process ID (to stop it when the caller is cancelled).
     func run(_ arguments: [String], in directory: URL?, input: Data? = nil,
-             environment extra: [String: String] = [:]) throws -> Output {
+             environment extra: [String: String] = [:], started: (pid_t) -> Void = { _ in }) throws -> Output {
         var inPipe: [Int32] = [0, 0], outPipe: [Int32] = [0, 0], errPipe: [Int32] = [0, 0]
         guard pipe(&inPipe) == 0 else { throw POSIXError(.EMFILE) }
         guard pipe(&outPipe) == 0 else { close(inPipe[0]); close(inPipe[1]); throw POSIXError(.EMFILE) }
@@ -79,6 +86,7 @@ struct GitProcess: Sendable {
             throw POSIXError(POSIXErrorCode(rawValue: result) ?? .ENOENT)
         }
         _ = fcntl(inPipe[1], F_SETNOSIGPIPE, 1)
+        started(pid)
         // stdin, stdout and stderr each on a thread of its own, so a full pipe never blocks git
         // (or Basil). Threads, not GCD work items: see SevenZipTool.thread.
         let writer = Drain()

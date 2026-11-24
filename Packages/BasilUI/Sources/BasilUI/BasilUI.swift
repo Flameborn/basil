@@ -5,6 +5,7 @@
 
 import AppKit
 import BasilCore
+import BasilGit
 import BasilIntegrations
 import BasilOperations
 import BasilVFS
@@ -43,6 +44,10 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     var offeringEditedCopies = false
     /// Host key and password questions of remote connections (`RemoteConnections.swift`).
     private(set) var remotePrompts: RemotePromptsUI!
+    /// The system git, when found (Git column, Commands > Git). nil: no Git commands.
+    public let git: GitService?
+    /// Where server passwords (and Git logins) are remembered.
+    let remoteSecrets: any SecretStore
     /// Updates from GitHub releases (`Updates.swift`).
     lazy var updates = UpdateCoordinator(window: self)
 
@@ -66,8 +71,11 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 dataDirectory: URL = MainWindowController.defaultDataDirectory,
                 secrets: any SecretStore = Keychain.archivePasswords,
                 remoteSecrets: any SecretStore = Keychain.remoteSecrets,
-                copiesDirectory: URL = MainWindowController.defaultCopiesDirectory) {
+                copiesDirectory: URL = MainWindowController.defaultCopiesDirectory,
+                git: GitService? = nil) {
         self.dataDirectory = dataDirectory
+        self.git = git
+        self.remoteSecrets = remoteSecrets
         self.copies = TemporaryCopies(root: copiesDirectory, registry: providers)
         self.progressWindow = ProgressWindowController(queue: queue)
         self.commands = commands
@@ -96,6 +104,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
 
         BuiltinCommands.register(in: commands, window: self)
         ContextMenuCommands.register(in: commands, window: self)
+        if git != nil { GitCommands.register(in: commands, window: self) }
         // The user's keys (Settings, Keys), saved whenever they change.
         commands.keyOverrides = settings.settings.keyBindings
         SettingsWindowController.commands = commands

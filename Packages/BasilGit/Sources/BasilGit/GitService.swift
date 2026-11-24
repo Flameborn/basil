@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// Errors from git, already in words.
 public struct GitError: LocalizedError, Sendable, Equatable {
@@ -13,10 +14,15 @@ public struct GitError: LocalizedError, Sendable, Equatable {
 /// mounted share).
 public final class GitService: Sendable {
     let tool: GitProcess
+    /// The program git and ssh run to ask for a login (GIT_ASKPASS, SSH_ASKPASS): Basil's own
+    /// executable, which hands the question to the running app (`GitAskPass`). nil: no login
+    /// can be asked for.
+    public let askPassExecutable: String?
     private let queue = DispatchQueue(label: "basil.git", qos: .userInitiated, attributes: .concurrent)
 
-    public init(executable: URL) {
+    public init(executable: URL, askPassExecutable: String? = nil) {
         tool = GitProcess(executable: executable)
+        self.askPassExecutable = askPassExecutable
     }
 
     /// The git to use: Homebrew's, then /usr/local, then Apple's (/usr/bin/git, which needs the
@@ -37,13 +43,28 @@ public final class GitService: Sendable {
     func output(_ arguments: [String], in directory: String, input: Data? = nil,
                 environment: [String: String] = [:]) async throws -> GitProcess.Output {
         let tool = tool
-        return try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                continuation.resume(with: Result {
-                    try tool.run(arguments, in: URL(fileURLWithPath: directory, isDirectory: true), input: input,
-                                 environment: environment)
-                })
+        // A cancelled caller (a queue item) stops git: SIGTERM to the process it started.
+        let process = Mutex<(pid: pid_t?, cancelled: Bool)>((nil, false))
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    continuation.resume(with: Result {
+                        try tool.run(arguments, in: URL(fileURLWithPath: directory, isDirectory: true), input: input,
+                                     environment: environment) { pid in
+                            let cancelled = process.withLock { state in
+                                state.pid = pid
+                                return state.cancelled
+                            }
+                            if cancelled { kill(pid, SIGTERM) }
+                        }
+                    })
+                }
             }
+        } onCancel: {
+            if let pid = process.withLock({ state -> pid_t? in
+                state.cancelled = true
+                return state.pid
+            }) { kill(pid, SIGTERM) }
         }
     }
 
@@ -56,9 +77,13 @@ public final class GitService: Sendable {
     }
 
     /// The status of the working tree below `folder` (a path inside `root`; the whole tree
-    /// when nil). Untracked and ignored folders come as one entry each.
-    public func status(root: String, below folder: String? = nil) async throws -> GitStatus {
-        var arguments = ["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=normal", "--ignored=matching"]
+    /// when nil). Untracked and ignored folders come as one entry each, unless `untrackedFiles`
+    /// lists every untracked file (the Commit window).
+    public func status(root: String, below folder: String? = nil, ignored: Bool = true,
+                       untrackedFiles: Bool = false) async throws -> GitStatus {
+        var arguments = ["status", "--porcelain=v2", "-z", "--branch",
+                         untrackedFiles ? "--untracked-files=all" : "--untracked-files=normal"]
+        if ignored { arguments.append("--ignored=matching") }
         if let folder, let relative = Self.relative(folder, to: root), !relative.isEmpty {
             arguments += ["--", ":(literal)" + relative]
         }

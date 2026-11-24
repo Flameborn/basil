@@ -35,6 +35,8 @@ enum BuiltinMenus {
                 // its key is pressed, which repeats what the cursor move already says.
                 + c("pane.parent")),
             .submenu("Locations", c("pane.locations", "pane.locationsLeft", "pane.locationsRight")),
+            .submenu("Git", c("git.commit", "git.branches", "git.log", "git.blame") + [.separator]
+                + c("git.pull", "git.push", "git.fetch")),
             .separator,
         ] + c("pane.switch", "pane.focusPath", "pane.quickFilter", "pane.reload", "tools.terminal", "queue.show")
             + [.separator] + c("file.copyLink", "file.copyPath", "file.copyName", "pane.contextMenu"))

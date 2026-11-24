@@ -1,10 +1,11 @@
 import Foundation
 import Testing
 @testable import BasilGit
+import BasilOperations
 import BasilVFS
 
 /// A throwaway repository in the temporary folder, with its own identity and no global config.
-final class TestRepository {
+final class TestRepository: Sendable {
     let root: URL
     let git: GitService
 
@@ -148,5 +149,225 @@ final class TestRepository {
         #expect(sub.text(for: "new.txt") == "Untracked")
         #expect(await annotator.annotations(for: .local(repo.path + "/.git"), registry: registry) == nil)
         #expect(await annotator.annotations(for: .local(FileManager.default.temporaryDirectory.path), registry: registry) == nil)
+    }
+}
+
+@Suite struct GitChangesTests {
+    func committedRepo() async throws -> TestRepository {
+        let repo = try await TestRepository()
+        try repo.write("a.txt", "one\ntwo\nthree\n")
+        try repo.write("gone.txt", "bye\n")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "first")
+        return repo
+    }
+
+    func entry(_ status: GitStatus, _ path: String) throws -> GitStatus.Entry {
+        try #require(status.entries.first { $0.path == path }, "\(status.entries)")
+    }
+
+    @Test func stageUnstageCommitAndAmend() async throws {
+        let repo = try await committedRepo()
+        try repo.write("a.txt", "one\n2\nthree\n")
+        try FileManager.default.removeItem(at: repo.root.appendingPathComponent("gone.txt"))
+        try repo.write("new dir/new file.txt", "n\n")
+        var status = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        #expect(status.entries.map(\.path).sorted() == ["a.txt", "gone.txt", "new dir/new file.txt"])
+        #expect(try entry(status, "a.txt").staging == .notStaged)
+
+        try await repo.git.stage(["a.txt", "gone.txt", "new dir/new file.txt"], root: repo.path)
+        status = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        #expect(status.entries.allSatisfy { $0.staging == .staged })
+        #expect(GitStatus.text(for: try entry(status, "gone.txt").change) == "Deleted")
+
+        try await repo.git.unstage(["new dir/new file.txt"], root: repo.path, hasCommit: true)
+        status = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        #expect(try entry(status, "new dir/new file.txt").change == .untracked)
+
+        try await repo.git.commit(message: "second\n\nbody line", amend: false, root: repo.path)
+        #expect(await repo.git.lastCommitMessage(root: repo.path) == "second\n\nbody line")
+        try await repo.git.commit(message: "second, better", amend: true, root: repo.path)
+        #expect(await repo.git.lastCommitMessage(root: repo.path) == "second, better")
+        #expect(try await repo.run("rev-list", "--count", "HEAD").trimmingCharacters(in: .whitespacesAndNewlines) == "2")
+
+        await #expect(throws: GitError.self) { try await repo.git.commit(message: "empty", amend: false, root: repo.path) }
+    }
+
+    @Test func unstageBeforeTheFirstCommit() async throws {
+        let repo = try await TestRepository()
+        try repo.write("x.txt", "x")
+        try await repo.git.stage(["x.txt"], root: repo.path)
+        try await repo.git.unstage(["x.txt"], root: repo.path, hasCommit: false)
+        let status = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        #expect(status.entries.map(\.change) == [.untracked])
+        #expect(FileManager.default.fileExists(atPath: repo.root.appendingPathComponent("x.txt").path))
+    }
+
+    @Test func diffAgainstTheLastCommit() async throws {
+        let repo = try await committedRepo()
+        try repo.write("a.txt", "one\n2\nthree\nfour")
+        try repo.write("fresh.txt", "hello\n")
+        let status = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        let diff = try await repo.git.diff(of: try entry(status, "a.txt"), root: repo.path, hasCommit: true)
+        #expect(diff.lines.map(\.kind) == [.hunk, .same, .removed, .added, .same, .added, .note])
+        #expect(GitDiff.spoken(diff.lines[2]) == "Removed, line 2: two")
+        #expect(GitDiff.spoken(diff.lines[3]) == "Added, line 2: 2")
+        #expect(GitDiff.spoken(diff.lines[5]) == "Added, line 4: four")
+        #expect(diff.lines[6].text == "No newline at end of file")
+
+        let fresh = try await repo.git.diff(of: try entry(status, "fresh.txt"), root: repo.path, hasCommit: true)
+        #expect(fresh.lines.map(\.kind) == [.hunk, .added])
+        #expect(fresh.lines[1].text == "hello")
+    }
+
+    @Test func binaryDiffHasANote() {
+        let diff = GitDiff.parse("diff --git a/x.bin b/x.bin\nindex 1..2 100644\nBinary files a/x.bin and b/x.bin differ\n")
+        #expect(diff.isBinary && diff.lines.isEmpty && diff.note == "Binary file, no line differences")
+    }
+}
+
+@MainActor
+@Suite struct DiscardChangesTests {
+    @Test func restoresTrackedFilesAndTrashesNewOnes() async throws {
+        let repo = try await TestRepository()
+        try repo.write("a.txt", "committed\n")
+        try repo.write("old name.txt", "o\n")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "first")
+        try repo.write("a.txt", "changed\n")
+        try await repo.run("mv", "old name.txt", "new name.txt")
+        try repo.write("added.txt", "staged new\n")
+        try await repo.run("add", "added.txt")
+        try repo.write("loose.txt", "untracked\n")
+        let status = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        #expect(status.entries.count == 4)
+
+        let trashed = Recorded()
+        let op = DiscardChangesOperation(entries: status.entries, root: repo.path, hasCommit: true, git: repo.git) { path in
+            trashed.add(path.path)
+            try FileManager.default.removeItem(atPath: path.path)
+        }
+        let queue = FileOperationQueue()
+        let item = queue.add(op)
+        while !item.state.isDone { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(item.state == .finished, "\(item.log)")
+        #expect(try String(contentsOf: repo.root.appendingPathComponent("a.txt"), encoding: .utf8) == "committed\n")
+        #expect(FileManager.default.fileExists(atPath: repo.root.appendingPathComponent("old name.txt").path))
+        #expect(trashed.all.map { ($0 as NSString).lastPathComponent }.sorted() == ["added.txt", "loose.txt", "new name.txt"])
+        let after = try await repo.git.status(root: repo.path, ignored: false, untrackedFiles: true)
+        #expect(after.entries.isEmpty, "\(after.entries)")
+    }
+}
+
+final class Recorded: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func add(_ s: String) { lock.withLock { items.append(s) } }
+    var all: [String] { lock.withLock { items } }
+}
+
+/// Plays the user at the login sheet.
+final class ScriptedLogin: GitLogin, @unchecked Sendable {
+    private let lock = NSLock()
+    private var asked: [(GitPrompt, Int)] = []
+    private var results: [Bool] = []
+    let answers: (GitPrompt, Int) -> String?
+    init(_ answers: @escaping (GitPrompt, Int) -> String?) { self.answers = answers }
+    func answer(_ prompt: GitPrompt, attempt: Int) async -> String? {
+        lock.withLock { asked.append((prompt, attempt)) }
+        return answers(prompt, attempt)
+    }
+    func finished(succeeded: Bool) async { lock.withLock { results.append(succeeded) } }
+    var prompts: [GitPrompt] { lock.withLock { asked.map(\.0) } }
+    var outcomes: [Bool] { lock.withLock { results } }
+}
+
+@Suite struct GitAskPassTests {
+    /// A stand-in for Basil's own executable in askpass mode: the same protocol, in sh.
+    func askPassScript() throws -> String {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-askpass-test-\(UUID().uuidString).sh")
+        let script = """
+        #!/bin/sh
+        reply=$( { printf '%s\\n' "$BASIL_GIT_ASKPASS_TOKEN"; printf '%s' "$1" | base64; } | nc -U "$BASIL_GIT_ASKPASS_SOCKET" )
+        case "$reply" in OK\\ *) printf '%s\\n' "${reply#OK }" | base64 -D; echo ;; *) exit 1 ;; esac
+        """
+        try Data(script.utf8).write(to: url)
+        chmod(url.path, 0o755)
+        return url.path
+    }
+
+    @Test func credentialPromptsGoThroughTheLogin() async throws {
+        let repo = try await TestRepository()
+        let script = try askPassScript()
+        defer { try? FileManager.default.removeItem(atPath: script) }
+        let git = GitService(executable: try #require(GitService.findExecutable()), askPassExecutable: script)
+        let login = ScriptedLogin { prompt, _ in prompt.kind == .text ? "alice" : "s3cret pw" }
+        // No credential helper: git asks for both through GIT_ASKPASS.
+        let output = try await git.outputWithLogin(["-c", "credential.helper=", "credential", "fill"], in: repo.path,
+                                                   login: login, input: Data("protocol=https\nhost=example.invalid\n\n".utf8))
+        #expect(output.succeeded, "\(output.stderr)")
+        #expect(output.text.contains("username=alice"))
+        #expect(output.text.contains("password=s3cret pw"))
+        #expect(login.prompts.map(\.kind) == [.text, .secret])
+        #expect(login.prompts.first?.text.contains("example.invalid") == true)
+        #expect(login.outcomes == [true])
+    }
+
+    @Test func cancelledLoginFails() async throws {
+        let repo = try await TestRepository()
+        let script = try askPassScript()
+        defer { try? FileManager.default.removeItem(atPath: script) }
+        let git = GitService(executable: try #require(GitService.findExecutable()), askPassExecutable: script)
+        let login = ScriptedLogin { _, _ in nil }
+        let output = try await git.outputWithLogin(["-c", "credential.helper=", "credential", "fill"], in: repo.path,
+                                                   login: login, input: Data("protocol=https\nhost=example.invalid\n\n".utf8))
+        #expect(!output.succeeded)
+        #expect(login.outcomes == [false])
+    }
+
+    @Test func promptKinds() {
+        #expect(GitPrompt(text: "Username for 'https://github.com': ").kind == .text)
+        #expect(GitPrompt(text: "Password for 'https://a@github.com': ").kind == .secret)
+        #expect(GitPrompt(text: "Enter passphrase for key '/Users/a/.ssh/id_ed25519': ").kind == .secret)
+        #expect(GitPrompt(text: "Are you sure you want to continue connecting (yes/no/[fingerprint])? ").kind == .yesNo)
+    }
+}
+
+@MainActor
+@Suite struct GitRemoteOperationTests {
+    @Test func pushAndPullThroughALocalRemote() async throws {
+        let origin = FileManager.default.temporaryDirectory.appendingPathComponent("basil-git-origin-\(UUID().uuidString).git")
+        defer { try? FileManager.default.removeItem(at: origin) }
+        let repo = try await TestRepository()
+        try await repo.run("init", "-q", "--bare", "-b", "main", origin.path)
+        try repo.write("a.txt", "a")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "first")
+        try await repo.run("remote", "add", "origin", origin.path)
+        try await repo.run("push", "-q", "-u", "origin", "main")
+        try repo.write("a.txt", "b")
+        try await repo.git.stage(["a.txt"], root: repo.path)
+        try await repo.git.commit(message: "second", amend: false, root: repo.path)
+
+        let queue = FileOperationQueue()
+        func run(_ action: GitRemoteOperation.Action) async throws -> QueueItem {
+            let item = queue.add(GitRemoteOperation(action, root: repo.path, git: repo.git, login: nil))
+            while !item.state.isDone { try await Task.sleep(for: .milliseconds(20)) }
+            return item
+        }
+        let push = try await run(.push)
+        #expect(push.state == .finished, "\(push.log)")
+        #expect(push.kind == .gitPush)
+        let remoteLog = String(decoding: try await repo.git.run(["--git-dir", origin.path, "log", "--format=%s"], in: repo.path),
+                               as: UTF8.self)
+        #expect(remoteLog.hasPrefix("second"))
+        let fetch = try await run(.fetch)
+        #expect(fetch.state == .finished, "\(fetch.log)")
+        let pull = try await run(.pull)
+        #expect(pull.state == .finished, "\(pull.log)")
+
+        try await repo.run("remote", "set-url", "origin", origin.path + "-missing")
+        let failed = try await run(.push)
+        if case .failed = failed.state {} else { Issue.record("not failed: \(failed.state)") }
     }
 }

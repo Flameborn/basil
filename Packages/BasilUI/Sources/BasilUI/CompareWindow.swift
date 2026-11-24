@@ -493,7 +493,8 @@ final class CompareRowCell: NSTableCellView {
     private var labels: [NSTextField] = []
     private var spoken = ""
 
-    init(identifier: NSUserInterfaceItemIdentifier, widths: [CGFloat?]) {
+    /// `flexibleFont`: the font of the parts without a fixed width (the list font by default).
+    init(identifier: NSUserInterfaceItemIdentifier, widths: [CGFloat?], flexibleFont: NSFont? = nil) {
         super.init(frame: .zero)
         self.identifier = identifier
         let stack = NSStackView()
@@ -509,7 +510,7 @@ final class CompareRowCell: NSTableCellView {
         var flexible: [NSTextField] = []
         for width in widths {
             let label = NSTextField(labelWithString: "")
-            label.font = width == nil ? Theme.listFont : NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            label.font = width == nil ? (flexibleFont ?? Theme.listFont) : NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
             label.textColor = Theme.text
             label.lineBreakMode = .byTruncatingTail
             // A label's accessibility element is its cell: hide both, the row reads as one sentence.
@@ -519,6 +520,8 @@ final class CompareRowCell: NSTableCellView {
             if let width {
                 label.widthAnchor.constraint(equalToConstant: width).isActive = true
             } else {
+                // Takes the room the fixed parts leave, so the parts after it line up in columns.
+                label.setContentHuggingPriority(.init(1), for: .horizontal)
                 flexible.append(label)
             }
             stack.addArrangedSubview(label)

@@ -36,8 +36,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         providers.register(opener: fileLists)
         providers.register(writer: fileLists)
         // The Git column: status of items in local working trees, through the system git.
-        if let git = GitService.findExecutable() {
-            providers.register(annotator: GitAnnotator(git: GitService(executable: git)))
+        // Logins for pull and push are asked by this executable started as git's askpass program.
+        let git = GitService.findExecutable().map { GitService(executable: $0, askPassExecutable: Bundle.main.executablePath) }
+        if let git {
+            providers.register(annotator: GitAnnotator(git: git))
+            GitOperationKinds.register()
         }
         // Remote services: SFTP (libssh2 with OpenSSL, from Vendor/libssh2); FTP below.
         providers.register(connector: SFTPConnector())
@@ -145,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               queue: queue, defaults: defaults, startDirectories: start,
                                               dataDirectory: dataDirectory, secrets: secrets,
                                               remoteSecrets: remoteSecrets,
-                                              copiesDirectory: copiesDirectory)
+                                              copiesDirectory: copiesDirectory, git: git)
         // App menu and Edit menu, then the command menus, then Window and Help.
         if let mainMenu = NSApp.mainMenu { controller.installCommandMenus(in: mainMenu, at: 2) }
         #if DEBUG

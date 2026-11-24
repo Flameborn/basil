@@ -45,6 +45,8 @@ final class PaneViewController: NSViewController {
     private var columnContext: ColumnDefinition.Context
     /// What the column annotators (Git status) said about the shown folder, by column.
     private var annotations: [ColumnID: ColumnAnnotation] = [:]
+    /// What the Git annotator said about the shown folder; nil outside a working tree.
+    var gitAnnotation: ColumnAnnotation? { annotations[.git] }
     private var annotationTask: Task<Void, Never>?
     private var annotationGeneration = 0
     private var isApplyingColumns = false
