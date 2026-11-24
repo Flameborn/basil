@@ -34,6 +34,7 @@ final class FindFilesWindowController: NSWindowController, NSWindowDelegate, NST
     private let folderField = NSTextField()
     private let subfolders = NSButton(checkboxWithTitle: "Search subfolders", target: nil, action: nil)
     private let hidden = NSButton(checkboxWithTitle: "Include hidden items", target: nil, action: nil)
+    private let archives = NSButton(checkboxWithTitle: "Search inside archives", target: nil, action: nil)
     private let kindPopup = NSPopUpButton()
     private let textField = NSComboBox()
     private let textCase = NSButton(checkboxWithTitle: "Case sensitive", target: nil, action: nil)
@@ -138,6 +139,7 @@ final class FindFilesWindowController: NSWindowController, NSWindowDelegate, NST
         enginePopup.addItems(withTitles: engines.all.map(\.title))
         enginePopup.setAccessibilityIdentifier("find.engine")
         subfolders.setAccessibilityIdentifier("find.subfolders")
+        archives.setAccessibilityIdentifier("find.archives")
 
         func row(_ views: NSView...) -> NSStackView {
             let stack = NSStackView(views: views)
@@ -149,7 +151,7 @@ final class FindFilesWindowController: NSWindowController, NSWindowDelegate, NST
             [label("Search for:"), nameField],
             [NSGridCell.emptyContentView, row(nameRegex, kindPopup)],
             [label("Search in:"), folderField],
-            [NSGridCell.emptyContentView, row(subfolders, hidden)],
+            [NSGridCell.emptyContentView, row(subfolders, hidden, archives)],
             [label("Find text:"), textField],
             [NSGridCell.emptyContentView, row(textCase, textRegex, textWords, textNot)],
             [label("Encoding:"), encodingPopup],
@@ -255,6 +257,7 @@ final class FindFilesWindowController: NSWindowController, NSWindowDelegate, NST
         nameRegex.state = saved.nameIsRegex ? .on : .off
         subfolders.state = saved.subfolders ? .on : .off
         hidden.state = saved.includeHidden ? .on : .off
+        archives.state = saved.searchArchives ? .on : .off
         kindPopup.selectItem(at: SearchQuery.Kinds.allCases.firstIndex(of: saved.kinds) ?? 0)
         let text = saved.text ?? TextQuery(text: "")
         textField.stringValue = text.text
@@ -291,6 +294,7 @@ final class FindFilesWindowController: NSWindowController, NSWindowDelegate, NST
                                 subfolders: subfolders.state == .on,
                                 kinds: SearchQuery.Kinds.allCases[safe: kindPopup.indexOfSelectedItem] ?? .filesAndFolders,
                                 includeHidden: hidden.state == .on)
+        query.searchArchives = archives.state == .on
         do {
             query.minimumSize = try size(largerField, "Larger than").get()
             query.maximumSize = try size(smallerField, "Smaller than").get()
@@ -500,9 +504,8 @@ final class FindFilesWindowController: NSWindowController, NSWindowDelegate, NST
 
     /// Lists the results in the active pane (TC's "Feed to listbox").
     @objc private func showInPane() {
-        guard !isSearching, !results.isEmpty, let controller, let origin = searchedFolder,
-              let source = try? controller.providers.provider(for: origin.location) else { return }
-        let listing = SearchResultsProvider(items: results, origin: origin, title: "Search results", source: source)
+        guard !isSearching, !results.isEmpty, let controller, let origin = searchedFolder else { return }
+        let listing = SearchResultsProvider(items: results, origin: origin, title: "Search results", registry: controller.providers)
         controller.providers.register(listing: listing)
         let pane = controller.activePane
         let cursor = selectedResult?.path
@@ -541,4 +544,9 @@ extension MainWindowController {
         }
         findWindow?.show(folder: folder)
     }
+}
+
+extension FindFilesWindowController {
+    /// The archives the shown results are in (kept open while the window lists them).
+    var locationsInUse: Set<ProviderLocation> { Set(results.map(\.path.location)) }
 }

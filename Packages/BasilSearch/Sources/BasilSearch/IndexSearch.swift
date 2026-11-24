@@ -26,6 +26,7 @@ public struct IndexSearchEngine: SearchEngine {
             return "Basil's index covers only the startup disk"
         }
         if query.searchesText { return "Basil's index has names only. Choose Automatic or Live folder walk to search text" }
+        if query.searchArchives { return "Basil's index does not look inside archives. Choose Automatic or Live folder walk" }
         switch index.state {
         case .ready: return nil
         case .scanning(let count): return "Basil's index is still being built (\(count.formatted()) items so far)"

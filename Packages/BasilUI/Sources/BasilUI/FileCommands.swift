@@ -106,7 +106,7 @@ extension MainWindowController {
         let pane = activePane
         let directory = pane.model.directory
         let listing = Listings.info(directory.location)
-        if let listing, listing.origin.location.container != nil {
+        if let listing, listing.origin.location.container != nil || items.contains(where: { $0.path.location.container != nil }) {
             return pane.report("Items found inside an archive can only be copied out of it.")
         }
         guard ensureWritable(listing?.origin ?? directory, archives: false) else { return }
@@ -359,7 +359,8 @@ extension MainWindowController {
                 activePane.report("Search results only list items found elsewhere. Choose a folder instead.")
                 return false
             }
-            guard listing.origin.location.container == nil else {
+            guard listing.origin.location.container == nil,
+                  !targetItems.contains(where: { $0.path.location.container != nil }) else {
                 activePane.report("Items found inside an archive can only be copied out of it.")
                 return false
             }

@@ -16,6 +16,7 @@ public struct SpotlightSearchEngine: SearchEngine {
 
     public func refusal(for query: SearchQuery, in folder: VFSPath, registry: ProviderRegistry) -> String? {
         guard folder.location == .local else { return "Spotlight searches only folders on this Mac's disks" }
+        if query.searchArchives { return "Spotlight does not look inside archives" }
         if let text = query.text, query.searchesText {
             if text.regex { return "Spotlight cannot search text with a regular expression" }
             if text.notContaining { return "Spotlight cannot find files that do not contain a text" }

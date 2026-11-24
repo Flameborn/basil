@@ -138,3 +138,38 @@ extension PaneUITests {
         XCTAssertTrue(app.windows.element(boundBy: 0).title.hasPrefix("Search results"))
     }
 }
+
+extension PaneUITests {
+    /// "Search inside archives": names and text inside Alpha/Inner/pack.zip (docs/readme.txt, top.txt).
+    func testFindFilesSearchesInsideArchives() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let window = openFindFiles()
+        window.comboBoxes["find.name"].typeText("*.txt")
+        window.checkBoxes["find.archives"].click()
+        window.comboBoxes["find.name"].click()
+        window.comboBoxes["find.name"].typeText("\r")
+        XCTAssertTrue(waitFor { self.findStatus(window).hasPrefix("Found 3 items") }, findStatus(window))
+        XCTAssertTrue(findStatus(window).hasSuffix("with Live folder walk"), findStatus(window))
+        let labels = window.tables["find.results"].staticTexts.allElementsBoundByIndex.map(\.label)
+        XCTAssertTrue(labels.contains { $0.hasPrefix("readme.txt, ") && $0.contains("in Alpha/Inner/pack.zip/docs") }, "\(labels)")
+
+        // Text inside an archived file.
+        let text = window.comboBoxes["find.text"]
+        text.click()
+        text.typeText("readme\r")
+        XCTAssertTrue(waitFor { self.findStatus(window).hasPrefix("Found 1 item") }, findStatus(window))
+
+        window.buttons["Show in Pane"].click()
+        XCTAssertTrue(waitFor { !window.exists })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["readme.txt"] }, "\(names(in: leftTable))")
+        XCTAssertEqual(leftTable.tableRows.firstMatch.cells.firstMatch.label, "readme.txt, in Alpha/Inner/pack.zip/docs")
+        // Changing items inside archives from the results is refused with a reason.
+        leftTable.typeKey(.F8, modifierFlags: [])
+        XCTAssertTrue(waitFor { (self.app.staticTexts["pane.left.status"].value as? String ?? "").contains("can only be copied out") })
+        // Search inside archives is remembered; turn it off again for later tests.
+        let again = openFindFiles()
+        XCTAssertEqual(again.checkBoxes["find.archives"].value as? Int, 1)
+        again.checkBoxes["find.archives"].click()
+        again.typeKey(.escape, modifierFlags: [])
+    }
+}

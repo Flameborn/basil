@@ -16,6 +16,8 @@ public protocol ListingProvider: FileSystemProvider {
     /// Items Basil renamed or moved: the listing shows them at their new paths from now on
     /// (an item, or anything below a folder, at a `from` path).
     func itemsMoved(_ pairs: [(from: VFSPath, to: VFSPath)])
+    /// Locations the items live in (archives they were found in stay open while they are listed).
+    var locationsInUse: Set<ProviderLocation> { get }
 }
 
 /// The origin and title of every registered listing, by location, for code that names a folder

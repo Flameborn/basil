@@ -136,7 +136,7 @@ private func contains(_ bytes: [UInt8], _ query: TextQuery) async throws -> Bool
         for try await event in LiveSearchEngine().search(SearchQuery(name: "*.mp3"), in: .local(root.path), registry: registry) {
             if case .found(let items) = event { found += items }
         }
-        let results = SearchResultsProvider(items: found, origin: .local(root.path), title: "Search results", source: local)
+        let results = SearchResultsProvider(items: found, origin: .local(root.path), title: "Search results", registry: registry)
         registry.register(listing: results)
         #expect(Listings.info(results.location)?.title == "Search results")
         try FileManager.default.removeItem(at: root.appendingPathComponent("Music/song.mp3"))

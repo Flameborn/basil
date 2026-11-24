@@ -14,11 +14,11 @@ public final class SearchResultsProvider: ListingProvider {
     public let location: ProviderLocation
     public let origin: VFSPath
     public let title: String
-    private let source: any FileSystemProvider
+    /// The provider of a location (the folder searched, archives found in it).
+    private let resolve: @Sendable (ProviderLocation) -> (any FileSystemProvider)?
     private let items: Mutex<[FileItem]>
 
-    /// - Parameter source: the provider the items come from (the search's start folder's).
-    public init(items: [FileItem], origin: VFSPath, title: String, source: any FileSystemProvider) {
+    public init(items: [FileItem], origin: VFSPath, title: String, registry: ProviderRegistry) {
         let number = Self.counter.withLock { value in
             value += 1
             return value
@@ -26,20 +26,31 @@ public final class SearchResultsProvider: ListingProvider {
         location = ProviderLocation(provider: Self.providerID, instance: String(number))
         self.origin = origin
         self.title = title
-        self.source = source
+        // Weak: the registry holds this provider.
+        self.resolve = { [weak registry] location in try? registry?.provider(for: location) }
         self.items = Mutex(items)
     }
 
     public var root: VFSPath { VFSPath(location: location, path: "/") }
 
-    public var capabilities: ProviderCapabilities { source.capabilities }
+    public var capabilities: ProviderCapabilities { resolve(origin.location)?.capabilities ?? [] }
+
+    /// The places the items are in: the folder searched and every archive they were found in.
+    public var locationsInUse: Set<ProviderLocation> {
+        items.withLock { Set($0.map(\.path.location)) }.union([origin.location])
+    }
 
     public var count: Int { items.withLock { $0.count } }
 
     public func list(_ directory: VFSPath) -> AsyncThrowingStream<[FileItem], Error> {
-        guard directory.location == location else { return source.list(directory) }
+        guard directory.location == location else {
+            guard let provider = resolve(directory.location) else {
+                return AsyncThrowingStream { $0.finish(throwing: VFSError.noProvider(directory.location)) }
+            }
+            return provider.list(directory)
+        }
         let current = items.withLock { $0 }
-        let source = source
+        let resolve = resolve
         return AsyncThrowingStream { continuation in
             let task = Task {
                 guard directory.isRoot else {
@@ -51,6 +62,7 @@ public final class SearchResultsProvider: ListingProvider {
                     if Task.isCancelled { return continuation.finish(throwing: CancellationError()) }
                     let fresh: FileItem?
                     do {
+                        guard let source = resolve(item.path.location) else { throw VFSError.noProvider(item.path.location) }
                         fresh = try await source.item(at: item.path)
                     } catch VFSError.notFound {
                         fresh = nil
@@ -94,7 +106,10 @@ public final class SearchResultsProvider: ListingProvider {
     }
 
     public func item(at path: VFSPath) async throws -> FileItem {
-        guard path.location == location else { return try await source.item(at: path) }
+        guard path.location == location else {
+            guard let provider = resolve(path.location) else { throw VFSError.noProvider(path.location) }
+            return try await provider.item(at: path)
+        }
         guard path.isRoot else { throw VFSError.notFound(path) }
         return FileItem(path: path, kind: .directory)
     }

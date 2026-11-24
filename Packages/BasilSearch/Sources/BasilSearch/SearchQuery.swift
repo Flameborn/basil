@@ -34,11 +34,15 @@ public struct SearchQuery: Codable, Sendable, Equatable {
     public var modifiedBefore: Date?
     /// Text inside files. A search with text finds files only.
     public var text: TextQuery?
+    /// Archives (and file lists) are searched like folders (TC's "Search archives").
+    public var searchArchives: Bool
 
     public init(name: String = "", nameIsRegex: Bool = false, subfolders: Bool = true,
                 kinds: Kinds = .filesAndFolders, includeHidden: Bool = true,
                 minimumSize: Int64? = nil, maximumSize: Int64? = nil,
-                modifiedAfter: Date? = nil, modifiedBefore: Date? = nil, text: TextQuery? = nil) {
+                modifiedAfter: Date? = nil, modifiedBefore: Date? = nil, text: TextQuery? = nil,
+                searchArchives: Bool = false) {
+        self.searchArchives = searchArchives
         self.name = name
         self.nameIsRegex = nameIsRegex
         self.subfolders = subfolders
@@ -49,6 +53,26 @@ public struct SearchQuery: Codable, Sendable, Equatable {
         self.modifiedAfter = modifiedAfter
         self.modifiedBefore = modifiedBefore
         self.text = text
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, nameIsRegex, subfolders, kinds, includeHidden, minimumSize, maximumSize, modifiedAfter, modifiedBefore, text, searchArchives
+    }
+
+    /// Saved searches from older versions lack newer fields.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(name: try c.decodeIfPresent(String.self, forKey: .name) ?? "",
+                  nameIsRegex: try c.decodeIfPresent(Bool.self, forKey: .nameIsRegex) ?? false,
+                  subfolders: try c.decodeIfPresent(Bool.self, forKey: .subfolders) ?? true,
+                  kinds: try c.decodeIfPresent(Kinds.self, forKey: .kinds) ?? .filesAndFolders,
+                  includeHidden: try c.decodeIfPresent(Bool.self, forKey: .includeHidden) ?? true,
+                  minimumSize: try c.decodeIfPresent(Int64.self, forKey: .minimumSize),
+                  maximumSize: try c.decodeIfPresent(Int64.self, forKey: .maximumSize),
+                  modifiedAfter: try c.decodeIfPresent(Date.self, forKey: .modifiedAfter),
+                  modifiedBefore: try c.decodeIfPresent(Date.self, forKey: .modifiedBefore),
+                  text: try c.decodeIfPresent(TextQuery.self, forKey: .text),
+                  searchArchives: try c.decodeIfPresent(Bool.self, forKey: .searchArchives) ?? false)
     }
 
     /// The name matcher; throws for an invalid regular expression.

@@ -111,13 +111,27 @@ public struct ColumnDefinition: Sendable {
         /// from `namesRelativeTo` ("Music/Live"), "" right inside it, the whole folder path for
         /// items elsewhere. nil in an ordinary folder.
         public func folderPart(of item: FileItem) -> String? {
-            guard let base = namesRelativeTo, let parent = item.path.parent else { return nil }
-            if parent == base { return "" }
-            if parent.hasPrefix(base) {
-                let skip = base.components.count
-                return parent.components.dropFirst(skip).joined(separator: "/")
+            guard let base = namesRelativeTo else { return nil }
+            // At an archive's top the folder part is the archive itself.
+            guard let parent = item.path.parent else {
+                return item.path.location.container.map { relative($0) } ?? ""
             }
-            return parent.location == .local ? parent.path : parent.description
+            return relative(parent)
+        }
+
+        /// `folder` below `namesRelativeTo`, also through archives ("Alpha/pack.zip/docs").
+        private func relative(_ folder: VFSPath) -> String {
+            guard let base = namesRelativeTo else { return folder.description }
+            if folder == base { return "" }
+            if folder.hasPrefix(base) {
+                return folder.components.dropFirst(base.components.count).joined(separator: "/")
+            }
+            if let archive = folder.location.container {
+                let outer = archive.parent.map(relative) ?? ""
+                let parts = ([outer, archive.name] + folder.components).filter { !$0.isEmpty }
+                return parts.joined(separator: "/")
+            }
+            return folder.location == .local ? folder.path : folder.description
         }
 
         public func annotation(_ column: ColumnID, for item: FileItem) -> String? {

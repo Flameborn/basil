@@ -30,6 +30,8 @@ extension MainWindowController {
     /// may read or change any container.
     func closeUnusedContainers() {
         guard queue.items.allSatisfy(\.state.isDone) else { return }
+        // A search inside archives opens them as it goes.
+        if findWindow?.isSearching == true { return }
         var keep = copies.locationsInUse
         for pane in [left, right] {
             keep.append(pane.model.directory.location)
@@ -38,7 +40,9 @@ extension MainWindowController {
         }
         // Search results go once nothing shows them; the archive they were found in stays while they are shown.
         providers.closeListings(keeping: Set(keep))
-        keep += keep.compactMap { Listings.info($0)?.origin.location }
+        // Archives searched with "Search inside archives": open while results show their items.
+        keep += keep.flatMap { providers.listing($0)?.locationsInUse ?? [] }
+        keep += findWindow?.locationsInUse ?? []
         providers.closeContainers(keeping: keep)
     }
 

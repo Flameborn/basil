@@ -46,11 +46,9 @@ public struct LiveSearchEngine: SearchEngine {
 
     static func walk(_ query: SearchQuery, from start: VFSPath, registry: ProviderRegistry, parallel: Int,
                      emit: @escaping @Sendable (SearchEvent) -> Void) async throws {
-        let provider = try registry.provider(for: start.location)
         let nameFilter = try query.nameFilter()
         let matcher = try query.text.flatMap { $0.text.isEmpty ? nil : try TextMatcher($0) }
-        let reader = matcher == nil ? nil : try? registry.writableProvider(for: start.location)
-        if matcher != nil, reader == nil {
+        if matcher != nil, (try? registry.writableProvider(for: start.location)) == nil {
             throw VFSError.unsupported("reading the files in \(start.displayName)")
         }
         var level = [start]
@@ -62,6 +60,8 @@ public struct LiveSearchEngine: SearchEngine {
                 emit(.searching(folder))
                 var items: [FileItem] = []
                 do {
+                    // Folders inside archives have their archive's provider.
+                    let provider = try registry.provider(for: folder.location)
                     for try await batch in provider.list(folder) {
                         try Task.checkCancellation()
                         items += batch
@@ -80,11 +80,27 @@ public struct LiveSearchEngine: SearchEngine {
                         next.append(item.path)
                     }
                     if query.matches(item, nameFilter: nameFilter) { candidates.append(item) }
+                    // Search archives: an archive is searched like a folder (its own folders only
+                    // with subfolders on), also archives inside archives.
+                    if query.searchArchives, registry.isContainer(item), query.includeHidden || !item.isHidden {
+                        do {
+                            if let root = try await registry.openContainer(item) { next.append(root) }
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            emit(.skipped(item.path, error.localizedDescription))
+                        }
+                    }
                 }
-                guard let matcher, let reader else {
+                guard let matcher else {
                     if !candidates.isEmpty { emit(.found(candidates)) }
                     continue
                 }
+                var readers: [ProviderLocation: any WritableProvider] = [:]
+                for location in Set(candidates.map(\.path.location)) {
+                    readers[location] = try? registry.writableProvider(for: location)
+                }
+                let readable = readers
                 let found = try await withThrowingTaskGroup(of: FileItem?.self) { group in
                     var found: [FileItem] = []
                     var pending = candidates[...]
@@ -94,6 +110,9 @@ public struct LiveSearchEngine: SearchEngine {
                         running += 1
                         group.addTask {
                             do {
+                                guard let reader = readable[item.path.location] else {
+                                    throw VFSError.unsupported("reading \(item.name)")
+                                }
                                 let file = try await reader.openForReading(item.path, bypassCache: false)
                                 let matches: Bool
                                 do { matches = try await matcher.matches(file) } catch {
