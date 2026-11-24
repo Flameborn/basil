@@ -144,6 +144,13 @@ final class S3Service: Sendable {
         return http.download(url, from: 0, headers: headers.merging(signed) { $1 })
     }
 
+    /// A presigned download address for an object, valid for `seconds`.
+    func presignedURL(bucket: String, key: String, seconds: Int) -> URL {
+        let (hostHeader, path, _) = address(bucket: bucket, key: key, query: "")
+        return S3Signer.presignedURL(scheme: endpoint.secure ? "https" : "http", host: hostHeader, path: path,
+                                     credentials: credentials, region: region(for: bucket), expires: seconds)
+    }
+
     /// The region an error answer points to.
     static func regionHint(_ response: HTTPResponse) -> String? {
         guard [301, 307, 400, 403].contains(response.status) else { return nil }

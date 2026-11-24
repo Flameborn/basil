@@ -63,6 +63,13 @@ struct S3SigningTests {
         #expect(headers["Authorization"]?.hasSuffix("Signature=34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7") == true)
     }
 
+    /// The example of AWS's "Authenticating Requests: Using Query Parameters" page.
+    @Test func presignedURLExample() {
+        let url = S3Signer.presignedURL(scheme: "https", host: "examplebucket.s3.amazonaws.com", path: "/test.txt",
+                                        credentials: credentials, region: "us-east-1", expires: 86_400, date: date)
+        #expect(url.absoluteString == "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404")
+    }
+
     @Test func encodesLikeSigV4() {
         #expect(S3Signer.encode("a b/é+~", keepSlash: true) == "a%20b/%C3%A9%2B~")
         #expect(S3Signer.encode("a/b") == "a%2Fb")
@@ -291,6 +298,27 @@ struct S3Tests {
         #expect(try await names(c, bucket).isEmpty)
         try await c.s3.remove(bucket)
         #expect(try await !names(c, c.start).contains(bucket.name))
+    }
+
+    @Test func copyLinkGivesAPresignedAddressThatExpires() async throws {
+        let (c, bucket) = try await connectWithBucket()
+        defer { Task { await c.close() } }
+        let file = bucket.appending("shared file.txt")
+        try await put(c, file, Data("shared".utf8))
+        #expect(c.s3.linkLifetimes == [.hour, .day, .week])
+        let link = try await c.s3.sharedLink(for: file, lifetime: .hour)
+        let (body, response) = try await URLSession(configuration: .ephemeral).data(from: link)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        #expect(body == Data("shared".utf8))
+
+        let short = try await c.s3.sharedLink(for: file, lifetime: LinkLifetime(seconds: 1, title: "1 second"))
+        try await Task.sleep(for: .seconds(2.5))
+        let (_, expired) = try await URLSession(configuration: .ephemeral).data(from: short)
+        #expect((expired as? HTTPURLResponse)?.statusCode == 403)
+        await #expect(throws: VFSError.self) { _ = try await c.s3.sharedLink(for: bucket, lifetime: .hour) }
+        await #expect(throws: VFSError.notFound(bucket.appending("missing"))) {
+            _ = try await c.s3.sharedLink(for: bucket.appending("missing"), lifetime: .hour)
+        }
     }
 
     @Test func readsAtOffsets() async throws {

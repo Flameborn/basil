@@ -132,16 +132,24 @@ extension MainWindowController {
             return activePane.report("Links can only be made for files on a service that shares them, such as Dropbox")
         }
         let pane = activePane
-        let slow = Task { [weak self] in
-            try await Task.sleep(for: .seconds(1))
-            self?.announce("Getting the link")
-        }
         Task {
+            // Links that expire (S3): ask how long they should work, remembering the choice.
+            var lifetime: LinkLifetime?
+            let lifetimes = provider.linkLifetimes
+            if !lifetimes.isEmpty {
+                guard let window = window,
+                      let chosen = await askLinkLifetime(lifetimes, count: items.count, in: window) else { return }
+                lifetime = chosen
+            }
+            let slow = Task { [weak self] in
+                try await Task.sleep(for: .seconds(1))
+                self?.announce("Getting the link")
+            }
             defer { slow.cancel() }
             var links: [String] = []
             for item in items {
                 do {
-                    links.append(try await provider.sharedLink(for: item.path).absoluteString)
+                    links.append(try await provider.sharedLink(for: item.path, lifetime: lifetime).absoluteString)
                 } catch {
                     slow.cancel()
                     return pane.report(PaneViewController.describe(error))
@@ -152,6 +160,30 @@ extension MainWindowController {
             NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
             announce(links.count == 1 ? "Link copied" : "\(links.count) links copied")
         }
+    }
+
+    /// "How long should the link work?" with the provider's lifetimes; nil when cancelled.
+    private func askLinkLifetime(_ lifetimes: [LinkLifetime], count: Int, in window: NSWindow) async -> LinkLifetime? {
+        let alert = NSAlert()
+        alert.messageText = count == 1 ? "How long should the link work?" : "How long should the \(count) links work?"
+        alert.informativeText = "Anyone with the link can download the file until it expires."
+        alert.addButton(withTitle: "Copy Link")
+        alert.addButton(withTitle: "Cancel")
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 240, height: 26), pullsDown: false)
+        popup.addItems(withTitles: lifetimes.map(\.title))
+        let remembered = settings.settings.linkLifetimeSeconds
+        popup.selectItem(at: lifetimes.firstIndex { $0.seconds == remembered } ?? min(1, lifetimes.count - 1))
+        popup.setAccessibilityLabel("Link works for")
+        alert.accessoryView = popup
+        alert.window.initialFirstResponder = popup
+        let confirmed: Bool = await withCheckedContinuation { continuation in
+            alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+            alert.window.makeFirstResponder(popup)
+        }
+        guard confirmed else { return nil }
+        let chosen = lifetimes[popup.indexOfSelectedItem]
+        settings.settings.linkLifetimeSeconds = chosen.seconds
+        return chosen
     }
 
     /// The context menu for `pane`, which becomes the active pane.

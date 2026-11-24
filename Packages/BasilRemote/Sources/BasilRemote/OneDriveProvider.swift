@@ -307,7 +307,7 @@ public final class OneDriveProvider: WritableProvider, ConnectedProvider, Shared
 
     /// The item's OneDrive web address: it opens for everyone the item is shared with; Basil
     /// does not change who that is.
-    public func sharedLink(for path: VFSPath) async throws -> URL {
+    public func sharedLink(for path: VFSPath, lifetime: LinkLifetime?) async throws -> URL {
         let (_, item) = try await current(path)
         guard let text = item.webUrl, let link = URL(string: text) else {
             throw VFSError.failed("OneDrive has no link for \(path.displayName)")

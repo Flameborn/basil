@@ -90,6 +90,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var searchIndex = true
     /// Other volumes ticked for indexing in Settings, by identity (see `IndexedVolume`).
     public var indexedVolumes: [IndexedVolume] = []
+    /// How long the last S3 link made with Copy Link worked (seconds; Copy Link offers it first).
+    public var linkLifetimeSeconds = 86_400
     /// Hours between background rescans of indexed network volumes (they also rescan when mounted).
     public var networkIndexRescanHours = 6
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
@@ -141,6 +143,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         skippedUpdateVersion = try c.decodeIfPresent(String.self, forKey: .skippedUpdateVersion) ?? d.skippedUpdateVersion
         searchIndex = try c.decodeIfPresent(Bool.self, forKey: .searchIndex) ?? d.searchIndex
         indexedVolumes = try c.decodeIfPresent([IndexedVolume].self, forKey: .indexedVolumes) ?? d.indexedVolumes
+        linkLifetimeSeconds = try c.decodeIfPresent(Int.self, forKey: .linkLifetimeSeconds) ?? d.linkLifetimeSeconds
         networkIndexRescanHours = try c.decodeIfPresent(Int.self, forKey: .networkIndexRescanHours) ?? d.networkIndexRescanHours
         viewsVersion = try c.decodeIfPresent(Int.self, forKey: .viewsVersion) ?? 1
         if viewsVersion < 2, let full = views.firstIndex(where: { $0.id == ListView.full.id }) {

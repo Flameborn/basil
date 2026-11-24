@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 /// (not atomic: a folder is renamed object by object). File dates are kept in the object's
 /// x-amz-meta-mtime (rclone's convention); listings show when S3 stored the object.
 /// Fingerprints carry the ETag, which changes with the content.
-public final class S3Provider: WritableProvider, ConnectedProvider, @unchecked Sendable {
+public final class S3Provider: WritableProvider, ConnectedProvider, SharedLinkProvider, @unchecked Sendable {
     public let location: ProviderLocation
     let service: S3Service
     /// Buckets the connection may use when the keys cannot list buckets (from the Start folder).
@@ -268,6 +268,24 @@ public final class S3Provider: WritableProvider, ConnectedProvider, @unchecked S
     }
 
     public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? { nil }
+
+    // MARK: Links
+
+    public var linkLifetimes: [LinkLifetime] { [.hour, .day, .week] }
+
+    /// A presigned download address of a file (folders and buckets have none). The object is
+    /// looked up first, which also learns its bucket's region.
+    public func sharedLink(for path: VFSPath, lifetime: LinkLifetime?) async throws -> URL {
+        guard let (bucket, key) = split(path), !key.isEmpty else {
+            throw VFSError.failed("Links can be made for files only, not for buckets or folders on \(host)")
+        }
+        switch try await find(path) {
+        case .file: break
+        case .folder: throw VFSError.failed("Links can be made for files only, not for folders on \(host)")
+        case nil: throw VFSError.notFound(path)
+        }
+        return service.presignedURL(bucket: bucket, key: key, seconds: (lifetime ?? .week).seconds)
+    }
 
     // MARK: WritableProvider
 

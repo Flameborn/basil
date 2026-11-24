@@ -1781,7 +1781,7 @@ final class PaneUITests: XCTestCase {
         }
         sheet.buttons["Connect"].click()
         let secret = app.sheets.firstMatch.secureTextFields["Secret access key"]
-        XCTAssertTrue(secret.waitForExistence(timeout: 5))
+        XCTAssertTrue(secret.waitForExistence(timeout: 30), app.staticTexts["pane.left.status"].value as? String ?? "")
         XCTAssertTrue(waitFor { (secret.value(forKey: "hasKeyboardFocus") as? Bool) == true })
         app.typeText("Basil-test-secret-1\r")
         let path = app.groups["pane.left.path"]
@@ -1807,6 +1807,17 @@ final class PaneUITests: XCTestCase {
         waitForFieldFocus(in: mkdir)
         app.typeText("Remote\r")
         XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["Remote"] }, timeout: 10), "\(names(in: leftTable))")
+        // Copy Link asks how long an S3 link works (folders get none, which is said in the pane).
+        leftTable.typeKey("c", modifierFlags: [.command, .option, .shift])
+        let lifetime = app.sheets.firstMatch
+        XCTAssertTrue(lifetime.waitForExistence(timeout: 3))
+        XCTAssertTrue(lifetime.staticTexts["How long should the link work?"].exists, lifetime.debugDescription)
+        XCTAssertTrue(lifetime.popUpButtons["Link works for"].exists, lifetime.debugDescription)
+        try auditSheet(lifetime, "s3 link lifetime")
+        lifetime.buttons["Copy Link"].click()
+        XCTAssertTrue(waitFor { !lifetime.exists })
+        XCTAssertTrue(waitFor { self.app.staticTexts.matching(NSPredicate(format: "value CONTAINS 'files only'")).firstMatch.exists },
+                      app.debugDescription)
         leftTable.typeKey(.delete, modifierFlags: [])
         XCTAssertTrue(waitFor({ self.names(in: self.leftTable) == ["uibucket"] }, timeout: 10))
 

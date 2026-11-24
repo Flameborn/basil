@@ -455,7 +455,7 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
 
     /// The item's Drive link (drive.google.com/...): it opens for everyone the item is shared
     /// with; Basil does not change who that is.
-    public func sharedLink(for path: VFSPath) async throws -> URL {
+    public func sharedLink(for path: VFSPath, lifetime: LinkLifetime?) async throws -> URL {
         let (_, file) = try await current(path)
         guard let text = file?.webViewLink, let link = URL(string: text) else {
             throw VFSError.failed("Google Drive has no link for \(path.displayName)")

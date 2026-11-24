@@ -138,7 +138,7 @@ public final class DropboxProvider: WritableProvider, ConnectedProvider, SharedL
     /// The account's shared link for a file or folder (dropbox.com/scl/...), made with the
     /// account's default settings when there is none yet. Dropbox answers
     /// "shared_link_already_exists" for an existing one, with its metadata or without.
-    public func sharedLink(for path: VFSPath) async throws -> URL {
+    public func sharedLink(for path: VFSPath, lifetime: LinkLifetime?) async throws -> URL {
         let action = "Copying the link of \(path.isRoot ? "Dropbox" : path.name)"
         let api = Self.api(path)
         switch await client.sharing.createSharedLinkWithSettings(path: api).responseResult() {

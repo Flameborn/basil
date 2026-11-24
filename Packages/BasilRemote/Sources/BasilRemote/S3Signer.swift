@@ -51,6 +51,31 @@ enum S3Signer {
         return added
     }
 
+    /// A presigned GET address (query-string signing): anyone with it can download the object
+    /// until `expires` seconds after `date` (SigV4 allows at most 7 days). Only the host is signed;
+    /// the payload is UNSIGNED-PAYLOAD.
+    static func presignedURL(scheme: String, host: String, path: String, credentials: S3Credentials, region: String,
+                             expires: Int, date: Date = Date()) -> URL {
+        let stamp = timestamp(date)
+        let day = String(stamp.prefix(8))
+        let scope = "\(day)/\(region)/s3/aws4_request"
+        var items: [(String, String)] = [("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+                                         ("X-Amz-Credential", "\(credentials.accessKey)/\(scope)"),
+                                         ("X-Amz-Date", stamp), ("X-Amz-Expires", String(min(max(1, expires), 604_800))),
+                                         ("X-Amz-SignedHeaders", "host")]
+        if let token = credentials.sessionToken, !token.isEmpty { items.append(("X-Amz-Security-Token", token)) }
+        let queryString = query(items)
+        let canonical = ["GET", path.isEmpty ? "/" : path, queryString, "host:\(host)\n", "host", "UNSIGNED-PAYLOAD"]
+            .joined(separator: "\n")
+        let toSign = ["AWS4-HMAC-SHA256", stamp, scope, sha256Hex(Data(canonical.utf8))].joined(separator: "\n")
+        var key = hmac(Data("AWS4\(credentials.secretKey)".utf8), day)
+        key = hmac(key, region)
+        key = hmac(key, "s3")
+        key = hmac(key, "aws4_request")
+        let signature = hex(hmac(key, toSign))
+        return URL(string: "\(scheme)://\(host)\(path.isEmpty ? "/" : path)?\(queryString)&X-Amz-Signature=\(signature)")!
+    }
+
     /// "20130524T000000Z"
     static func timestamp(_ date: Date) -> String {
         let formatter = DateFormatter()
