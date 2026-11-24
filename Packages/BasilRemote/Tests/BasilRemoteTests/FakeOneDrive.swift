@@ -73,6 +73,8 @@ final class FakeOneDrive: @unchecked Sendable {
         /// Requests with an Authorization header to addresses that must not get one.
         var leakedTokens = 0
         var requests: [String] = []
+        /// What the items looked like at each delta token.
+        var deltas: [[String: String]] = []
     }
 
     let state = Mutex(State())
@@ -116,7 +118,7 @@ final class FakeOneDrive: @unchecked Sendable {
     var base: String { "http://127.0.0.1:\(port)" }
     /// Addresses with their own authorisation (another host name for the same server).
     var other: String { "http://localhost:\(port)" }
-    var hosts: MicrosoftHosts { MicrosoftHosts(login: base, graph: base) }
+    var hosts: MicrosoftHosts { MicrosoftHosts(login: base, graph: base, deltaInterval: 0.1) }
 
     // MARK: Items
 
@@ -343,6 +345,28 @@ final class FakeOneDrive: @unchecked Sendable {
             return .json(["id": Self.myDrive, "driveType": business ? "business" : "personal"])
         }
         if rest == ["me", "drive", "root"], method == "GET" { return get(rootID) }
+        if rest.count == 4, rest[0] == "drives", rest[2] == "root", rest[3] == "delta", method == "GET" {
+            let drive = rest[1]
+            return state.withLock { s -> Response in
+                let now = s.items.filter { $0.value.drive == drive }
+                    .mapValues { "\($0.name)|\($0.parent ?? "")|\($0.version)|\($0.deleted)" }
+                var value: [[String: Any]] = []
+                if let n = Int(request.query["token"] ?? ""), s.deltas.indices.contains(n) {
+                    let then = s.deltas[n]
+                    for id in Set(then.keys).union(now.keys) where then[id] != now[id] {
+                        var entry: [String: Any] = ["id": id]
+                        if let parent = s.items[id]?.parent { entry["parentReference"] = ["id": parent] }
+                        if s.items[id]?.deleted != false { entry["deleted"] = ["state": "deleted"] }
+                        value.append(entry)
+                    }
+                } else if request.query["token"] != "latest" {
+                    return .error(410, "resyncRequired", "Resync required")
+                }
+                s.deltas.append(now)
+                return .json(["value": value,
+                              "@odata.deltaLink": "\(base)/v1.0/drives/\(drive)/root/delta?token=\(s.deltas.count - 1)"])
+            }
+        }
         // /drives/{d}/items/{id}[:/{name}:][/{action}]
         guard rest.count >= 4, rest[0] == "drives", rest[2] == "items" else {
             return .error(404, "invalidRequest", "No such call: \(request.path)")

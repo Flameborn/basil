@@ -17,10 +17,13 @@ public struct MicrosoftHosts: Sendable, Equatable {
     public var login: String
     /// Microsoft Graph ("https://graph.microsoft.com").
     public var graph: String
+    /// How often a watched folder asks for the drive's delta, in seconds (tests use less).
+    public var deltaInterval: Double
 
-    public init(login: String, graph: String) {
+    public init(login: String, graph: String, deltaInterval: Double = 10) {
         self.login = login
         self.graph = graph
+        self.deltaInterval = deltaInterval
     }
 
     public static let microsoft = MicrosoftHosts(login: "https://login.microsoftonline.com", graph: "https://graph.microsoft.com")

@@ -491,7 +491,84 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         return item(ref, at: path, content: file)
     }
 
-    public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? { nil }
+    /// Keeps a pane live through Drive's changes feed (Drive has no long-poll for desktop apps):
+    /// a start page token, then every `changesInterval` seconds the changes since it. A change
+    /// reloads the pane when the item has the folder as a parent or was one of its items (moved
+    /// out, trashed, deleted). The places (the top, Shared with me, Shared drives) are not watched.
+    public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? {
+        AsyncStream { continuation in
+            let task = Task {
+                defer { continuation.finish() }
+                guard let ref = try? await ref(directory), !ref.isPlace, let folderID = ref.contentID else { return }
+                var token: String?
+                var known = Set<String>()
+                while !Task.isCancelled {
+                    do {
+                        if token == nil {
+                            token = try await startPageToken(driveID: ref.driveID, directory)
+                            known = try await childIDs(folderID, driveID: ref.driveID, directory)
+                        }
+                        try await Task.sleep(for: .milliseconds(Int(hosts.changesInterval * 1000)))
+                        let (changed, next) = try await changes(since: token!, driveID: ref.driveID, directory)
+                        token = next
+                        let relevant = changed.contains { change in
+                            known.contains(change.fileId ?? "") || change.file?.parents?.contains(folderID) == true
+                        }
+                        if relevant {
+                            known = try await childIDs(folderID, driveID: ref.driveID, directory)
+                            continuation.yield(.reloadAll)
+                        }
+                    } catch {
+                        if Task.isCancelled { break }
+                        token = nil
+                        try? await Task.sleep(for: .seconds(30))
+                    }
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    struct DriveChange: Decodable, Sendable {
+        struct File: Decodable, Sendable { var parents: [String]? }
+        var fileId: String?
+        var removed: Bool?
+        var file: File?
+    }
+
+    private func startPageToken(driveID: String?, _ path: VFSPath) async throws -> String {
+        struct Answer: Decodable { var startPageToken: String }
+        var query = [("supportsAllDrives", "true")]
+        if let driveID { query.append(("driveId", driveID)) }
+        return try decode(Answer.self, try await send("GET", url("/changes/startPageToken", query)),
+                          "Watching \(path.displayName)", path).startPageToken
+    }
+
+    /// The changes since a page token (every page) and the token for the next ask.
+    private func changes(since token: String, driveID: String?, _ path: VFSPath) async throws -> ([DriveChange], String) {
+        struct Page: Decodable {
+            var changes: [DriveChange]?
+            var nextPageToken: String?
+            var newStartPageToken: String?
+        }
+        var all: [DriveChange] = []
+        var current = token
+        while true {
+            var query = [("pageToken", current), ("supportsAllDrives", "true"), ("includeItemsFromAllDrives", "true"),
+                         ("pageSize", "1000"), ("fields", "nextPageToken,newStartPageToken,changes(fileId,removed,file(parents))")]
+            if let driveID { query += [("driveId", driveID), ("includeCorpusRemovals", "true")] }
+            let page = try decode(Page.self, try await send("GET", url("/changes", query)), "Watching \(path.displayName)", path)
+            all += page.changes ?? []
+            if let next = page.nextPageToken { current = next; continue }
+            return (all, page.newStartPageToken ?? current)
+        }
+    }
+
+    /// The IDs of the items in a folder now (to notice ones that leave it).
+    private func childIDs(_ folderID: String, driveID: String?, _ path: VFSPath) async throws -> Set<String> {
+        Set(try await files("'\(folderID)' in parents and trashed = false", driveID: driveID,
+                            "Watching \(path.displayName)", path).map(\.id))
+    }
 
     // MARK: WritableProvider
 

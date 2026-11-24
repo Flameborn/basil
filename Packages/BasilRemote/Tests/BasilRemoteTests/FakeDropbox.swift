@@ -53,6 +53,7 @@ final class FakeDropbox: @unchecked Sendable {
         /// Scopes the next sign-in grants.
         var grantedScopes = DropboxScopes.all
         var signIns = 0
+        var longpolls = 0
     }
 
     let state = Mutex(State())
@@ -87,7 +88,7 @@ final class FakeDropbox: @unchecked Sendable {
 
     var hosts: DropboxHosts {
         let base = "http://127.0.0.1:\(port)"
-        return DropboxHosts(web: base, api: base, content: base)
+        return DropboxHosts(web: base, api: base, content: base, notify: base, longpollTimeout: 2)
     }
 
     // MARK: Files
@@ -247,6 +248,7 @@ final class FakeDropbox: @unchecked Sendable {
 
     private func handle(_ request: Request) -> Response {
         if request.path == "/oauth2/token" { return token(request) }
+        if request.path == "/2/files/list_folder/longpoll" { return longpoll(request) }
         // Every /2 call needs a valid access token.
         let bearer = request.header("Authorization")?.replacingOccurrences(of: "Bearer ", with: "") ?? ""
         let valid = state.withLock { s in s.accessTokens[bearer].map { $0.expires > Date() } }
@@ -271,6 +273,9 @@ final class FakeDropbox: @unchecked Sendable {
             return .json(account())
         case "/2/files/list_folder": return listFolder(argument)
         case "/2/files/list_folder/continue": return listContinue(argument)
+        case "/2/files/list_folder/get_latest_cursor":
+            let path = (argument["path"] as? String ?? "").lowercased()
+            return .json(["cursor": "latest|\(path)|\(state.withLock { signature(path, $0) })"])
         case "/2/files/get_metadata": return getMetadata(argument)
         case "/2/files/create_folder_v2": return createFolder(argument)
         case "/2/files/delete_v2": return delete(argument)
@@ -435,7 +440,32 @@ final class FakeDropbox: @unchecked Sendable {
                       "has_more": next < children.count])
     }
 
+    /// What the folder holds now, so a "latest" cursor tells whether it changed.
+    private func signature(_ folder: String, _ s: State) -> String {
+        let children = s.nodes.values.filter { parent(of: $0.display.lowercased()) == folder }
+            .map { "\($0.display)\u{1}\($0.rev)\u{1}\($0.folder)" }.sorted().joined(separator: "\u{2}")
+        return String(children.hashValue, radix: 36)
+    }
+
+    /// Waits (up to the timeout asked for) until the cursor's folder no longer matches it. No token.
+    private func longpoll(_ request: Request) -> Response {
+        let argument = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any] ?? [:]
+        let parts = (argument["cursor"] as? String ?? "").split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, parts[0] == "latest" else { return .json(["error_summary": "reset/"], status: 409) }
+        state.withLock { $0.longpolls += 1 }
+        let deadline = Date().addingTimeInterval(TimeInterval(argument["timeout"] as? Int ?? 30))
+        while Date() < deadline {
+            if state.withLock({ signature(parts[1], $0) }) != parts[2] { return .json(["changes": true]) }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return .json(["changes": false])
+    }
+
     private func listContinue(_ argument: [String: Any]) -> Response {
+        if let cursor = argument["cursor"] as? String, cursor.hasPrefix("latest|") {
+            let folder = cursor.split(separator: "|", omittingEmptySubsequences: false).map(String.init)[1]
+            return .json(["entries": [], "cursor": "latest|\(folder)|\(state.withLock { signature(folder, $0) })", "has_more": false])
+        }
         let parts = (argument["cursor"] as? String ?? "").split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 3, let offset = Int(parts[1]), let limit = Int(parts[2]) else {
             return .json(["error_summary": "reset/", "error": [".tag": "reset"]], status: 409)

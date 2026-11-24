@@ -343,7 +343,74 @@ public final class OneDriveProvider: WritableProvider, ConnectedProvider, Shared
         return self.item(ref, at: path, content: item)
     }
 
-    public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? { nil }
+    /// Keeps a pane live through the drive's delta (work and school accounts allow it only for
+    /// the whole drive, so every account uses the root's): `token=latest` gives a link to ask
+    /// later, then every `deltaInterval` seconds the changes since it. A change reloads the pane
+    /// when the item's parent is the folder or it was one of the folder's items.
+    public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? {
+        AsyncStream { continuation in
+            let task = Task {
+                defer { continuation.finish() }
+                guard let ref = try? await ref(directory), ref.kind != .file else { return }
+                let drive = ref.contentDrive, folderID = ref.contentID
+                var link: URL?
+                var known = Set<String>()
+                while !Task.isCancelled {
+                    do {
+                        if link == nil {
+                            let start = url("/drives/\(GraphPath.encode(drive))/root/delta", [("token", "latest")])
+                            (_, link) = try await delta(start, directory)
+                            known = Set(try await items(in: drive, folderID, "Watching \(directory.displayName)", directory).map(\.id))
+                        }
+                        try await Task.sleep(for: .milliseconds(Int(hosts.deltaInterval * 1000)))
+                        let (changed, next) = try await delta(link!, directory)
+                        link = next
+                        if changed.contains(where: { known.contains($0.id) || $0.parentID == folderID }) {
+                            known = Set(try await items(in: drive, folderID, "Watching \(directory.displayName)", directory).map(\.id))
+                            continuation.yield(.reloadAll)
+                        }
+                    } catch {
+                        if Task.isCancelled { break }
+                        link = nil
+                        try? await Task.sleep(for: .seconds(30))
+                    }
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    struct DeltaItem: Decodable, Sendable {
+        struct Parent: Decodable, Sendable { var id: String? }
+        var id: String
+        var parentReference: Parent?
+        var parentID: String? { parentReference?.id }
+    }
+
+    /// Every page of a delta call: the items that changed and the link for the next ask.
+    private func delta(_ start: URL, _ path: VFSPath) async throws -> ([DeltaItem], URL) {
+        struct Page: Decodable {
+            var value: [DeltaItem]?
+            var nextLink: String?
+            var deltaLink: String?
+            enum CodingKeys: String, CodingKey {
+                case value
+                case nextLink = "@odata.nextLink"
+                case deltaLink = "@odata.deltaLink"
+            }
+        }
+        var all: [DeltaItem] = []
+        var address = start
+        while true {
+            let page = try decode(Page.self, try await send("GET", address), "Watching \(path.displayName)", path)
+            all += page.value ?? []
+            if let next = page.nextLink.flatMap(URL.init(string:)) { address = next; continue }
+            guard let link = page.deltaLink.flatMap(URL.init(string:)) else {
+                throw VFSError.failed("OneDrive sent no delta link")
+            }
+            return (all, link)
+        }
+    }
 
     // MARK: WritableProvider
 

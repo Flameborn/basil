@@ -265,6 +265,33 @@ private final class Monitor: TransferMonitor {
         #expect(a != b)
     }
 
+    @Test func watchedFolderReloadsOnChangesThere() async throws {
+        var live = "", other = "", inside = ""
+        let s = try await setUp {
+            live = $0.folder("Live")
+            other = $0.folder("Other")
+            inside = $0.put("old.txt", in: live, Data("o".utf8))
+        }
+        let recorder = WatchRecorder(try #require(s.provider.watch(s.my.appending("Live"))))
+        defer { recorder.stop() }
+        // Let the watcher take its start token, then change another folder: nothing.
+        try await Task.sleep(for: .milliseconds(300))
+        s.fake.put("x.txt", in: other, Data("x".utf8))
+        #expect(await !recorder.wait(for: 1, seconds: 0.6))
+        // A new file in the folder, a changed one, and one moved out each reload.
+        s.fake.put("new.txt", in: live, Data("n".utf8))
+        #expect(await recorder.wait(for: 1, seconds: 3))
+        s.fake.change(inside, Data("changed".utf8))
+        #expect(await recorder.wait(for: 2, seconds: 3))
+        s.fake.state.withLock { $0.items[inside]?.parents = [other] }
+        #expect(await recorder.wait(for: 3, seconds: 3))
+        // The places are not watched.
+        let top = WatchRecorder(try #require(s.provider.watch(s.top)))
+        defer { top.stop() }
+        s.fake.folder("More")
+        #expect(await !top.wait(for: 1, seconds: 0.5))
+    }
+
     @Test func aStartFolderOpensThere() async throws {
         let s = try await setUp(path: "/My Drive/Photos") { $0.folder("Photos") }
         #expect(s.start.path == "/My Drive/Photos")

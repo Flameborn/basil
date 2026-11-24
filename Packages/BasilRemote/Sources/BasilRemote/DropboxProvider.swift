@@ -212,7 +212,61 @@ public final class DropboxProvider: WritableProvider, ConnectedProvider, SharedL
         return item
     }
 
-    public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? { nil }
+    /// Keeps a pane live: the folder's latest cursor, then long-polls (Dropbox's notify host,
+    /// no token) that end when something in the folder changed; each change reloads the pane and
+    /// moves the cursor on with list_folder/continue, so nothing between two polls is missed.
+    /// Errors wait 30 s and start over with a new cursor; Dropbox's backoff is honoured.
+    public func watch(_ directory: VFSPath) -> AsyncStream<VFSChange>? {
+        AsyncStream { continuation in
+            let task = Task {
+                var cursor: String?
+                while !Task.isCancelled {
+                    do {
+                        if cursor == nil {
+                            cursor = try await call("Watching \(directory.name)", directory) {
+                                client.files.listFolderGetLatestCursor(path: Self.api(directory))
+                            }.cursor
+                        }
+                        let (changes, backoff) = try await longpoll(cursor!)
+                        if changes {
+                            // Drain to the newest cursor before reloading.
+                            var page = try await call("Watching \(directory.name)", directory) {
+                                client.files.listFolderContinue(cursor: cursor!)
+                            }
+                            while page.hasMore {
+                                let next = page.cursor
+                                page = try await call("Watching \(directory.name)", directory) { client.files.listFolderContinue(cursor: next) }
+                            }
+                            cursor = page.cursor
+                            continuation.yield(.reloadAll)
+                        }
+                        if let backoff { try await Task.sleep(for: .seconds(backoff)) }
+                    } catch {
+                        if Task.isCancelled { break }
+                        cursor = nil
+                        try? await Task.sleep(for: .seconds(30))
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// One long-poll: whether the folder changed, and how many seconds Dropbox asks to wait.
+    func longpoll(_ cursor: String) async throws -> (changes: Bool, backoff: Int?) {
+        var request = URLRequest(url: URL(string: auth.hosts.notify + "/2/files/list_folder/longpoll")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = TimeInterval(auth.hosts.longpollTimeout + 90)
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["cursor": cursor, "timeout": auth.hosts.longpollTimeout])
+        let (data, response) = try await auth.session.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw VFSError.failed("Dropbox did not answer the change check")
+        }
+        return (json["changes"] as? Bool ?? false, json["backoff"] as? Int)
+    }
 
     // MARK: WritableProvider
 

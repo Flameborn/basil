@@ -17,18 +17,25 @@ public struct DropboxHosts: Sendable, Equatable {
     public var api: String
     /// Uploads and downloads ("https://api-content.dropbox.com").
     public var content: String
+    /// Long-polls for changes ("https://notify.dropboxapi.com").
+    public var notify: String
+    /// How long one long-poll waits for a change, in seconds (30 to 480; tests use less).
+    public var longpollTimeout: Int
 
-    public init(web: String, api: String, content: String) {
+    public init(web: String, api: String, content: String, notify: String = "https://notify.dropboxapi.com",
+                longpollTimeout: Int = 120) {
         self.web = web
         self.api = api
         self.content = content
+        self.notify = notify
+        self.longpollTimeout = longpollTimeout
     }
 
     /// The SDK's own hosts.
     public static let dropbox = DropboxHosts(web: "https://www.dropbox.com", api: "https://api.dropbox.com",
                                              content: "https://api-content.dropbox.com")
 
-    var baseHosts: BaseHosts { BaseHosts(apiHost: api, contentHost: content, notifyHost: "https://notify.dropboxapi.com") }
+    var baseHosts: BaseHosts { BaseHosts(apiHost: api, contentHost: content, notifyHost: notify) }
 }
 
 /// What a sign-in or a refresh returns.

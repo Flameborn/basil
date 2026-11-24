@@ -58,6 +58,13 @@ final class FakeGoogleDrive: @unchecked Sendable {
         /// Answer this many API calls with Drive's rate-limit error first.
         var rateLimited = 0
         var requests: [String] = []
+        /// What every item looked like when a changes page token was handed out.
+        var snapshots: [[String: String]] = []
+    }
+
+    /// One line per item that changes when anything about it does (the changes feed diffs these).
+    private static func snapshot(_ s: State) -> [String: String] {
+        s.items.mapValues { "\($0.name)|\($0.parents)|\($0.version)|\($0.trashed)" }
     }
 
     let state = Mutex(State())
@@ -96,7 +103,7 @@ final class FakeGoogleDrive: @unchecked Sendable {
     deinit { close(listener) }
 
     var base: String { "http://127.0.0.1:\(port)" }
-    var hosts: GoogleHosts { GoogleHosts(accounts: base, oauth: base, api: base) }
+    var hosts: GoogleHosts { GoogleHosts(accounts: base, oauth: base, api: base, changesInterval: 0.1) }
 
     // MARK: Items
 
@@ -304,6 +311,31 @@ final class FakeGoogleDrive: @unchecked Sendable {
         let api = parts.count >= 3 && parts[0] == "drive" && parts[1] == "v3"
         let rest = api ? Array(parts.dropFirst(2)) : []
         if api, rest == ["about"], method == "GET" { return about() }
+        if api, rest == ["changes", "startPageToken"], method == "GET" {
+            let token = state.withLock { s in
+                s.snapshots.append(Self.snapshot(s))
+                return String(s.snapshots.count - 1)
+            }
+            return .json(["startPageToken": token])
+        }
+        if api, rest == ["changes"], method == "GET" {
+            return state.withLock { s -> Response in
+                guard let n = Int(request.query["pageToken"] ?? ""), s.snapshots.indices.contains(n) else {
+                    return .error(400, "invalid", "Invalid page token")
+                }
+                let then = s.snapshots[n], now = Self.snapshot(s)
+                var changes: [[String: Any]] = []
+                for id in Set(then.keys).union(now.keys) where then[id] != now[id] {
+                    if let item = s.items[id] {
+                        changes.append(["fileId": id, "removed": false, "file": ["parents": item.parents]])
+                    } else {
+                        changes.append(["fileId": id, "removed": true])
+                    }
+                }
+                s.snapshots.append(now)
+                return .json(["changes": changes, "newStartPageToken": String(s.snapshots.count - 1)])
+            }
+        }
         if api, rest == ["drives"], method == "GET" { return drives(request) }
         if api, rest == ["files"] {
             if method == "GET" { return list(request) }

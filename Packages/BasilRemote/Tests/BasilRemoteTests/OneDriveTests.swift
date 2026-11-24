@@ -331,6 +331,27 @@ private func referenceQuickXor(_ data: Data) -> String {
 
     // MARK: Changes
 
+    @Test(arguments: [false, true])
+    func watchedFolderReloadsOnChangesThere(business: Bool) async throws {
+        var live = "", other = "", inside = ""
+        let s = try await setUp(business: business) {
+            live = $0.folder("Live")
+            other = $0.folder("Other")
+            inside = $0.put("old.txt", in: live, Data("o".utf8))
+        }
+        let recorder = WatchRecorder(try #require(s.provider.watch(s.top.appending("Live"))))
+        defer { recorder.stop() }
+        try await Task.sleep(for: .milliseconds(300))
+        s.fake.put("x.txt", in: other, Data("x".utf8))
+        #expect(await !recorder.wait(for: 1, seconds: 0.6))
+        s.fake.put("new.txt", in: live, Data("n".utf8))
+        #expect(await recorder.wait(for: 1, seconds: 3))
+        s.fake.change(inside, Data("changed".utf8))
+        #expect(await recorder.wait(for: 2, seconds: 3))
+        s.fake.state.withLock { $0.items[inside]?.parent = other }
+        #expect(await recorder.wait(for: 3, seconds: 3))
+    }
+
     @Test func foldersRenamesMovesCopiesAndDeletes() async throws {
         let s = try await setUp { $0.put("a.txt", Data("a".utf8)) }
         let p = s.provider

@@ -299,6 +299,26 @@ private final class Monitor: TransferMonitor {
 
     // MARK: Files
 
+    @Test func watchedFolderReloadsOnChangesThere() async throws {
+        let s = try await setUp()
+        s.fake.makeFolder("/Live")
+        s.fake.makeFolder("/Other")
+        let stream = try #require(s.provider.watch(s.root.appending("Live")))
+        let recorder = WatchRecorder(stream)
+        defer { recorder.stop() }
+        // Wait until the first long-poll is waiting, then change another folder: nothing.
+        let polling = ContinuousClock.now + .seconds(3)
+        while s.fake.state.withLock({ $0.longpolls }) == 0, ContinuousClock.now < polling { try await Task.sleep(for: .milliseconds(20)) }
+        s.fake.put("/Other/x.txt", Data("x".utf8))
+        #expect(await !recorder.wait(for: 1, seconds: 0.5))
+        // A new file in the watched folder reloads the pane.
+        s.fake.put("/Live/new.txt", Data("n".utf8))
+        #expect(await recorder.wait(for: 1, seconds: 3))
+        // And the next change after it too (the cursor moved on).
+        s.fake.put("/Live/second.txt", Data("2".utf8))
+        #expect(await recorder.wait(for: 2, seconds: 4))
+    }
+
     @Test func listsFoldersAcrossPagesAndReadsItems() async throws {
         let s = try await setUp()
         for i in 0..<2100 { s.fake.put(String(format: "/many/f%04d.txt", i), Data()) }

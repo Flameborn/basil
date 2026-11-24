@@ -17,11 +17,14 @@ public struct GoogleHosts: Sendable, Equatable {
     public var oauth: String
     /// The Drive API and its uploads ("https://www.googleapis.com").
     public var api: String
+    /// How often a watched folder asks Drive's changes feed, in seconds (tests use less).
+    public var changesInterval: Double
 
-    public init(accounts: String, oauth: String, api: String) {
+    public init(accounts: String, oauth: String, api: String, changesInterval: Double = 10) {
         self.accounts = accounts
         self.oauth = oauth
         self.api = api
+        self.changesInterval = changesInterval
     }
 
     public static let google = GoogleHosts(accounts: "https://accounts.google.com", oauth: "https://oauth2.googleapis.com",
