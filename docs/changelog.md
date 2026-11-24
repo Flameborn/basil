@@ -38,5 +38,5 @@ First release.
 - Archives: browse, extract, pack and test zip, tar (gz, bz2, xz, zstd), 7z and more; RAR extraction; passwords and encrypted names; Unpack dialog.
 - Checksums: create and verify CRC32, MD5, SHA-1, SHA-2, SHA-3, BLAKE3, XXH3 and XXH128.
 - Split and combine files; file lists (.lst).
-- Remote connections: SFTP, FTP and FTPS, Dropbox.
+- Remote connections: SFTP (with multiple ssh-agent support), FTP and FTPS, Dropbox.
 - Context menu, Copy Path, Copy Name and Copy Link; Quick Look (F3), editor rules (F4), terminal (Cmd+Shift+T); leftovers cleanup when deleting an app.
