@@ -515,6 +515,95 @@ struct NextcloudTests {
     }
 }
 
+/// ownCloud 10: its chunked uploads, dates, trash bin and public links (the Nextcloud code with
+/// ownCloud's paths and properties).
+@Suite(.serialized, .enabled(if: OwnCloudTestServer.shared != nil))
+struct OwnCloudTests {
+    var server: OwnCloudTestServer { OwnCloudTestServer.shared! }
+
+    func connect() async throws -> (WebDAVConnection, VFSPath) {
+        let c = try await BasilRemoteTests.connect(server.target(), prompts: FTPPrompts(secrets: [server.password]))
+        let folder = VFSPath(location: c.start.location, path: "/t-" + UUID().uuidString.prefix(8))
+        try await c.dav.makeDirectory(folder)
+        return (c, folder)
+    }
+
+    func contents(_ c: WebDAVConnection, _ path: VFSPath) async throws -> Data {
+        let file = try await c.dav.openForReading(path, bypassCache: false)
+        defer { Task { await file.close() } }
+        var data = Data()
+        while true {
+            let part = try await file.read(at: Int64(data.count), count: 4 * mb)
+            data.append(part)
+            if part.count < 4 * mb { return data }
+        }
+    }
+
+    @Test func findsOwnCloudAndItsExtras() async throws {
+        let (c, _) = try await connect()
+        defer { Task { await c.close() } }
+        let server = try #require(c.dav.nextcloud)
+        #expect(server.flavor == .owncloud && server.trash)
+        #expect(c.dav.root == "/remote.php/dav/files/\(self.server.user)")
+        #expect(c.dav.capabilities.contains(.trash) && c.dav.capabilities.contains(.setDates))
+        #expect(c.dav.canShareLinks)
+    }
+
+    @Test func uploadsInChunksWithDateAndChecksum() async throws {
+        let (c, folder) = try await connect()
+        defer { Task { await c.close() } }
+        let local = try scratch()
+        let src = local.appendingPathComponent("big.bin")
+        let data = randomData(23 * mb + 11)
+        try data.write(to: src)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_600_000_000)], ofItemAtPath: src.path)
+        _ = try await engine(c.registry).transferFile(.local(src.path), to: folder.appending("big.bin"), mode: .copy, LocalProvider(), c.dav)
+        #expect(try await c.dav.metadata(of: folder.appending("big.bin")).modified?.tv_sec == 1_600_000_000)
+        #expect(try await contents(c, folder.appending("big.bin")) == data)
+        var names: [String] = []
+        for try await batch in c.dav.list(folder) { names += batch.map(\.name) }
+        #expect(names == ["big.bin"])
+        // Dates of items already there are set too.
+        _ = try await c.dav.applyMetadata(FileMetadata(modified: timespec(tv_sec: 1_500_000_000, tv_nsec: 0)), to: folder.appending("big.bin"))
+        #expect(try await c.dav.metadata(of: folder.appending("big.bin")).modified?.tv_sec == 1_500_000_000)
+    }
+
+    @Test func trashAndPermanentDelete() async throws {
+        let (c, folder) = try await connect()
+        defer { Task { await c.close() } }
+        let local = try scratch()
+        for name in ["keep.txt", "gone.txt"] {
+            try Data(name.utf8).write(to: local.appendingPathComponent(name))
+            _ = try await engine(c.registry).transferFile(.local(local.appendingPathComponent(name).path),
+                                                          to: folder.appending(name), mode: .copy, LocalProvider(), c.dav)
+        }
+        try await c.dav.trash(folder.appending("keep.txt"))
+        try await c.dav.remove(folder.appending("gone.txt"))
+        let oc = try #require(c.dav.nextcloud)
+        let response = try await c.dav.send("PROPFIND", c.dav.url(server: oc.trashBin, folder: true), headers: ["Depth": "1"],
+                                            body: DAVXML.propfind(nextcloud: false, extra: [("oc", "trashbin-original-location")]))
+        let places = try DAVXML.parse(response.body).compactMap { $0.value(DAVNamespace.owncloud, "trashbin-original-location") }
+        let relative = String(folder.path.dropFirst())
+        #expect(places.contains(relative + "/keep.txt"))
+        #expect(!places.contains(relative + "/gone.txt"))
+    }
+
+    @Test func copyLinkMakesAndReusesAPublicLink() async throws {
+        let (c, folder) = try await connect()
+        defer { Task { await c.close() } }
+        let local = try scratch()
+        try Data("shared".utf8).write(to: local.appendingPathComponent("s.txt"))
+        _ = try await engine(c.registry).transferFile(.local(local.appendingPathComponent("s.txt").path),
+                                                      to: folder.appending("s.txt"), mode: .copy, LocalProvider(), c.dav)
+        let link = try await c.dav.sharedLink(for: folder.appending("s.txt"), lifetime: nil)
+        #expect(link.path.contains("/s/"))
+        #expect(try await c.dav.sharedLink(for: folder.appending("s.txt"), lifetime: nil) == link)
+        let (body, response) = try await URLSession(configuration: .ephemeral).data(from: link.appendingPathComponent("download"))
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        #expect(body == Data("shared".utf8))
+    }
+}
+
 /// Paths and the multistatus parser, on what servers send.
 @Suite struct WebDAVParsingTests {
     @Test func pathsAreEncodedAndDecoded() {

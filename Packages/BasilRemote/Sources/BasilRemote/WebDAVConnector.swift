@@ -92,20 +92,18 @@ public struct WebDAVConnector: RemoteConnector {
         }
         let id = text[marker.upperBound...].prefix { $0 != "/" && $0 != "<" }
         let userID = String(id).removingPercentEncoding ?? String(id)
-        var server = NextcloudServer(prefix: found.prefix, userID: userID, trash: false)
+        var server = NextcloudServer(prefix: found.prefix, userID: userID, trash: false,
+                                     flavor: found.isNextcloud ? .nextcloud : .owncloud)
         let files = dav + "/files/" + userID
         // The start folder: below the user's files, or below the old /remote.php/webdav.
         var start = ""
         for base in [files, found.prefix + "/remote.php/webdav"] where given.hasPrefix(base + "/") {
             start = String(given.dropFirst(base.count))
         }
-        if found.isNextcloud {
-            let trash = try await session.send("PROPFIND", server.trashBin + "/", headers: ["Depth": "0"])
-            server.trash = trash.status == 207
-        }
+        let trash = try await session.send("PROPFIND", server.trashBin + "/", headers: ["Depth": "0"])
+        server.trash = trash.status == 207
         let identity = client.endpoint.account + found.prefix
-        let provider = WebDAVProvider(client: client, root: files,
-                                      nextcloud: found.isNextcloud ? server : nil, identity: identity)
+        let provider = WebDAVProvider(client: client, root: files, nextcloud: server, identity: identity)
         return (provider, start)
     }
 

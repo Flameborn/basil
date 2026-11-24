@@ -190,3 +190,59 @@ final class NextcloudTestServer: Sendable {
         RemoteTarget(service: .webdav, host: "127.0.0.1", port: port, user: user, path: path, authentication: .password)
     }
 }
+
+/// ownCloud 10 (the owncloud/server image) through Docker as "basil-test-owncloud", like the
+/// Nextcloud one: SQLite, user alice, on a free port; stopped when the tests end. nil when
+/// Docker is not running.
+final class OwnCloudTestServer: Sendable {
+    static let shared: OwnCloudTestServer? = try? OwnCloudTestServer()
+
+    static let container = "basil-test-owncloud"
+    let port: Int
+    let user = "alice"
+    let password = "Basil-test-pw-1"
+
+    init() throws {
+        let docker = ["/opt/homebrew/bin/docker", "/usr/local/bin/docker",
+                      NSHomeDirectory() + "/.orbstack/bin/docker"].first { FileManager.default.isExecutableFile(atPath: $0) }
+        guard let docker, (try? NextcloudTestServer.output(docker, ["info", "--format", "{{.ServerVersion}}"])) != nil else {
+            throw VFSError.failed("Docker is not running")
+        }
+        func parsePort(_ text: String) -> Int? {
+            text.split(separator: ":").last.flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        }
+        if (try? NextcloudTestServer.output(docker, ["inspect", Self.container])) != nil {
+            _ = try NextcloudTestServer.output(docker, ["start", Self.container])
+            guard let found = parsePort(try NextcloudTestServer.output(docker, ["port", Self.container, "8080/tcp"])) else {
+                throw VFSError.failed("ownCloud container has no port")
+            }
+            self.port = found
+        } else {
+            let free = TestServer.freePort()
+            self.port = free
+            _ = try NextcloudTestServer.output(docker, [
+                "run", "-d", "--name", Self.container, "-p", "127.0.0.1:\(free):8080",
+                "-e", "OWNCLOUD_DOMAIN=127.0.0.1:\(free)", "-e", "OWNCLOUD_TRUSTED_DOMAINS=127.0.0.1,localhost",
+                "-e", "OWNCLOUD_ADMIN_USERNAME=\(user)", "-e", "OWNCLOUD_ADMIN_PASSWORD=\(password)",
+                "owncloud/server:10.15",
+            ])
+        }
+        atexit {
+            let docker = ["/opt/homebrew/bin/docker", "/usr/local/bin/docker", NSHomeDirectory() + "/.orbstack/bin/docker"]
+                .first { FileManager.default.isExecutableFile(atPath: $0) }
+            if let docker { _ = try? NextcloudTestServer.output(docker, ["stop", "-t", "2", OwnCloudTestServer.container]) }
+        }
+        let status = URL(string: "http://127.0.0.1:\(port)/status.php")!
+        for _ in 0..<240 {
+            if let data = try? Data(contentsOf: status), String(decoding: data, as: UTF8.self).contains("\"installed\":true") {
+                return
+            }
+            usleep(1_000_000)
+        }
+        throw VFSError.failed("ownCloud did not start")
+    }
+
+    func target(path: String? = nil) -> RemoteTarget {
+        RemoteTarget(service: .webdav, host: "127.0.0.1", port: port, user: user, path: path, authentication: .password)
+    }
+}

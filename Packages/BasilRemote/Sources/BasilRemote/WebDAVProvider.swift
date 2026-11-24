@@ -12,18 +12,31 @@ extension ProviderID {
     public static let webdavs = ProviderID("webdavs")
 }
 
-/// What a Nextcloud server adds to WebDAV, found when connecting.
+/// What a Nextcloud or ownCloud 10 server adds to WebDAV, found when connecting: chunked
+/// uploads, kept dates, the trash bin and public links. The two differ in the trash bin's path
+/// and property names.
 struct NextcloudServer: Sendable {
+    enum Flavor: Sendable { case nextcloud, owncloud }
     /// Where Nextcloud is installed on the server ("" or "/nextcloud").
     var prefix: String
     /// The user's ID, which names the DAV folders (it can differ from the login name).
     var userID: String
     /// The trash bin app answers.
     var trash: Bool
+    var flavor: Flavor = .nextcloud
 
     var dav: String { prefix + "/remote.php/dav" }
     var uploads: String { dav + "/uploads/" + userID }
-    var trashBin: String { dav + "/trashbin/" + userID + "/trash" }
+    var trashBin: String {
+        flavor == .nextcloud ? dav + "/trashbin/" + userID + "/trash" : dav + "/trash-bin/" + userID
+    }
+    /// The trash bin's namespace and its original-location and deletion-time properties.
+    var trashProperties: (namespace: String, prefix: String, location: String, time: String) {
+        flavor == .nextcloud
+            ? (DAVNamespace.nextcloud, "nc", "trashbin-original-location", "trashbin-deletion-time")
+            : (DAVNamespace.owncloud, "oc", "trashbin-original-location", "trashbin-delete-timestamp")
+    }
+    var name: String { flavor == .nextcloud ? "Nextcloud" : "ownCloud" }
 }
 
 /// Files on a WebDAV server. Paths are relative to the connection's top folder on the server
@@ -338,18 +351,16 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
     /// (files the trash bin does not keep) is fine.
     func purgeFromTrash(_ path: VFSPath) async throws {
         guard let nextcloud else { return }
-        let ns = DAVNamespace.nextcloud
+        let p = nextcloud.trashProperties
         let response = try await send("PROPFIND", url(server: nextcloud.trashBin, folder: true), headers: [
             "Depth": "1", "Content-Type": "application/xml; charset=utf-8",
-        ], body: DAVXML.propfind(nextcloud: false, extra: [
-            ("nc", "trashbin-filename"), ("nc", "trashbin-original-location"), ("nc", "trashbin-deletion-time"),
-        ]))
+        ], body: DAVXML.propfind(nextcloud: false, extra: [(p.prefix, p.location), (p.prefix, p.time)]))
         guard response.status == 207 else { return }
         let wanted = relative(path)
         let entries = (try? DAVXML.parse(response.body)) ?? []
         let match = entries
-            .filter { $0.value(ns, "trashbin-original-location") == wanted }
-            .max { (Int($0.value(ns, "trashbin-deletion-time") ?? "") ?? 0) < (Int($1.value(ns, "trashbin-deletion-time") ?? "") ?? 0) }
+            .filter { $0.value(p.namespace, p.location) == wanted }
+            .max { (Int($0.value(p.namespace, p.time) ?? "") ?? 0) < (Int($1.value(p.namespace, p.time) ?? "") ?? 0) }
         guard let match else { return }
         let server = DAVPath.decode(match.href)
         let gone = try await send("DELETE", url(server: server, folder: match.isCollection), retry: false)
@@ -400,12 +411,14 @@ extension WebDAVProvider: SharedLinkProvider {
     /// A public read-only link of a file or folder through Nextcloud's sharing API (OCS), without
     /// password or expiry. An existing read-only public link of the item is used again.
     public func sharedLink(for path: VFSPath, lifetime: LinkLifetime?) async throws -> URL {
-        guard let nextcloud else { throw VFSError.failed("\(host) is not a Nextcloud server, so it makes no links") }
+        guard let nextcloud else { throw VFSError.failed("\(host) is not a Nextcloud or ownCloud server, so it makes no links") }
         let shares = client.endpoint.origin + nextcloud.prefix + "/ocs/v2.php/apps/files_sharing/api/v1/shares"
         let headers = ["OCS-APIRequest": "true", "Accept": "application/json"]
         let itemPath = path.isRoot ? "/" : path.path
         var query = URLComponents(string: shares)!
-        query.queryItems = [URLQueryItem(name: "path", value: itemPath), URLQueryItem(name: "reshares", value: "false")]
+        // format=json: ownCloud answers XML without it (Nextcloud takes it too).
+        query.queryItems = [URLQueryItem(name: "path", value: itemPath), URLQueryItem(name: "reshares", value: "false"),
+                            URLQueryItem(name: "format", value: "json")]
         let existing = try await client.send("GET", query.url!, headers: headers)
         if existing.status == 404, Self.ocsData(existing.body) == nil {
             throw VFSError.notFound(path)
@@ -419,7 +432,7 @@ extension WebDAVProvider: SharedLinkProvider {
         form.queryItems = [URLQueryItem(name: "path", value: itemPath), URLQueryItem(name: "shareType", value: "3"),
                            URLQueryItem(name: "permissions", value: "1")]
         let body = Data((form.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
-        let made = try await client.send("POST", URL(string: shares)!,
+        let made = try await client.send("POST", URL(string: shares + "?format=json")!,
                                          headers: headers.merging(["Content-Type": "application/x-www-form-urlencoded"]) { $1 },
                                          body: body)
         guard made.status == 200, let data = Self.ocsData(made.body) as? [String: Any],
