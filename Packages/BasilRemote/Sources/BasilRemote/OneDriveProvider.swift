@@ -566,3 +566,10 @@ public final class OneDriveProvider: WritableProvider, ConnectedProvider, Shared
         throw VFSError.unsupported("making links on OneDrive")
     }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension OneDriveProvider {
+    public var destinationCaveats: [String] {
+        ["Replacing an existing file on OneDrive moves it to the recycle bin first (OneDrive has no atomic replace)."]
+    }
+}

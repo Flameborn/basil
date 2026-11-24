@@ -529,3 +529,10 @@ public final class S3Provider: WritableProvider, ConnectedProvider, @unchecked S
         return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
     }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension S3Provider {
+    public var destinationCaveats: [String] {
+        ["S3 has no fsync: an object counts as stored once the server has answered. Renaming into place is a server-side copy and a delete."]
+    }
+}

@@ -322,3 +322,14 @@ struct SMBFile: WritableFile {
 
     func close() async { await inner.close() }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension SMBProvider {
+    public var sourceCaveats: [String] {
+        ["A file changed on the server by a program running there (not through SMB) while Basil reads it may not be seen."]
+    }
+
+    public var destinationCaveats: [String] {
+        ["smbfs has no full fsync (F_FULLFSYNC); Basil uses fsync, which the server may answer before the data is on its disk."]
+    }
+}

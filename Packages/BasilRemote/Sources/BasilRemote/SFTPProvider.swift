@@ -439,3 +439,14 @@ final class SFTPFile: ReadableFile, WritableFile, @unchecked Sendable {
         }
     }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension SFTPProvider {
+    public var sourceCaveats: [String] {
+        ["SFTP gives sizes and whole-second modification times only, so a file rewritten on the server at the same size within one second is not seen as changed."]
+    }
+
+    public var destinationCaveats: [String] {
+        ["When the server lacks the fsync@openssh.com extension, a file counts as written once the server has received it."]
+    }
+}

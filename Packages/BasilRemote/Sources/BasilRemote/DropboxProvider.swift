@@ -687,3 +687,10 @@ actor DropboxWriteFile: WritableFile {
         buffer = Data()
     }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension DropboxProvider {
+    public var destinationCaveats: [String] {
+        ["Replacing an existing file on Dropbox deletes it first (Dropbox has no atomic replace); it stays restorable on dropbox.com."]
+    }
+}

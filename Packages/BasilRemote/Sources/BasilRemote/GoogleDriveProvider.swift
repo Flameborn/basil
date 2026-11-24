@@ -715,3 +715,10 @@ struct MemoryReadFile: ReadableFile {
 
     func close() async {}
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension GoogleDriveProvider {
+    public var destinationCaveats: [String] {
+        ["Replacing an existing file on Google Drive moves it to the trash first (Drive has no atomic replace)."]
+    }
+}

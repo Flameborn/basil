@@ -69,6 +69,7 @@ public struct UploadEditedCopyOperation: QueueOperation {
         let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: size, totalFiles: 1, errors: errors)
         let engine = SecureCopyEngine(registry: registry, options: options, monitor: monitor)
         context.log(options.secure ? "Secure mode" : "Total Commander style mode")
+        if options.secure { logCaveats(context, sources: [], destination: dst) }
         monitor.setLabel(destination.name)
         var summary = TransferSummary()
         let uploaded = try await errors.run(copy) {

@@ -500,3 +500,14 @@ actor FTPWriteFile: WritableFile {
         try? await finish()
     }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension FTPProvider {
+    public var sourceCaveats: [String] {
+        ["FTP gives whole-second times (servers without MLSD and MDTM only minutes), so a file rewritten on the server at the same size within that time is not seen as changed."]
+    }
+
+    public var destinationCaveats: [String] {
+        ["FTP has no fsync: a file counts as written once the server has confirmed the transfer."]
+    }
+}

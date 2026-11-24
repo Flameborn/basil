@@ -277,6 +277,29 @@ private final class Monitor: TransferMonitor {
         return .local(url.path)
     }
 
+    @MainActor
+    @Test func secureUploadLogsWhatSFTPCannotGuarantee() async throws {
+        let box = try RemoteSandbox()
+        let (registry, _, root) = try await connect(box)
+        defer { Task { await registry.disconnect(root.location) } }
+        let file = try localFile(box, "note.txt", Data("hello".utf8))
+        let queue = FileOperationQueue()
+        let item = queue.add(TransferOperation(mode: .copy, sources: [file],
+                                               target: root, registry: registry, options: SecureCopyOptions(secure: true)))
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !item.state.isDone, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(item.state == .finished)
+        #expect(item.log.contains { $0.hasPrefix("Not guaranteed: When the server lacks the fsync@openssh.com extension") })
+        // Downloading notes what SFTP cannot see in a source.
+        let back = queue.add(TransferOperation(mode: .copy, sources: [root.appending("note.txt")],
+                                               target: .local(box.folder.appendingPathComponent("back.txt").path),
+                                               registry: registry, options: SecureCopyOptions(secure: true)))
+        while !back.state.isDone, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(back.state == .finished)
+        #expect(back.log.contains { $0.hasPrefix("Not guaranteed: SFTP gives sizes and whole-second") })
+        #expect(!back.log.contains { $0.contains("fsync@openssh.com") })
+    }
+
     @Test func copiesATreeUpAndDown() async throws {
         let box = try RemoteSandbox()
         let (registry, _, root) = try await connect(box)

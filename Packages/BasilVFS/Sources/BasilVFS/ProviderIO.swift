@@ -125,9 +125,16 @@ public protocol WritableProvider: FileSystemProvider {
     var maxTransferChunkSize: Int? { get }
     /// Moves an item (file or whole folder) to the trash. Requires the `.trash` capability.
     func trash(_ path: VFSPath) async throws
+    /// Where this provider as a copy source falls short of the secure copy contract (changes it
+    /// cannot see), in sentences for the queue log. Empty when it does not.
+    var sourceCaveats: [String] { get }
+    /// The same as a copy target (no fsync, replacing that is not atomic).
+    var destinationCaveats: [String] { get }
 }
 
 extension WritableProvider {
     public var maxTransferChunkSize: Int? { nil }
+    public var sourceCaveats: [String] { [] }
+    public var destinationCaveats: [String] { [] }
     public func trash(_ path: VFSPath) async throws { throw VFSError.unsupported("moving to the Trash") }
 }

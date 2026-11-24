@@ -117,6 +117,7 @@ public struct UnpackOperation: QueueOperation {
                                            errors: errors)
         var pairsDone = 0
         let engine = SecureCopyEngine(registry: registry, options: options.copy, monitor: monitor)
+        if options.copy.secure { logCaveats(context, sources: [], destination: dst) }
         context.items(done: 0, total: archives.count)
         var done = 0
         for plan in plans {

@@ -161,6 +161,10 @@ public struct TransferOperation: QueueOperation {
                                            errors: errors)
         let engine = SecureCopyEngine(registry: registry, options: options, monitor: monitor)
         context.log(options.secure ? "Secure mode" : "Total Commander style mode")
+        if options.secure {
+            let srcs = sources.compactMap { try? registry.writableProvider(for: $0.location) }
+            logCaveats(context, sources: srcs, destination: dst)
+        }
         var done = 0
         var complete: [VFSPath] = []
         var settledBytes: Int64 = 0
@@ -225,6 +229,14 @@ public struct TransferOperation: QueueOperation {
         }
         return (bytes, files)
     }
+}
+
+/// Logs once per operation where the providers involved fall short of the secure copy contract
+/// ("The queue log states when a guarantee could not be met").
+func logCaveats(_ context: OperationContext, sources: [any WritableProvider], destination: (any WritableProvider)?) {
+    var seen = Set<String>()
+    let lines = sources.flatMap(\.sourceCaveats) + (destination?.destinationCaveats ?? [])
+    for line in lines where seen.insert(line).inserted { context.log("Not guaranteed: \(line)") }
 }
 
 /// Connects the copy engine to a queue item: progress (with speed, time left and the current

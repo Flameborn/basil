@@ -377,3 +377,14 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
         throw VFSError.unsupported("making links on a WebDAV server")
     }
 }
+
+/// What the queue log notes about this provider in secure copy mode.
+extension WebDAVProvider {
+    public var sourceCaveats: [String] {
+        ["WebDAV changes are seen through the ETag, size and whole-second dates; a server whose ETag does not follow the content would hide a rewrite at the same size within one second."]
+    }
+
+    public var destinationCaveats: [String] {
+        ["WebDAV has no fsync: a file counts as written once the server has answered, and replacing a file deletes the old one first on most servers."]
+    }
+}
