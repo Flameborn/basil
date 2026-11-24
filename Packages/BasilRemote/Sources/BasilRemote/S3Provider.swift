@@ -336,6 +336,18 @@ public final class S3Provider: WritableProvider, ConnectedProvider, @unchecked S
         return S3WriteFile(path: path, bucket: bucket, key: key, provider: self)
     }
 
+    /// Secure copies write straight at the final key: an object appears only once its upload is
+    /// committed, and replaces the old one at once.
+    public func createFileInPlace(_ path: VFSPath, replacing: Bool) async throws -> (any WritableFile)? {
+        guard let (bucket, key) = split(path), !key.isEmpty else { throw VFSError.alreadyExists(path) }
+        switch try await find(path) {
+        case .folder?: throw VFSError.alreadyExists(path)
+        case .file? where !replacing: throw VFSError.alreadyExists(path)
+        default: break
+        }
+        return S3WriteFile(path: path, bucket: bucket, key: key, provider: self)
+    }
+
     /// A copy then a delete. A folder is renamed object by object.
     public func rename(_ from: VFSPath, to: VFSPath, replacing: Bool) async throws {
         guard let (bucket, key) = split(from), !key.isEmpty else { throw VFSError.unsupported("renaming buckets") }
@@ -533,6 +545,6 @@ public final class S3Provider: WritableProvider, ConnectedProvider, @unchecked S
 /// What the queue log notes about this provider in secure copy mode.
 extension S3Provider {
     public var destinationCaveats: [String] {
-        ["S3 has no fsync: an object counts as stored once the server has answered. Renaming into place is a server-side copy and a delete."]
+        ["S3 has no fsync: an object counts as stored once the server has answered its upload."]
     }
 }

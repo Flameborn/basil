@@ -380,6 +380,43 @@ struct S3Tests {
         #expect(try await names(c, bucket) == ["a.bin"])
     }
 
+    /// Secure uploads write straight at the final key (no partial object, no copy into place):
+    /// the old object stays readable until the new one is committed, and a cancelled upload
+    /// leaves it as it was.
+    @Test func secureUploadReplacesInPlaceAndKeepsTheOldObjectUntilCommitted() async throws {
+        let (c, bucket) = try await connectWithBucket()
+        defer { Task { await c.close() } }
+        let path = bucket.appending("a.bin")
+        let old = randomData(1000)
+        try await put(c, path, old)
+        let src = try scratch().appendingPathComponent("a.bin")
+        try randomData(20 * mb).write(to: src)
+        let seen = Mutex<[Data]>([])
+        let replacing = SecureCopyEngine(registry: c.registry,
+                                         options: SecureCopyOptions(retryDelay: .milliseconds(1), replaceExisting: true, secure: true),
+                                         monitor: Monitor(), hooks: EngineHooks(afterChunk: { pass, index in
+            if index == 1, let now = try? await contents(c, path) { seen.withLock { $0.append(now) } }
+        }, afterClone: nil, allowed: [.rename, .clone, .stream]))
+        _ = try await replacing.transferFile(.local(src.path), to: path, mode: .copy, LocalProvider(), c.s3)
+        #expect(seen.withLock { $0 } == [old])
+        #expect(try await contents(c, path) == Data(contentsOf: src))
+        #expect(try await names(c, bucket) == ["a.bin"])
+
+        // Cancelled halfway: the object is still the last committed one.
+        let before = try await contents(c, path)
+        try randomData(20 * mb).write(to: src)
+        let cancelling = SecureCopyEngine(registry: c.registry,
+                                          options: SecureCopyOptions(retryDelay: .milliseconds(1), replaceExisting: true, secure: true),
+                                          monitor: Monitor(), hooks: EngineHooks(afterChunk: { _, index in
+            if index == 1 { withUnsafeCurrentTask { $0?.cancel() } }
+        }, afterClone: nil, allowed: [.rename, .clone, .stream]))
+        await #expect(throws: CancellationError.self) {
+            _ = try await cancelling.transferFile(.local(src.path), to: path, mode: .copy, LocalProvider(), c.s3)
+        }
+        #expect(try await contents(c, path) == before)
+        #expect(try await names(c, bucket) == ["a.bin"])
+    }
+
     @Test func localSourceAppendedDuringUpload() async throws {
         try await upload { src in
             let h = try! FileHandle(forWritingTo: src)

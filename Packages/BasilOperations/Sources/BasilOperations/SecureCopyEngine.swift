@@ -439,11 +439,20 @@ public struct SecureCopyEngine: Sendable {
 
         var result: FileTransferResult
         var stableFingerprint: FileFingerprint?
+        var inPlace = false
         do {
             let sameVolume = try await canRename(source, to: destination, src, dst)
             if sameVolume, hooks.allowed.contains(.clone), src.capabilities.contains(.clone),
                let r = try await cloneFile(source, partial: partial, src) {
                 (result, stableFingerprint) = r
+            } else if let first = try await dst.createFileInPlace(destination, replacing: replace) {
+                // Files that appear only when committed (S3): no partial file and no rename.
+                inPlace = true
+                let replacing = replace
+                (result, stableFingerprint) = try await streamFile(source, partial: destination, src, dst, first: first) {
+                    if let again = try await dst.createFileInPlace(destination, replacing: replacing) { return again }
+                    return try await dst.createFile(destination)
+                }
             } else {
                 (result, stableFingerprint) = try await streamFile(source, partial: partial, src, dst)
             }
@@ -451,9 +460,9 @@ public struct SecureCopyEngine: Sendable {
                 monitor.log("Skipped \(source.name)")
                 return result
             }
-            try await dst.rename(partial, to: destination, replacing: replace)
+            if !inPlace { try await dst.rename(partial, to: destination, replacing: replace) }
         } catch {
-            try? await dst.remove(partial)
+            if !inPlace { try? await dst.remove(partial) }
             throw error
         }
 
@@ -593,8 +602,12 @@ public struct SecureCopyEngine: Sendable {
         }
     }
 
+    /// `first` and `reopen`: a file written in place (`createFileInPlace`): never removed, only
+    /// closed (which drops an uncommitted upload) and opened again.
     private func streamFile(_ source: VFSPath, partial: VFSPath,
-                            _ src: any WritableProvider, _ dst: any WritableProvider)
+                            _ src: any WritableProvider, _ dst: any WritableProvider,
+                            first: (any WritableFile)? = nil,
+                            reopen: (() async throws -> any WritableFile)? = nil)
         async throws -> (FileTransferResult, FileFingerprint?) {
         var result = FileTransferResult(outcome: .completed, strategy: .stream)
         var before = try await src.fingerprint(of: source)
@@ -603,7 +616,9 @@ public struct SecureCopyEngine: Sendable {
         let chunk = Self.chunkSize(forFileSize: before.size, limit: limit)
         let randomWrite = dst.capabilities.contains(.randomAccessWrite)
 
-        var writer = try await dst.createFile(partial)
+        let inPlace = first != nil
+        var writer: any WritableFile
+        if let first { writer = first } else { writer = try await dst.createFile(partial) }
         var hashes: [BLAKE3Digest] = []
         var stable: FileFingerprint?
         do {
@@ -623,7 +638,7 @@ public struct SecureCopyEngine: Sendable {
                     case .acceptLatest: result.outcome = .acceptedUnstable
                     case .skip:
                         await writer.close()
-                        try await dst.remove(partial)
+                        if !inPlace { try await dst.remove(partial) }
                         result.outcome = .skipped
                         return (result, nil)
                     case .cancel: throw CancellationError()
@@ -638,8 +653,12 @@ public struct SecureCopyEngine: Sendable {
                 if !randomWrite {
                     // Without random-access writes the partial file is rewritten from the start.
                     await writer.close()
-                    try await dst.remove(partial)
-                    writer = try await dst.createFile(partial)
+                    if let reopen {
+                        writer = try await reopen()
+                    } else {
+                        try await dst.remove(partial)
+                        writer = try await dst.createFile(partial)
+                    }
                     hashes = []
                 }
                 let r = try await pass(source, src, writer, chunk: chunk, hashes: &hashes, number: attempts)

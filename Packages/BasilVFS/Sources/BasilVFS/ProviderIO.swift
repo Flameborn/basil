@@ -130,11 +130,18 @@ public protocol WritableProvider: FileSystemProvider {
     var sourceCaveats: [String] { get }
     /// The same as a copy target (no fsync, replacing that is not atomic).
     var destinationCaveats: [String] { get }
+    /// For providers whose new files appear only whole, when committed (`WritableFile.apply` or
+    /// `synchronize`), and replace an existing one at once (S3): a file written straight at its
+    /// final name, replacing what is there only when `replacing`. Closing it before the commit
+    /// leaves the old file as it was, and the engine never removes it. Nil (the default): the
+    /// engine writes a partial file and renames it into place.
+    func createFileInPlace(_ path: VFSPath, replacing: Bool) async throws -> (any WritableFile)?
 }
 
 extension WritableProvider {
     public var maxTransferChunkSize: Int? { nil }
     public var sourceCaveats: [String] { [] }
     public var destinationCaveats: [String] { [] }
+    public func createFileInPlace(_ path: VFSPath, replacing: Bool) async throws -> (any WritableFile)? { nil }
     public func trash(_ path: VFSPath) async throws { throw VFSError.unsupported("moving to the Trash") }
 }
