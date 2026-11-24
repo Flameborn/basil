@@ -604,6 +604,20 @@ struct OwnCloudTests {
     }
 }
 
+/// A closed HTTP client refuses requests instead of making tasks on an invalidated session
+/// (which raises an exception that ends the process).
+@Suite struct HTTPClientCloseTests {
+    @Test func requestsAfterCloseFail() async throws {
+        let client = HTTPClient(endpoint: HTTPEndpoint(service: .webdav, secure: false, host: "127.0.0.1", port: 9,
+                                                       defaultPort: 80, user: ""))
+        client.close()
+        client.close()
+        await #expect(throws: VFSError.self) { _ = try await client.send("GET", URL(string: "http://127.0.0.1:9/")!) }
+        let download = client.download(URL(string: "http://127.0.0.1:9/")!, from: 0)
+        download.cancel()
+    }
+}
+
 /// Paths and the multistatus parser, on what servers send.
 @Suite struct WebDAVParsingTests {
     @Test func pathsAreEncodedAndDecoded() {

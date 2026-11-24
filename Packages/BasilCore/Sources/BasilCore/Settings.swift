@@ -90,6 +90,10 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var searchIndex = true
     /// Other volumes ticked for indexing in Settings, by identity (see `IndexedVolume`).
     public var indexedVolumes: [IndexedVolume] = []
+    /// Colour themes made in Settings > Themes (Basil's own is not stored).
+    public var customThemes: [ThemeDefinition] = []
+    /// The theme in use (`ThemeDefinition.builtinID` for Basil's own).
+    public var themeID = ThemeDefinition.builtinID
     /// Plugins by id: turned on or off, and the permissions the user granted.
     public var plugins: [String: PluginSetting] = [:]
     /// How long the last S3 link made with Copy Link worked (seconds; Copy Link offers it first).
@@ -145,6 +149,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         skippedUpdateVersion = try c.decodeIfPresent(String.self, forKey: .skippedUpdateVersion) ?? d.skippedUpdateVersion
         searchIndex = try c.decodeIfPresent(Bool.self, forKey: .searchIndex) ?? d.searchIndex
         indexedVolumes = try c.decodeIfPresent([IndexedVolume].self, forKey: .indexedVolumes) ?? d.indexedVolumes
+        customThemes = try c.decodeIfPresent([ThemeDefinition].self, forKey: .customThemes) ?? d.customThemes
+        themeID = try c.decodeIfPresent(String.self, forKey: .themeID) ?? d.themeID
         plugins = try c.decodeIfPresent([String: PluginSetting].self, forKey: .plugins) ?? d.plugins
         linkLifetimeSeconds = try c.decodeIfPresent(Int.self, forKey: .linkLifetimeSeconds) ?? d.linkLifetimeSeconds
         networkIndexRescanHours = try c.decodeIfPresent(Int.self, forKey: .networkIndexRescanHours) ?? d.networkIndexRescanHours

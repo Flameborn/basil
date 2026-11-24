@@ -94,6 +94,8 @@ final class HTTPClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate
         var untrustedChain: [Data]?
         /// Per-task delegates of downloads, by task identifier.
         var downloads: [Int: HTTPDownload] = [:]
+        /// Disconnected: no request touches the session any more.
+        var closed = false
     }
 
     private let state = Mutex(State())
@@ -119,7 +121,26 @@ final class HTTPClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate
     func accept(certificate digest: Data?) { state.withLock { $0.acceptedCertificate = digest } }
     var acceptedCertificate: Data? { state.withLock { $0.acceptedCertificate } }
 
-    func close() { session.invalidateAndCancel() }
+    /// Ends the connection. Requests from now on fail at once; running ones are cancelled. The
+    /// session is invalidated a while later: a request that checked just before the close may
+    /// still make its task, and a task made on an invalidated session raises an exception that
+    /// ends the process.
+    func close() {
+        let first = state.withLock { s -> Bool in
+            defer { s.closed = true }
+            return !s.closed
+        }
+        guard first, let session else { return }
+        session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) { session.invalidateAndCancel() }
+    }
+
+    var isClosed: Bool { state.withLock { $0.closed } }
+
+    private var closedError: VFSError { .failed("The connection to \(endpoint.hostAndPort) was closed") }
+
+    /// Makes tasks that are cancelled at once, for downloads asked for after the close.
+    private static let closedSession = URLSession(configuration: .ephemeral)
 
     // MARK: Requests
 
@@ -145,6 +166,7 @@ final class HTTPClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate
         var attempt = 0
         while true {
             attempt += 1
+            if isClosed { throw closedError }
             let request = request(method, url, headers: headers)
             let result: (Data, URLResponse)
             do {
@@ -226,6 +248,11 @@ final class HTTPClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate
         if offset > 0 { headers["Range"] = "bytes=\(offset)-" }
         var request = request("GET", url, headers: headers)
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        if isClosed {
+            let task = Self.closedSession.dataTask(with: request)
+            task.cancel()
+            return HTTPDownload(task: task, client: self)
+        }
         let task = session.dataTask(with: request)
         let download = HTTPDownload(task: task, client: self)
         state.withLock { $0.downloads[task.taskIdentifier] = download }
@@ -240,6 +267,7 @@ final class HTTPClient: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate
 
     /// Runs a request whose body is a stream; used by `HTTPStreamUpload`.
     func perform(streamed request: URLRequest) async throws -> HTTPResponse {
+        if isClosed { throw closedError }
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await session.data(for: request)
