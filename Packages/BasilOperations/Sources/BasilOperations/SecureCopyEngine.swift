@@ -530,7 +530,7 @@ public struct SecureCopyEngine: Sendable {
             if replacing { try await dst.remove(destination) }
             let limit = [src.maxTransferChunkSize, dst.maxTransferChunkSize].compactMap { $0 }.min()
             let chunk = Self.chunkSize(forFileSize: fp.size, limit: limit)
-            let writer = try await dst.createFile(destination)
+            let writer = try await dst.createFile(destination, expectedSize: fp.size)
             do {
                 var hashes: [BLAKE3Digest] = []
                 _ = try await pass(source, src, writer, chunk: chunk, hashes: &hashes, number: 0,
@@ -625,7 +625,7 @@ public struct SecureCopyEngine: Sendable {
 
         let inPlace = first != nil
         var writer: any WritableFile
-        if let first { writer = first } else { writer = try await dst.createFile(partial) }
+        if let first { writer = first } else { writer = try await dst.createFile(partial, expectedSize: before.size) }
         var hashes: [BLAKE3Digest] = []
         var stable: FileFingerprint?
         do {
@@ -664,7 +664,7 @@ public struct SecureCopyEngine: Sendable {
                         writer = try await reopen()
                     } else {
                         try await dst.remove(partial)
-                        writer = try await dst.createFile(partial)
+                        writer = try await dst.createFile(partial, expectedSize: before.size)
                     }
                     hashes = []
                 }

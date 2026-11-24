@@ -434,6 +434,33 @@ private func referenceQuickXor(_ data: Data) -> String {
         #expect(try s.fake.child("other.bin")?.data == Data(contentsOf: URL(fileURLWithPath: other.path)))
         // No token went to the upload or download addresses.
         #expect(s.fake.state.withLock { $0.leakedTokens } == 0)
+        // The sizes were known: nothing was kept in a temporary file first.
+        #expect(s.provider.spooledUploads.withLock { $0 } == 0)
+    }
+
+    /// A large source that grows during the direct upload: that upload is dropped and the
+    /// engine's next pass keeps the file in a temporary file, so the result is still complete.
+    @Test func largeSourceAppendedDuringADirectUploadFallsBackToTheTemporaryFile() async throws {
+        let s = try await setUp()
+        let src = try local(s, "big.bin", randomData(12 * mb + 5))
+        let once = Once()
+        let copy = engine(s.registry) { pass, index in
+            if pass == 0, index == 2 {
+                once {
+                    let h = try! FileHandle(forWritingTo: URL(fileURLWithPath: src.path))
+                    try! h.seekToEnd(); try! h.write(contentsOf: randomData(3 * mb)); try! h.close()
+                }
+            }
+        }
+        let result = try await copy.transferFile(src, to: s.top.appending("big.bin"), mode: .copy, LocalProvider(), s.provider)
+        #expect(result.retries == 1)
+        #expect(try s.fake.child("big.bin")?.data == Data(contentsOf: URL(fileURLWithPath: src.path)))
+        #expect(s.provider.spooledUploads.withLock { $0 } == 1)
+        #expect(s.fake.state.withLock { $0.sessions.isEmpty })
+        // The next copy of another file goes up directly again.
+        let other = try local(s, "next.bin", randomData(6 * mb))
+        _ = try await engine(s.registry).transferFile(other, to: s.top.appending("next.bin"), mode: .copy, LocalProvider(), s.provider)
+        #expect(s.provider.spooledUploads.withLock { $0 } == 1)
     }
 
     @Test func anUploadClosedBeforeTheEndIsNeverStored() async throws {

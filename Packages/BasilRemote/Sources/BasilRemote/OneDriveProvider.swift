@@ -44,6 +44,11 @@ public final class OneDriveProvider: WritableProvider, ConnectedProvider, Shared
     private let refs = Mutex<[String: (ref: OneDriveRef, time: Date)]>([:])
     /// Files created and not uploaded yet (their paths); removing one only forgets it.
     let uncommitted = Mutex<Set<String>>([])
+    /// Files whose direct upload had to stop because the source changed size: the next try
+    /// keeps them in a temporary file first.
+    let directUploadFailed = Mutex<Set<String>>([])
+    /// Uploads that went through a temporary file (tests).
+    let spooledUploads = Mutex(0)
 
     public var connectionTitle: String { "OneDrive (\(email))" }
     public var homeDirectory: VFSPath { VFSPath(location: location, path: "/") }
@@ -486,11 +491,19 @@ public final class OneDriveProvider: WritableProvider, ConnectedProvider, Shared
     }
 
     public func createFile(_ path: VFSPath) async throws -> any WritableFile {
+        try await createFile(path, expectedSize: nil)
+    }
+
+    /// With the size known, a large file goes up piece by piece as it is written; when the
+    /// source then turns out to be another size, the engine writes the file again and that
+    /// time it is kept in a temporary file first (`directUploadFailed`).
+    public func createFile(_ path: VFSPath, expectedSize: Int64?) async throws -> any WritableFile {
         guard let folder = path.parent else { throw VFSError.alreadyExists(path) }
         let parent = try await writableFolder(folder, for: path)
         if try await existing(path, in: parent) != nil { throw VFSError.alreadyExists(path) }
         uncommitted.withLock { _ = $0.insert(path.path) }
-        return OneDriveWriteFile(path: path, parent: parent, provider: self)
+        let direct = directUploadFailed.withLock { !$0.contains(path.path) } ? expectedSize : nil
+        return OneDriveWriteFile(path: path, parent: parent, provider: self, expectedSize: direct)
     }
 
     /// Renames and moves inside one drive (a move between drives is a copy and a delete, which

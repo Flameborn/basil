@@ -110,6 +110,9 @@ public protocol WritableProvider: FileSystemProvider {
     func openForReading(_ path: VFSPath, bypassCache: Bool) async throws -> any ReadableFile
     /// Creates a new file. Fails with `.alreadyExists` if anything is at `path`.
     func createFile(_ path: VFSPath) async throws -> any WritableFile
+    /// The same, told how many bytes the copy engine expects to write (the source's size when
+    /// the pass starts), so a provider can send a large file without keeping it first (OneDrive).
+    func createFile(_ path: VFSPath, expectedSize: Int64?) async throws -> any WritableFile
     /// Renames within this provider. Without `replacing`, fails with `.alreadyExists` if the target exists.
     func rename(_ from: VFSPath, to: VFSPath, replacing: Bool) async throws
     /// Copy-on-write clone of a file (target must not exist). Throws `.unsupported` if the volume can't.
@@ -146,6 +149,7 @@ extension WritableProvider {
     public var maxTransferChunkSize: Int? { nil }
     public var sourceCaveats: [String] { [] }
     public var copiesFolderLinksAsFolders: Bool { false }
+    public func createFile(_ path: VFSPath, expectedSize: Int64?) async throws -> any WritableFile { try await createFile(path) }
     public var destinationCaveats: [String] { [] }
     public func createFileInPlace(_ path: VFSPath, replacing: Bool) async throws -> (any WritableFile)? { nil }
     public func trash(_ path: VFSPath) async throws { throw VFSError.unsupported("moving to the Trash") }

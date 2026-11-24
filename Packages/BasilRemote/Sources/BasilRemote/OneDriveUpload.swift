@@ -4,9 +4,12 @@ import Foundation
 
 /// The copy engine's partial file on OneDrive, written from the start (OneDrive has no
 /// random-access writes). Up to `smallFile` bytes it stays in memory and goes up in one PUT.
-/// A larger file is kept in a temporary file ("Basil OneDrive uploads") until the end, because
-/// every piece of an upload session must state the file's total size; it then goes up through
-/// an upload session in `chunkSize` pieces, created with the file's date. The upload happens
+/// Every piece of an upload session states the file's total size: when the engine knows it
+/// (`expectedSize`), a larger file goes up in `chunkSize` pieces while it is written, the last
+/// piece held back until the commit; if more bytes come than expected the session is dropped,
+/// the commit fails and the provider keeps that file in a temporary file the next time. Without
+/// a size, a larger file is kept in a temporary file ("Basil OneDrive uploads") until the end
+/// and then sent through an upload session. The upload happens
 /// when the metadata is applied (the engine does that after the last write) or the file is
 /// synchronized; only then does the file exist in OneDrive, and its size and QuickXorHash must
 /// match what was written. A file closed before that is never stored.
@@ -28,11 +31,18 @@ actor OneDriveWriteFile: WritableFile {
     private var session: URL?
     private var committed = false
     private var closed = false
+    /// The size the whole file will have when it goes up directly (nil: spooled or small).
+    private let expected: Int64?
+    /// Bytes sent to the upload session so far (direct uploads).
+    private var sent: Int64 = 0
+    /// The source turned out larger than expected: nothing more is sent.
+    private var broken = false
 
-    init(path: VFSPath, parent: OneDriveRef, provider: OneDriveProvider) {
+    init(path: VFSPath, parent: OneDriveRef, provider: OneDriveProvider, expectedSize: Int64? = nil) {
         self.path = path
         self.parent = parent
         self.provider = provider
+        expected = expectedSize.flatMap { $0 > Int64(Self.smallFile) ? $0 : nil }
     }
 
     private var action: String { "Uploading \(path.name)" }
@@ -42,6 +52,24 @@ actor OneDriveWriteFile: WritableFile {
         guard !committed, !closed else { throw VFSError.failed("The upload of \(path.name) has already ended") }
         written += Int64(data.count)
         hash.update(data)
+        if let expected {
+            guard !broken else { return }
+            if written > expected {
+                broken = true
+                buffer = Data()
+                provider.directUploadFailed.withLock { _ = $0.insert(path.path) }
+                await cancelSession()
+                return
+            }
+            buffer.append(data)
+            // Every full piece but the last goes up now; the last waits for the commit.
+            while Int64(buffer.count) > Int64(Self.chunkSize), sent + Int64(buffer.count) <= expected {
+                let piece = buffer.prefix(Self.chunkSize)
+                _ = try await send(Data(piece), total: expected)
+                buffer.removeFirst(piece.count)
+            }
+            return
+        }
         if let spool {
             let handle = spool.handle
             try await WebDAVIO.run { try handle.write(contentsOf: data) }
@@ -60,7 +88,37 @@ actor OneDriveWriteFile: WritableFile {
             }
             spool = (handle, file)
             buffer = Data()
+            provider.spooledUploads.withLock { $0 += 1 }
         }
+    }
+
+    /// Opens the upload session (first piece) and sends one piece of a file of `total` bytes.
+    /// The answer to the last piece is the stored item.
+    private func send(_ piece: Data, total: Int64) async throws -> GraphItem? {
+        if session == nil {
+            let created = try await provider.send("POST", provider.url(provider.childPath(parent, path.name) + "/createUploadSession"),
+                                                  json: ["item": ["@microsoft.graph.conflictBehavior": "fail"]], retry: false)
+            struct Session: Decodable { var uploadUrl: String }
+            let answer = try provider.decode(Session.self, created, action, path)
+            guard let url = URL(string: answer.uploadUrl) else {
+                throw VFSError.failed("\(action) failed: OneDrive sent an upload address Basil cannot read")
+            }
+            session = url
+        }
+        guard let url = session else { return nil }
+        let last = sent + Int64(piece.count) - 1
+        // The upload address carries its own authorisation: no token is sent to it.
+        let response = try await provider.client.send("PUT", url, headers: [
+            "Content-Range": "bytes \(sent)-\(last)/\(total)", "Content-Type": "application/octet-stream",
+        ], body: piece, retry: false)
+        sent = last + 1
+        if sent >= total {
+            guard response.status == 200 || response.status == 201 else { throw failed(response) }
+            session = nil
+            return try provider.decode(GraphItem.self, response, action, path)
+        }
+        guard response.status == 202 else { throw failed(response) }
+        return nil
     }
 
     func truncate(to length: Int64) async throws {
@@ -72,7 +130,16 @@ actor OneDriveWriteFile: WritableFile {
         guard !committed else { return }
         guard !closed else { throw VFSError.failed("The upload of \(path.name) has already ended") }
         let stored: GraphItem
-        if let spool {
+        if let expected {
+            guard !broken, written == expected else {
+                provider.directUploadFailed.withLock { _ = $0.insert(path.path) }
+                throw VFSError.failed("\(action) failed: the file changed size while it was uploaded")
+            }
+            guard let item = try await send(buffer, total: expected) else {
+                throw VFSError.failed("\(action) failed: the upload ended early")
+            }
+            stored = item
+        } else if let spool {
             stored = try await uploadSession(spool.handle, spool.file)
         } else {
             let address = provider.url(provider.childPath(parent, path.name) + "/content",
@@ -91,12 +158,13 @@ actor OneDriveWriteFile: WritableFile {
         if let theirs = item.file?.hashes?.quickXorHash, theirs != hash.base64 {
             throw VFSError.failed("\(action) failed: the file OneDrive stored differs from the one sent (QuickXorHash)")
         }
-        if spool == nil, let modified {
+        if spool == nil || expected != nil, let modified {
             let patched = try await provider.send("PATCH", provider.url(provider.itemPath(parent.contentDrive, item.id), [("$select", GraphItem.select)]),
                                                   json: ["fileSystemInfo": ["lastModifiedDateTime": modified]])
             if patched.isSuccess, let file = try? JSONDecoder().decode(GraphItem.self, from: patched.body) { item = file }
         }
         spool = nil
+        provider.directUploadFailed.withLock { _ = $0.remove(path.path) }
         provider.remember(path, OneDriveRef.of(item, drive: parent.contentDrive))
     }
 
