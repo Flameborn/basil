@@ -228,6 +228,9 @@ public protocol RemoteConnector: Sendable {
     var usesServerAddress: Bool { get }
     /// A sentence the editor shows about logging in (Dropbox: signing in on its website).
     var loginNote: String? { get }
+    /// True when this target sends the password and files unencrypted (plain FTP, WebDAV and S3
+    /// over HTTP): the UI warns once per server before connecting.
+    func isUnencrypted(_ target: RemoteTarget) -> Bool
     /// Placeholder text for the editor's Start folder field; nil: the usual one.
     var pathPlaceholder: String? { get }
     /// Other URL schemes Quick Connect reads as this service ("https" for WebDAV over HTTPS).
@@ -250,6 +253,7 @@ extension RemoteConnector {
     public var userPlaceholder: String { NSUserName() }
     public var options: [RemoteOption] { [] }
     public var usesServerAddress: Bool { true }
+    public func isUnencrypted(_ target: RemoteTarget) -> Bool { false }
     public var loginNote: String? { nil }
     public var pathPlaceholder: String? { nil }
     public var schemeAliases: [String] { [] }

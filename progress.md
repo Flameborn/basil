@@ -64,6 +64,10 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 | Date | Decision |
 |---|---|
+| 2026-11-24 | User: bookmarks of server folders reconnect through the matching saved connection first, then go to the folder |
+| 2026-11-24 | User: the F5/F6 target field accepts server addresses (sftp://, ftp://, ftps://, webdav(s)://, smb://, s3://), connecting when needed and reusing an open connection |
+| 2026-11-24 | User: plain FTP and WebDAV over plain HTTP warn once per server on the first connection (Connect Anyway / Cancel, Do Not Ask Again for that server) |
+| 2026-11-24 | User: Dropbox, Google Drive and OneDrive folders are kept live through their change feeds (long-poll, changes list, delta) while a pane shows a folder there |
 | 2026-11-24 | Decided by Claude, change if wrong: more SSH agents are worth supporting (password managers keep keys in their own agents and most users never edit ~/.ssh/config). Without IdentityAgent, Basil tries SSH_AUTH_SOCK first, then 1Password, Bitwarden, Secretive, Strongbox, GnuPG, each socket that exists; there is no setting. Login items registered with the system are not offered as app leftovers (reading them needs an administrator or Automation access) |
 | 2026-11-24 | Decided by Claude, change if wrong: the progress window shows the current-file bar only when an item has more than one file; time left appears after 1 s of active time; speed is the last 3 s, the estimate uses the last 20 s plus a fitted per-file overhead; sizes use the settings' unit base. Help > Report an Issue on GitHub opens github.com/Flameborn/basil/issues/new in the browser |
 | 2026-11-18 | Swift 6, Xcode 27, macOS 27 minimum |
@@ -252,23 +256,23 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [ ] `PlainCopyTests/doesNotCheckSourceForChanges` failed once in a full BasilOperations run (2026-11-22; then 5 of 5 runs passed): in plain mode the append after chunk 1 can race with the read of the last chunk, so the copy may include the appended bytes. A timing race in the test, not the engine contract (plain mode does not promise anything about later writes)
 - [x] Fixed 2026-11-22: archive providers stayed registered (with their index, open sessions and temporary copies) until the app quit. `ProviderRegistry.closeContainers(keeping:)` now closes the ones nothing uses, called by the main window on every folder change and when the queue has run everything (kept: pane folders, every tab's folder, loads in progress, F4 copies being watched, extractions; nothing is closed while queue items wait). A closed archive opens again fresh; passwords stay remembered in memory.
 
-- [ ] Bookmarks of remote folders: a bookmark to an sftp folder does not connect first (navigating fails when not connected). Should bookmarks reconnect (through the saved connection), or should remote places only be saved connections?
-- [ ] Typing a target path in the F5/F6 sheet resolves it in the active pane's location: a remote other pane works when the prefilled text is kept, but a typed path cannot name a server. Accept "sftp://user@host/path" there?
+- [ ] Decided 2026-11-24, being built (see Decisions): Bookmarks of remote folders: a bookmark to an sftp folder does not connect first (navigating fails when not connected). Should bookmarks reconnect (through the saved connection), or should remote places only be saved connections?
+- [ ] Decided 2026-11-24, being built (see Decisions): Typing a target path in the F5/F6 sheet resolves it in the active pane's location: a remote other pane works when the prefilled text is kept, but a typed path cannot name a server. Accept "sftp://user@host/path" there?
 - [x] Done 2026-11-24: the queue log now notes it ("Not guaranteed: ..." in secure mode, from `WritableProvider.sourceCaveats` / `destinationCaveats`). Remote sources: SFTP gives size and whole-second mtimes only, so the secure copy engine cannot see a remote file rewritten at the same size within one second. The queue log does not say so yet ("The queue log states when a guarantee could not be met").
 - [ ] The contrast audit fails the "Host" label of the connection editor (dark mode) although its own crop of the label is white on dark grey; skipped in `testSFTPConnectBrowseAndDisconnect`, like the other misreadings above. The FTP editor's "Port" label fails the same way (2026-11-22, skipped in `testFTPSConnectBrowseAndDisconnect`).
 - [x] Done 2026-11-24: logged in secure mode. FTP sources: MLSD and MDTM give whole-second times (LIST only minutes), so like SFTP a remote file rewritten at the same size within the same second (or minute, on LIST-only servers) is not seen as changed. FTP also has no fsync: a file counts as written once the server confirmed the transfer (226). The queue log does not say so yet.
-- [ ] FTP over plain FTP sends the password unencrypted. Should the editor or the first connection warn about it?
+- [x] Done 2026-11-24 (warns once per server): FTP over plain FTP sends the password unencrypted. Should the editor or the first connection warn about it?
 - [ ] The Split tests in BasilOperations leave `basil-split-*` folders in the temporary folder (21 seen on 2026-11-22).
 - [ ] Tab bug reported 2026-11-22: on Dropbox, Cmd+T, Ctrl+Tab back to the first tab, Enter on a folder opened it in the new tab. Not reproducible afterwards (also not by the user). UI tests `testEnterInTheFirstTabAfterNewTab` (local) and `...OnServer` (SFTP) do exactly this and pass. Watch for it again; note the exact keys and timing if it happens.
 - [ ] Dropbox App Console (before Copy Link works): enable the scopes sharing.read and sharing.write on the Permissions tab, and upload `Branding/basil-icon-64.png` and `basil-icon-256.png` on the Branding tab. The next connection then asks in the browser to allow sharing (once per account).
 - [x] Dropbox: the first real sign-in worked (2026-11-22).
 - [ ] Dropbox App Console: add `http://localhost:21745/dropbox` under OAuth 2 Redirect URIs (Settings tab) for the new sign-in return page; the old `db-...://2/token` entry can be removed.
-- [ ] Dropbox folders are not watched; panes reread after Basil's own operations and on F2. Dropbox has a long-poll call (list_folder/longpoll) that could make them live. Wanted?
+- [ ] Decided 2026-11-24, being built (see Decisions): Dropbox folders are not watched; panes reread after Basil's own operations and on F2. Dropbox has a long-poll call (list_folder/longpoll) that could make them live. Wanted?
 - [ ] Dropbox team (Business) accounts: Basil browses the member folder; the team space root (path root header) is not offered yet.
-- [ ] Bookmarks of Dropbox folders do not sign in first (same as the remote bookmarks question above).
+- [ ] Decided 2026-11-24, being built (see Decisions): Bookmarks of Dropbox folders do not sign in first (same as the remote bookmarks question above).
 - [ ] Nextcloud with two-factor login needs an app password typed as the password. Nextcloud's Login Flow v2 (sign in in the browser, Basil gets an app password) would avoid that, like the Dropbox sign-in. Wanted?
 - [ ] Copy Link on Nextcloud (a public share link through its OCS sharing API), like Dropbox's? Not built yet.
-- [ ] WebDAV over plain HTTP sends the password readable by anyone on the network (Basic) and the files unencrypted. Should the editor or the first connection warn, as asked for FTP?
+- [x] Done 2026-11-24 (warns once per server): WebDAV over plain HTTP sends the password readable by anyone on the network (Basic) and the files unencrypted. Should the editor or the first connection warn, as asked for FTP?
 - [x] Done 2026-11-24: logged in secure mode. WebDAV sources: fingerprints have the ETag, size and whole-second dates; a server whose ETag does not change with the content would hide a rewrite at the same size within one second. The queue log does not say so yet.
 - [ ] ownCloud: only the user-files top is used; its own chunked upload and trash bin (different paths) are not. Wanted?
 - [x] Done 2026-11-24: logged in secure mode. SMB sources: smbfs answers stat from its attribute cache, so Basil opens a file before taking its fingerprint (that asks the server). Changes by another SMB client are seen (tested). A file changed on the server by a program running there (not through SMB, for example a download on a NAS) while Basil holds it open may not be seen, because the server does not tell the Mac about it. The queue log does not say so yet.
@@ -280,13 +284,13 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [ ] Copy Link on S3 (a presigned URL with an expiry, or the public URL)? Not built.
 - [ ] SMB server-side copies: macOS's smbfs has no clonefile, so copies inside a share stream through the Mac. Moves inside a share are renames on the server.
 - [x] Google Drive OAuth client (done by the user 2026-11-23): create it in the Google Cloud Console (steps in README), put the ID and secret in Config/GoogleDrive.local.xcconfig, and set the consent screen to "In production" (in "Testing" Google ends sign-ins after 7 days). Then a first real sign-in.
-- [ ] Google Drive folders are not watched; Drive has a changes feed (changes.list with a page token) that could make panes live. Wanted?
+- [ ] Decided 2026-11-24, being built (see Decisions): Google Drive folders are not watched; Drive has a changes feed (changes.list with a page token) that could make panes live. Wanted?
 - [ ] Google Drive: a shortcut to a folder copies as a link (see Decisions). Should F5 on it copy the target folder's contents instead (copy only; delete and move keep treating it as a link)?
 - [ ] Google Drive: Google documents in other formats (PDF, ODF, plain text, Markdown) as an option, per type?
 - [ ] Google Drive: a Google document larger than Google's 10 MB export limit cannot be copied; the Drive API's exportLinks allow bigger exports. Needed?
 - [ ] OneDrive app registration: register Basil in the Microsoft Entra admin center (steps in README), put the client ID in Config/OneDrive.local.xcconfig, then a first real sign-in and upload.
 - [ ] OneDrive: "Shared with me" has no place, because Microsoft's API for it stopped returning data in November 2026. Shared folders added to My files work. Revisit if Microsoft offers a replacement (the Search API is the community's suggestion, work accounts only).
-- [ ] OneDrive folders are not watched; Graph's delta query could make panes live. Wanted?
+- [ ] Decided 2026-11-24, being built (see Decisions): OneDrive folders are not watched; Graph's delta query could make panes live. Wanted?
 - [ ] OneDrive: uploads over 4 MB are written to a local temporary file before they go up (Graph needs the total size with every piece), so large uploads need that much free space on the Mac's temporary volume. Fine?
 - [x] Done 2026-11-24 (user: yes, also asking for a URL): Push of a branch without an upstream asks to publish it to an existing remote or a new one (name and URL).
 - [x] Done 2026-11-24 (user: yes, while the pane is in that repository): the pane watches the repository's .git folder and refreshes the Git column when it changes.

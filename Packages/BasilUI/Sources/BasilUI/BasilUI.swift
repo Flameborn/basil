@@ -49,6 +49,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let git: GitService?
     /// Where server passwords (and Git logins) are remembered.
     let remoteSecrets: any SecretStore
+    /// Unencrypted servers accepted with Connect Anyway while Basil runs.
+    var unencryptedAcceptedNow: Set<String> = []
     /// Find Files' engines (live walk, Spotlight, the own index; plugins add more).
     public let searchEngines: SearchEngines
     /// The Find Files window (Option+F7), kept with its last search while the app runs.

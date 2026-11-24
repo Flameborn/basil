@@ -184,3 +184,7 @@ public struct S3Connector: RemoteConnector {
         }
     }
 }
+
+extension S3Connector {
+    public func isUnencrypted(_ target: RemoteTarget) -> Bool { target.option(Self.securityKey) == "http" }
+}

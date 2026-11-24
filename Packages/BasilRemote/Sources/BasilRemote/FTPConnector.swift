@@ -181,3 +181,7 @@ public struct FTPConnector: RemoteConnector {
         }
     }
 }
+
+extension FTPConnector {
+    public func isUnencrypted(_ target: RemoteTarget) -> Bool { kind == .plain }
+}

@@ -27,6 +27,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var bookmarks: [Bookmark] = []
     /// Saved remote connections (Cmd+K), in the user's order. Secrets are in the Keychain.
     public var connections: [SavedConnection] = []
+    /// Unencrypted servers the user chose not to be warned about again ("ftp://host:21").
+    public var unencryptedAccepted: [String] = []
     /// Copying and moving: read the destination back and compare hashes (off by default).
     public var verifyCopies = false
     /// Automatic re-reads of a source that changes during a copy, before asking what to do.
@@ -101,6 +103,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         spaceCalculatesFolderSizes = try c.decodeIfPresent(Bool.self, forKey: .spaceCalculatesFolderSizes) ?? d.spaceCalculatesFolderSizes
         bookmarks = try c.decodeIfPresent([Bookmark].self, forKey: .bookmarks) ?? d.bookmarks
         connections = try c.decodeIfPresent([SavedConnection].self, forKey: .connections) ?? d.connections
+        unencryptedAccepted = try c.decodeIfPresent([String].self, forKey: .unencryptedAccepted) ?? d.unencryptedAccepted
         verifyCopies = try c.decodeIfPresent(Bool.self, forKey: .verifyCopies) ?? d.verifyCopies
         unstableSourceRetries = try c.decodeIfPresent(Int.self, forKey: .unstableSourceRetries) ?? d.unstableSourceRetries
         secureCopy = try c.decodeIfPresent(Bool.self, forKey: .secureCopy) ?? d.secureCopy

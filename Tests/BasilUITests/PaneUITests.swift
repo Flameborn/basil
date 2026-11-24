@@ -1493,6 +1493,29 @@ final class PaneUITests: XCTestCase {
                       "\(app.staticTexts["pane.left.status"].value ?? "")")
     }
 
+    func testPlainFTPWarnsBeforeConnecting() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("k", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        if !sheet.waitForExistence(timeout: 2) { leftTable.typeKey("k", modifierFlags: .command) }
+        let address = sheet.textFields["Address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 3), sheet.debugDescription)
+        address.click()
+        XCTAssertTrue(waitFor { (address.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        address.typeText("ftp://alice@127.0.0.1:9\r")
+        let alert = app.sheets.firstMatch
+        XCTAssertTrue(waitFor({ alert.buttons["Connect Anyway"].exists }, timeout: 5), app.debugDescription)
+        XCTAssertTrue(alert.checkBoxes["Do not ask again for this server"].exists, alert.debugDescription)
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: alert) { return true }
+            print("AUDIT plain ftp: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+        alert.buttons["Cancel"].click()
+        let status = app.staticTexts["pane.left.status"]
+        XCTAssertTrue(waitFor { (status.value as? String) == "Connection cancelled" }, "\(status.value ?? "")")
+    }
+
     func testFTPSConnectBrowseAndDisconnect() throws {
         let tools = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("build/test-ftpd")

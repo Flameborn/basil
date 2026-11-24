@@ -239,6 +239,7 @@ extension MainWindowController {
         Task {
             defer { slow.cancel() }
             do {
+                guard await confirmUnencrypted(target) else { throw RemoteCancelled() }
                 let start = try await providers.connect(target, prompts: remotePrompts)
                 slow.cancel()
                 let connected = try? providers.provider(for: start.location) as? any ConnectedProvider
@@ -259,6 +260,30 @@ extension MainWindowController {
                 announce(message)
             }
         }
+    }
+
+    /// Plain FTP, WebDAV or S3 over HTTP: asks once per server (Connect Anyway / Cancel, with
+    /// "Do not ask again for this server"). True when connecting may go on.
+    func confirmUnencrypted(_ target: RemoteTarget) async -> Bool {
+        guard let connector = providers.connector(for: target.service), connector.isUnencrypted(target) else { return true }
+        let key = "\(target.service.rawValue)://\(target.host.lowercased()):\(target.port ?? connector.defaultPort)"
+        if unencryptedAcceptedNow.contains(key) || settings.settings.unencryptedAccepted.contains(key) { return true }
+        guard let window else { return false }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "The connection to \(target.host) is not encrypted. Connect anyway?"
+        alert.informativeText = """
+        \(connector.displayName) sends your password and your files as plain text, so anyone on the same network can read them. Use an encrypted protocol (SFTP, FTPS or HTTPS) if the server offers one.
+        """
+        alert.addButton(withTitle: "Connect Anyway")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Do not ask again for this server"
+        alert.suppressionButton?.state = .off
+        guard await present(alert, in: window) == 0 else { return false }
+        unencryptedAcceptedNow.insert(key)
+        if alert.suppressionButton?.state == .on { settings.settings.unencryptedAccepted.append(key) }
+        return true
     }
 
     /// The connection the active pane shows, if any.

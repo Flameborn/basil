@@ -218,3 +218,7 @@ final class LoginSession: @unchecked Sendable {
         return nil
     }
 }
+
+extension WebDAVConnector {
+    public func isUnencrypted(_ target: RemoteTarget) -> Bool { !secure }
+}
