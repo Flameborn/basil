@@ -50,6 +50,9 @@ public final class WebDAVProvider: WritableProvider, ConnectedProvider, @uncheck
     let needsLength = Mutex(false)
 
     public var connectionTitle: String { client.endpoint.account }
+    /// The target with the user a browser sign-in logged in as, for the saved connection.
+    var signedIn: RemoteTarget?
+    public var signedInTarget: RemoteTarget? { signedIn }
     public var homeDirectory: VFSPath { VFSPath(location: location, path: "/") }
 
     public var capabilities: ProviderCapabilities {
@@ -386,5 +389,68 @@ extension WebDAVProvider {
 
     public var destinationCaveats: [String] {
         ["WebDAV has no fsync: a file counts as written once the server has answered, and replacing a file deletes the old one first on most servers."]
+    }
+}
+
+// MARK: - Links (Nextcloud)
+
+extension WebDAVProvider: SharedLinkProvider {
+    public var canShareLinks: Bool { nextcloud != nil }
+
+    /// A public read-only link of a file or folder through Nextcloud's sharing API (OCS), without
+    /// password or expiry. An existing read-only public link of the item is used again.
+    public func sharedLink(for path: VFSPath, lifetime: LinkLifetime?) async throws -> URL {
+        guard let nextcloud else { throw VFSError.failed("\(host) is not a Nextcloud server, so it makes no links") }
+        let shares = client.endpoint.origin + nextcloud.prefix + "/ocs/v2.php/apps/files_sharing/api/v1/shares"
+        let headers = ["OCS-APIRequest": "true", "Accept": "application/json"]
+        let itemPath = path.isRoot ? "/" : path.path
+        var query = URLComponents(string: shares)!
+        query.queryItems = [URLQueryItem(name: "path", value: itemPath), URLQueryItem(name: "reshares", value: "false")]
+        let existing = try await client.send("GET", query.url!, headers: headers)
+        if existing.status == 404, Self.ocsData(existing.body) == nil {
+            throw VFSError.notFound(path)
+        }
+        if existing.status == 200, let list = Self.ocsData(existing.body) as? [[String: Any]] {
+            for share in list where Self.isPlainPublicLink(share) {
+                if let text = share["url"] as? String, let url = URL(string: text) { return url }
+            }
+        }
+        var form = URLComponents()
+        form.queryItems = [URLQueryItem(name: "path", value: itemPath), URLQueryItem(name: "shareType", value: "3"),
+                           URLQueryItem(name: "permissions", value: "1")]
+        let body = Data((form.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
+        let made = try await client.send("POST", URL(string: shares)!,
+                                         headers: headers.merging(["Content-Type": "application/x-www-form-urlencoded"]) { $1 },
+                                         body: body)
+        guard made.status == 200, let data = Self.ocsData(made.body) as? [String: Any],
+              let text = data["url"] as? String, let url = URL(string: text) else {
+            if made.status == 404 { throw VFSError.notFound(path) }
+            throw VFSError.failed("\(host) did not make a link for \(path.name): \(Self.ocsMessage(made.body) ?? made.problem)")
+        }
+        return url
+    }
+
+    /// A public link (share type 3) that only lets people read, with no password or expiry.
+    static func isPlainPublicLink(_ share: [String: Any]) -> Bool {
+        guard (share["share_type"] as? Int) == 3 else { return false }
+        let permissions = share["permissions"] as? Int ?? 0
+        let password = share["share_with"] as? String ?? share["password"] as? String
+        let expires = share["expiration"] as? String
+        return permissions & 0b1111 == 1 && (password ?? "").isEmpty && (expires ?? "").isEmpty
+    }
+
+    static func ocsData(_ body: Data) -> Any? {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let ocs = json["ocs"] as? [String: Any] else { return nil }
+        let data = ocs["data"]
+        if let list = data as? [Any], list.isEmpty, (ocs["meta"] as? [String: Any])?["statuscode"] as? Int == 404 { return nil }
+        return data
+    }
+
+    static func ocsMessage(_ body: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let meta = (json["ocs"] as? [String: Any])?["meta"] as? [String: Any],
+              let message = meta["message"] as? String, !message.isEmpty else { return nil }
+        return message
     }
 }

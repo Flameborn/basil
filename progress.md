@@ -45,6 +45,8 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 ## Decisions log
 
+- 2026-11-24 (Nextcloud browser sign-in, chosen without asking, change if wanted): it is the automatic login of WebDAV connections ("Browser sign-in on Nextcloud, else password"; Password stays selectable), so existing connections with a password in the Keychain keep working without the browser (the kept secret is tried first). The app password is always kept in the Keychain (it is Basil's own token, like Dropbox's), named after the login Nextcloud reports, and the saved connection's User is filled in from it. Nextcloud lists the app password as "Basil (Mac)" under the account's devices. Deleting the saved connection revokes it on the server.
+
 - 2026-11-24 (searchfs measured, so not used under the user's rule "only where clearly faster"): on the startup disk's data volume searchfs took 21.8 s for 3.18 million entries (getattrlistbulk, levels in parallel: 16 s for 3.68 million with the system volume); on a USB SSD after remounting (cold) 9.8 s against 12.6 s, warm 0.58 s against 1.3 s; but searchfs on APFS refuses ATTR_CMN_ACCESSMASK (EINVAL), so permissions would need one more call per entry. `VolumeScanBenchmark` (BASIL_SCAN_ROOT=/Volumes/X) times the scanner on any volume.
 - 2026-11-24 (index of other volumes, chosen without asking, change if wanted): the Settings list shows every mounted volume Finder shows plus ticked ones that are not mounted; a volume is remembered by its UUID (local) or its address without password (network). Disks without an FSEvents history are scanned again on each mount, like network volumes. A search of a folder takes in ticked volumes mounted below it (searching "/" finds names on them); a folder only a volume index could cover in part (/Volumes itself) is walked live instead. Network rescans keep the old index searchable until the new scan is done.
 
@@ -284,8 +286,8 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Done 2026-11-24 (live through each change feed): Dropbox folders are not watched; panes reread after Basil's own operations and on F2. Dropbox has a long-poll call (list_folder/longpoll) that could make them live. Wanted?
 - [ ] Dropbox team (Business) accounts: Basil browses the member folder; the team space root (path root header) is not offered yet.
 - [x] Done 2026-11-24: Bookmarks of Dropbox folders do not sign in first (same as the remote bookmarks question above).
-- [ ] Nextcloud with two-factor login needs an app password typed as the password. Nextcloud's Login Flow v2 (sign in in the browser, Basil gets an app password) would avoid that, like the Dropbox sign-in. Wanted?
-- [ ] Copy Link on Nextcloud (a public share link through its OCS sharing API), like Dropbox's? Not built yet.
+- [x] Done 2026-11-24 (Login Flow v2 with the automatic login): Nextcloud with two-factor login needs an app password typed as the password. Nextcloud's Login Flow v2 (sign in in the browser, Basil gets an app password) would avoid that, like the Dropbox sign-in. Wanted?
+- [x] Done 2026-11-24 (read-only public link, an existing one reused): Copy Link on Nextcloud (a public share link through its OCS sharing API), like Dropbox's? Not built yet.
 - [x] Done 2026-11-24 (warns once per server): WebDAV over plain HTTP sends the password readable by anyone on the network (Basic) and the files unencrypted. Should the editor or the first connection warn, as asked for FTP?
 - [x] Done 2026-11-24: logged in secure mode. WebDAV sources: fingerprints have the ETag, size and whole-second dates; a server whose ETag does not change with the content would hide a rewrite at the same size within one second. The queue log does not say so yet.
 - [ ] ownCloud: only the user-files top is used; its own chunked upload and trash bin (different paths) are not. Wanted?

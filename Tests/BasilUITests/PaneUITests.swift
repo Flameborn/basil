@@ -1653,7 +1653,8 @@ final class PaneUITests: XCTestCase {
         sheet.buttons["Edit"].click()
         XCTAssertTrue(sheet.textFields["Host"].waitForExistence(timeout: 3), sheet.debugDescription)
         XCTAssertEqual(sheet.popUpButtons["Protocol"].value as? String, "WebDAV (HTTPS)")
-        XCTAssertFalse(sheet.popUpButtons["Log in with"].exists)
+        // Browser sign-in on Nextcloud (automatic) or a password.
+        XCTAssertTrue(sheet.popUpButtons["Log in with"].exists, sheet.debugDescription)
         func editing() -> Bool {
             sheet.textFields.allElementsBoundByIndex.contains { ($0.value(forKey: "hasKeyboardFocus") as? Bool) == true }
         }

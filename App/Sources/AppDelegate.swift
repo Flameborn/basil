@@ -134,8 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // WebDAV over HTTP and HTTPS (URLSession), with Nextcloud's extras where the server is one.
         let davTrustFile = dataDirectory.appendingPathComponent("Trusted WebDAV certificates.txt")
-        providers.register(connector: WebDAVConnector(secure: true, trustFile: davTrustFile))
-        providers.register(connector: WebDAVConnector(secure: false, trustFile: davTrustFile))
+        providers.register(connector: WebDAVConnector(secure: true, trustFile: davTrustFile, secrets: remoteSecrets))
+        providers.register(connector: WebDAVConnector(secure: false, trustFile: davTrustFile, secrets: remoteSecrets))
         // SMB through macOS's own client: shares are mounted in /Volumes like Finder does.
         providers.register(connector: SMBConnector())
         // Amazon S3 and S3-compatible services (R2, B2, Wasabi, MinIO, ...), Basil's own SigV4 client.

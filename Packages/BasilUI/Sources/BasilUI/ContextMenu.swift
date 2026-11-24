@@ -109,7 +109,8 @@ extension MainWindowController {
     }
 
     private var linkProvider: (any SharedLinkProvider)? {
-        try? providers.provider(for: activePane.model.directory.location) as? any SharedLinkProvider
+        (try? providers.provider(for: activePane.model.directory.location) as? any SharedLinkProvider)
+            .flatMap { $0.canShareLinks ? $0 : nil }
     }
 
     var canCopyLinks: Bool { hasTargets && linkProvider != nil }
@@ -129,7 +130,7 @@ extension MainWindowController {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
         guard let provider = linkProvider else {
-            return activePane.report("Links can only be made for files on a service that shares them, such as Dropbox")
+            return activePane.report("Links can only be made for files on a service that shares them, such as Dropbox, Nextcloud or S3")
         }
         let pane = activePane
         Task {

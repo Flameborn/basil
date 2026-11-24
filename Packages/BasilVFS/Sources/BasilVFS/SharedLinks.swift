@@ -5,6 +5,8 @@ import Foundation
 /// open in a browser (Dropbox shared links, S3 presigned addresses). Files > Copy Link asks for
 /// it; the pane context menu offers it only where the provider conforms.
 public protocol SharedLinkProvider: FileSystemProvider {
+    /// False when this connection cannot make links after all (WebDAV that is not Nextcloud).
+    var canShareLinks: Bool { get }
     /// How long a new link may work, shortest first, when links expire (S3); empty when they do
     /// not, and Copy Link then asks nothing.
     var linkLifetimes: [LinkLifetime] { get }
@@ -14,6 +16,7 @@ public protocol SharedLinkProvider: FileSystemProvider {
 }
 
 extension SharedLinkProvider {
+    public var canShareLinks: Bool { true }
     public var linkLifetimes: [LinkLifetime] { [] }
 
     public func sharedLink(for path: VFSPath) async throws -> URL {
