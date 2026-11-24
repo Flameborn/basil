@@ -72,4 +72,44 @@ final class ProgressUITests: XCTestCase {
         app.typeKey(.downArrow, modifierFlags: [])
         XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 1).isSelected }, leftTable.debugDescription)
     }
+
+    func testTransferShowsCurrentFileTotalSpeedAndTimeLeft() throws {
+        XCTAssertTrue(leftTable.waitForExistence(timeout: 5))
+        app.menuBars.menuBarItems["Debug"].click()
+        app.menuItems["Add Test Transfer"].click()
+        let window = app.dialogs["Test transfer 1"]
+        XCTAssertTrue(window.waitForExistence(timeout: 3), app.debugDescription)
+
+        let file = window.progressIndicators["Current file"]
+        let total = window.progressIndicators["Total"]
+        XCTAssertTrue(file.waitForExistence(timeout: 3), window.debugDescription)
+        XCTAssertTrue(total.exists, window.debugDescription)
+        XCTAssertTrue(window.staticTexts["File: first.bin"].exists, window.debugDescription)
+        XCTAssertTrue(window.staticTexts["From: /Users/test/Source"].exists, window.debugDescription)
+        XCTAssertTrue(window.staticTexts["To: /Users/test/Target"].exists, window.debugDescription)
+
+        // After the warm-up the speed (about 2.5 MB a second) and the time left show.
+        let timing = window.staticTexts["progress.timing"]
+        func timingText() -> String { (timing.value as? String) ?? timing.label }
+        XCTAssertTrue(waitFor({ timingText().contains("per second") && timingText().contains("left") }, timeout: 5), timingText())
+        func text(_ id: String) -> String {
+            let e = window.staticTexts[id]
+            return (e.value as? String) ?? e.label
+        }
+        XCTAssertTrue(waitFor({ text("progress.total").hasSuffix("of 3 files") }, timeout: 3), text("progress.total"))
+        XCTAssertTrue(text("progress.total").hasPrefix("Total: "), text("progress.total"))
+        XCTAssertTrue(text("progress.file").hasPrefix("Current file: ") && text("progress.file").hasSuffix("of 9.5 MB"),
+                      text("progress.file"))
+
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: window) { return true }
+            print("AUDIT transfer: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(400) ?? "nil")")
+            return false
+        }
+
+        // The second file follows.
+        XCTAssertTrue(window.staticTexts["File: second.bin"].waitForExistence(timeout: 8), window.debugDescription)
+        window.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !window.exists }, app.debugDescription)
+    }
 }

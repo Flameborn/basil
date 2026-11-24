@@ -112,7 +112,10 @@ public struct UnpackOperation: QueueOperation {
         }
 
         let total = plans.reduce(0) { $0 + $1.bytes }
-        let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: total, errors: errors)
+        let files = plans.reduce(0) { $0 + $1.pairs.count }
+        let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: total, totalFiles: files,
+                                           errors: errors)
+        var pairsDone = 0
         let engine = SecureCopyEngine(registry: registry, options: options.copy, monitor: monitor)
         context.items(done: 0, total: archives.count)
         var done = 0
@@ -126,6 +129,10 @@ public struct UnpackOperation: QueueOperation {
                 }
             }
             for (index, pair) in plan.pairs.enumerated() {
+                defer {
+                    pairsDone += 1
+                    monitor.settle(bytes: 0, files: pairsDone)
+                }
                 try await context.checkpoint()
                 monitor.setLabel("\(plan.archive.name), \(index + 1) of \(plan.pairs.count), \(pair.source.name)")
                 var summary = TransferSummary()

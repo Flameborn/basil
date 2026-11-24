@@ -66,7 +66,7 @@ public struct UploadEditedCopyOperation: QueueOperation {
 
         let size = (try? await src.fingerprint(of: copy).size) ?? 0
         let errors = ItemErrorPolicy(context: context, action: "upload")
-        let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: size, errors: errors)
+        let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: size, totalFiles: 1, errors: errors)
         let engine = SecureCopyEngine(registry: registry, options: options, monitor: monitor)
         context.log(options.secure ? "Secure mode" : "Total Commander style mode")
         monitor.setLabel(destination.name)

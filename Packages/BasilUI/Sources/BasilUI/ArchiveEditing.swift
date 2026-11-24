@@ -93,6 +93,13 @@ extension MainWindowController {
         (try? providers.provider(for: location) as? any ConnectedProvider)?.connectionTitle ?? location.instance
     }
 
+    /// A folder for the progress window: "/Users/alice/Downloads", "/a/pack.zip/docs" inside an
+    /// archive, "/Photos on alice@example.com" on a server.
+    func placeName(of folder: VFSPath) -> String {
+        if folder.location.provider == .local || folder.location.container != nil { return folder.clipboardPath }
+        return "\(folder.path) on \(serverName(of: folder.location))"
+    }
+
     /// Where an edited copy goes back to: the archive's name or the server's.
     private func home(of edit: TemporaryCopies.EditedCopy) -> String {
         edit.entry.location.container?.name ?? serverName(of: edit.entry.location)

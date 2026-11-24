@@ -1,6 +1,8 @@
 #if DEBUG
 import AppKit
+import BasilCore
 import BasilOperations
+import BasilVFS
 
 /// Debug builds only: a "Debug" menu that adds a fake operation to the queue, so the queue
 /// window can be tried (and UI-tested) before real file operations exist.
@@ -15,6 +17,8 @@ enum DebugMenu {
         let menu = NSMenu(title: "Debug")
         let add = menu.addItem(withTitle: "Add Test Operation", action: #selector(DebugMenuTarget.addTestOperation(_:)), keyEquivalent: "")
         add.target = target
+        let transfer = menu.addItem(withTitle: "Add Test Transfer", action: #selector(DebugMenuTarget.addTestTransfer(_:)), keyEquivalent: "")
+        transfer.target = target
         item.submenu = menu
         NSApp.mainMenu?.addItem(item)
     }
@@ -30,6 +34,41 @@ final class DebugMenuTarget: NSObject {
     @objc func addTestOperation(_ sender: Any?) {
         counter += 1
         queue.add(TestOperation(title: "Test operation \(counter)"))
+    }
+
+    @objc func addTestTransfer(_ sender: Any?) {
+        counter += 1
+        queue.add(TestTransferOperation(title: "Test transfer \(counter)"))
+    }
+}
+
+/// A fake copy of three 10 MB files over about 12 seconds, reporting like a real transfer
+/// (current file, totals, speed and time left), for the progress window's UI test.
+struct TestTransferOperation: QueueOperation {
+    let title: String
+    var kind: OperationKind { .copy }
+
+    func run(_ context: OperationContext) async throws {
+        let fileSize: Int64 = 10_000_000
+        let names = ["first.bin", "second.bin", "third.bin"]
+        let monitor = QueueTransferMonitor(context: context, registry: ProviderRegistry(),
+                                           totalBytes: fileSize * Int64(names.count), totalFiles: names.count,
+                                           action: "copy")
+        for name in names {
+            let source = VFSPath.local("/Users/test/Source/" + name)
+            monitor.fileStarted(source, to: .local("/Users/test/Target/" + name), size: fileSize)
+            var done: Int64 = 0
+            while done < fileSize {
+                try await context.checkpoint()
+                try await Task.sleep(for: .milliseconds(100))
+                let step = min(fileSize - done, 250_000)
+                done += step
+                monitor.transferred(bytes: step)
+                monitor.fileProgress(bytes: done)
+            }
+            monitor.fileFinished(skipped: false)
+        }
+        context.progress(1, "3 items copied")
     }
 }
 

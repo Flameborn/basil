@@ -140,16 +140,37 @@ public struct TransferOperation: QueueOperation {
 
         context.items(done: 0, total: pairs.count)
         context.progress(nil, "Counting")
+        var counting = TransferProgress()
+        context.transfer(counting, force: true)
         var total: Int64 = 0
-        for source in sources { total += try await Self.size(of: source, registry, context) }
+        var files = 0
+        var counts: [(bytes: Int64, files: Int)] = []
+        for (source, _) in pairs {
+            let c = try await Self.count(source, registry, context) { bytes, n in
+                counting.bytesTotal = total + bytes
+                counting.filesTotal = files + n
+                context.transfer(counting)
+            }
+            counts.append(c)
+            total += c.bytes
+            files += c.files
+        }
 
         let errors = ItemErrorPolicy(context: context, action: mode == .copy ? "copy" : "move")
-        let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: total, errors: errors)
+        let monitor = QueueTransferMonitor(context: context, registry: registry, totalBytes: total, totalFiles: files,
+                                           errors: errors)
         let engine = SecureCopyEngine(registry: registry, options: options, monitor: monitor)
         context.log(options.secure ? "Secure mode" : "Total Commander style mode")
         var done = 0
         var complete: [VFSPath] = []
+        var settledBytes: Int64 = 0
+        var settledFiles = 0
         for (index, (source, destination)) in pairs.enumerated() {
+            defer {
+                settledBytes += counts[index].bytes
+                settledFiles += counts[index].files
+                monitor.settle(bytes: settledBytes, files: settledFiles)
+            }
             try await context.checkpoint()
             monitor.setLabel("\(index + 1) of \(pairs.count), \(source.name)")
             // Item-level errors are asked about inside the engine; this catches the ones before
@@ -170,31 +191,60 @@ public struct TransferOperation: QueueOperation {
 
     /// Bytes of a file, or of all files below a folder.
     static func size(of path: VFSPath, _ registry: ProviderRegistry, _ context: OperationContext) async throws -> Int64 {
+        try await count(path, registry, context).bytes
+    }
+
+    /// Bytes and regular files of a file, or of everything below a folder (symlinks not
+    /// followed). `found` hears the running totals of this path while folders are walked.
+    static func count(_ path: VFSPath, _ registry: ProviderRegistry, _ context: OperationContext,
+                      found: (Int64, Int) -> Void = { _, _ in }) async throws -> (bytes: Int64, files: Int) {
         let provider = try registry.provider(for: path.location)
         let item = try await provider.item(at: path)
-        guard item.kind == .directory else { return item.size ?? 0 }
-        var total: Int64 = 0
-        for try await batch in provider.list(path) {
-            try await context.checkpoint()
-            for child in batch {
-                if child.kind == .directory {
-                    total += try await size(of: child.path, registry, context)
-                } else {
-                    total += child.size ?? 0
+        switch item.kind {
+        case .directory: break
+        case .file: return (item.size ?? 0, 1)
+        default: return (0, 0)
+        }
+        var bytes: Int64 = 0
+        var files = 0
+        var folders = [path]
+        while let folder = folders.popLast() {
+            for try await batch in provider.list(folder) {
+                try await context.checkpoint()
+                for child in batch {
+                    switch child.kind {
+                    case .directory: folders.append(child.path)
+                    case .file:
+                        bytes += child.size ?? 0
+                        files += 1
+                    default: break
+                    }
                 }
+                found(bytes, files)
             }
         }
-        return total
+        return (bytes, files)
     }
 }
 
-/// Connects the copy engine to a queue item: progress, log, and the conflict and
-/// changing-source questions (remembering "all" answers for the rest of the operation).
-final class QueueTransferMonitor: TransferMonitor {
+/// Connects the copy engine to a queue item: progress (with speed, time left and the current
+/// file), log, and the conflict and changing-source questions (remembering "all" answers for the
+/// rest of the operation).
+public final class QueueTransferMonitor: TransferMonitor {
     private struct State {
+        /// First-pass bytes really transferred (the speed and the estimate use only these).
         var bytes: Int64 = 0
+        /// Bytes of files skipped, failed or moved at once with their folder: done, not transferred.
+        var settled: Int64 = 0
+        /// First-pass bytes of the current file, taken back when it is retried or skipped.
+        var current: Int64 = 0
+        var currentSize: Int64 = 0
+        var currentOpen = false
+        var files = 0
         var label = ""
         var remembered: ConflictChoice?
+        var progress = TransferProgress()
+        var estimator = TransferEstimator()
     }
 
     private let context: OperationContext
@@ -203,42 +253,135 @@ final class QueueTransferMonitor: TransferMonitor {
     private let errors: ItemErrorPolicy
     private let state = Mutex(State())
 
-    init(context: OperationContext, registry: ProviderRegistry, totalBytes: Int64, errors: ItemErrorPolicy) {
+    init(context: OperationContext, registry: ProviderRegistry, totalBytes: Int64, totalFiles: Int = 0,
+         errors: ItemErrorPolicy) {
         self.context = context
         self.registry = registry
         self.totalBytes = totalBytes
         self.errors = errors
+        state.withLock {
+            $0.progress.bytesTotal = totalBytes
+            $0.progress.filesTotal = totalFiles
+            $0.progress.phase = .transferring
+        }
     }
 
-    func handleError(_ error: any Error, at path: VFSPath) async throws -> ItemErrorDecision {
+    /// For operations outside this package (and the Debug menu's fake transfer).
+    public convenience init(context: OperationContext, registry: ProviderRegistry, totalBytes: Int64,
+                            totalFiles: Int, action: String) {
+        self.init(context: context, registry: registry, totalBytes: totalBytes, totalFiles: totalFiles,
+                  errors: ItemErrorPolicy(context: context, action: action))
+    }
+
+    public func handleError(_ error: any Error, at path: VFSPath) async throws -> ItemErrorDecision {
         try await errors.handle(error, at: path)
     }
 
-    func setLabel(_ label: String) {
+    public func setLabel(_ label: String) {
         state.withLock { $0.label = label }
         report()
     }
 
-    func checkpoint() async throws { try await context.checkpoint() }
-    func log(_ message: String) { context.log(message) }
+    public func checkpoint() async throws { try await context.checkpoint() }
+    public func log(_ message: String) { context.log(message) }
 
-    func transferred(bytes: Int64) {
-        state.withLock { $0.bytes += bytes }
+    public func transferred(bytes: Int64) {
+        state.withLock {
+            $0.bytes += bytes
+            if $0.currentOpen { $0.current += bytes }
+        }
         report()
     }
 
-    private func report() {
-        let (bytes, label) = state.withLock { ($0.bytes, $0.label) }
-        let fraction = totalBytes > 0 ? min(1, Double(bytes) / Double(totalBytes)) : nil
-        context.progress(fraction == 1 ? 0.999 : fraction, label)
+    public func fileStarted(_ source: VFSPath, to destination: VFSPath, size: Int64) {
+        let now = context.activeSeconds
+        state.withLock { s in
+            if s.currentOpen {
+                // A retry of the same file: its bytes are counted again from the start.
+                s.bytes -= s.current
+            } else {
+                s.estimator.fileStarted(time: now)
+            }
+            s.current = 0
+            s.currentSize = size
+            s.currentOpen = true
+            s.progress.source = source
+            s.progress.destination = destination
+            s.progress.fileBytesTotal = size
+            s.progress.fileBytesDone = 0
+            s.progress.phase = .transferring
+        }
+        report(force: true)
     }
 
-    func decide(_ source: UnstableSource) async -> UnstableSourceDecision {
+    public func fileProgress(bytes: Int64) {
+        state.withLock { $0.progress.fileBytesDone = bytes }
+        report()
+    }
+
+    public func phase(_ phase: TransferProgress.Phase) {
+        state.withLock { $0.progress.phase = phase }
+        report(force: true)
+    }
+
+    public func fileFinished(skipped: Bool) {
+        let now = context.activeSeconds
+        state.withLock { s in
+            guard s.currentOpen else { return }
+            if skipped {
+                s.bytes -= s.current
+                s.settled += s.currentSize
+            } else if s.current < s.currentSize {
+                // The file shrank while it was copied: the rest of its counted size is done anyway.
+                s.settled += s.currentSize - s.current
+            }
+            s.estimator.record(time: now, bytes: s.bytes)
+            if !skipped { s.estimator.fileFinished(time: now, bytes: s.current) }
+            s.files += 1
+            s.currentOpen = false
+            s.current = 0
+        }
+        report(force: true)
+    }
+
+    /// After a top-level item: everything counted for the items so far is done, also what moved
+    /// at once with its folder or was left out before the engine saw it.
+    public func settle(bytes: Int64, files: Int) {
+        state.withLock { s in
+            let done = s.bytes + s.settled
+            if bytes > done { s.settled += bytes - done }
+            if files > s.files { s.files = files }
+        }
+        report(force: true)
+    }
+
+    private func report(force: Bool = false) {
+        let now = context.activeSeconds
+        let (label, progress) = state.withLock { s -> (String, TransferProgress) in
+            s.estimator.record(time: now, bytes: s.bytes)
+            var p = s.progress
+            p.bytesDone = min(max(0, s.bytes + s.settled), max(totalBytes, s.bytes + s.settled))
+            if p.bytesTotal < p.bytesDone { p.bytesTotal = p.bytesDone }
+            p.filesDone = s.files
+            p.elapsed = now
+            p.bytesPerSecond = s.estimator.speed(at: now)
+            let filesLeft = max(0, p.filesTotal - s.files)
+            p.secondsLeft = s.estimator.secondsLeft(at: now, bytesLeft: max(0, p.bytesTotal - p.bytesDone),
+                                                    filesLeft: p.filesTotal > 0 ? filesLeft : 0)
+            s.progress = p
+            return (s.label, p)
+        }
+        let fraction = progress.fraction ?? (totalBytes > 0 ? 0 : nil)
+        context.progress(fraction == 1 ? 0.999 : fraction, label)
+        context.transfer(progress, force: force)
+    }
+
+    public func decide(_ source: UnstableSource) async -> UnstableSourceDecision {
         if case .unstableSource(let decision) = await context.ask(.unstableSource(source)) { return decision }
         return .cancel
     }
 
-    func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution {
+    public func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution {
         let choice: ConflictChoice
         if let remembered = state.withLock({ $0.remembered }) {
             choice = remembered

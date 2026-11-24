@@ -231,6 +231,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainWindowController?.performFromMenu("app.checkForUpdates")
     }
 
+    /// Help > Report an Issue: GitHub's new-issue page for Basil in the browser.
+    @objc func reportIssue(_ sender: Any?) {
+        NSWorkspace.shared.open(AboutWindowController.repository.appending(path: "issues/new"))
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         mainWindowController?.confirmQuitWithEditedCopies() == false ? .terminateCancel : .terminateNow
     }
@@ -308,6 +313,8 @@ enum MainMenu {
         // macOS adds its menu search field here, which also finds every command in the menus.
         let helpItem = NSMenuItem()
         let helpMenu = NSMenu(title: "Help")
+        helpMenu.addItem(withTitle: "Report an Issue on GitHub...", action: #selector(AppDelegate.reportIssue(_:)),
+                         keyEquivalent: "").target = settingsTarget
         helpItem.submenu = helpMenu
         main.addItem(helpItem)
         NSApp.helpMenu = helpMenu

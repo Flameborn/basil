@@ -200,6 +200,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         progressWindow.showQueue = { [weak self] in self?.toggleQueue() }
         progressWindow.isQueueChord = { [weak self] chord in self?.commands.commandID(for: chord) == "queue.show" }
         progressWindow.announce = { [weak self] message in self?.announce(message) }
+        progressWindow.sizeFormat = { [weak self] in self?.settings.settings.size ?? SizeFormat() }
+        progressWindow.placeName = { [weak self] in self?.placeName(of: $0) ?? $0.path }
         queue.onItemStarted = { [weak self] item in self?.progressWindow.itemStarted(item) }
         queue.onItemStopped = { [weak self] item in
             self?.progressWindow.itemStopped(item)

@@ -168,6 +168,8 @@ public final class QueueItem: Identifiable {
     /// Top-level items done and in total (for speech: "2 of 3 items copied").
     public internal(set) var itemsDone = 0
     public internal(set) var itemsTotal = 0
+    /// Speed, time left and the current file of a copy, move, unpack or upload; nil for other operations.
+    public internal(set) var transfer: TransferProgress?
     /// True while the operation waits for the user to answer a prompt.
     public internal(set) var isWaitingForDecision = false
     public let kind: OperationKind
@@ -405,6 +407,8 @@ public final class FileOperationQueue {
         case .items(let done, let total):
             item.itemsDone = done
             item.itemsTotal = total
+        case .transfer(let progress):
+            item.transfer = progress
         }
     }
 }
@@ -415,12 +419,17 @@ public final class OperationContext: Sendable {
         case progress(Double?, String)
         case log(String)
         case items(done: Int, total: Int)
+        case transfer(TransferProgress)
     }
 
     private let gate: PauseGate
     private let sink: AsyncStream<Update>.Continuation
     private let asker: @Sendable (QueuePrompt) async -> QueuePromptAnswer?
     private let lastProgress = Mutex<ContinuousClock.Instant?>(nil)
+    private let lastTransfer = Mutex<ContinuousClock.Instant?>(nil)
+    private let started = ContinuousClock.now
+    /// Time spent paused or waiting for an answer, left out of `activeSeconds`.
+    private let waited = Mutex<Duration>(.zero)
     private static let progressInterval: Duration = .milliseconds(100)
 
     init(gate: PauseGate, sink: AsyncStream<Update>.Continuation,
@@ -433,7 +442,31 @@ public final class OperationContext: Sendable {
     /// Asks the user (the queue item shows as waiting for a decision meanwhile). Nil when the
     /// queue is gone.
     public func ask(_ prompt: QueuePrompt) async -> QueuePromptAnswer? {
-        await asker(prompt)
+        let start = ContinuousClock.now
+        defer { addWaited(since: start) }
+        return await asker(prompt)
+    }
+
+    private func addWaited(since start: ContinuousClock.Instant) {
+        let d = ContinuousClock.now - start
+        waited.withLock { $0 += d }
+    }
+
+    /// Seconds since the operation started, without the time it was paused or waited for the user.
+    public var activeSeconds: Double {
+        let total = ContinuousClock.now - started - waited.withLock { $0 }
+        return Double(total.components.seconds) + Double(total.components.attoseconds) / 1e18
+    }
+
+    /// Publishes the transfer state (throttled like `progress`; `force` always sends).
+    public func transfer(_ progress: TransferProgress, force: Bool = false) {
+        let now = ContinuousClock.now
+        let send = lastTransfer.withLock { last in
+            if !force, let previous = last, now - previous < Self.progressInterval { return false }
+            last = now
+            return true
+        }
+        if send { sink.yield(.transfer(progress)) }
     }
 
     /// Top-level items done and in total, for speech and the queue list.
@@ -444,6 +477,9 @@ public final class OperationContext: Sendable {
     /// Waits while the item is paused; throws CancellationError once it is cancelled.
     public func checkpoint() async throws {
         try Task.checkCancellation()
+        guard gate.isPaused else { return try await gate.waitWhilePaused() }
+        let start = ContinuousClock.now
+        defer { addWaited(since: start) }
         try await gate.waitWhilePaused()
     }
 
@@ -477,6 +513,7 @@ final class PauseGate: Sendable {
     private let state = Mutex(State())
 
     var isCancelled: Bool { state.withLock { $0.cancelled } }
+    var isPaused: Bool { state.withLock { $0.paused } }
 
     func setPaused(_ paused: Bool) {
         let resumed = state.withLock { s -> [CheckedContinuation<Void, any Error>] in

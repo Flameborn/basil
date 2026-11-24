@@ -64,9 +64,22 @@ public protocol TransferMonitor: Sendable {
     /// to leave the item out and go on; throw to stop the whole transfer. Without an
     /// implementation the error is rethrown, so the transfer stops.
     func handleError(_ error: any Error, at path: VFSPath) async throws -> ItemErrorDecision
+    /// A file's transfer starts (again, after a retry): its size and where it goes.
+    func fileStarted(_ source: VFSPath, to destination: VFSPath, size: Int64)
+    /// Bytes of the current file read so far in the current pass or verification.
+    func fileProgress(bytes: Int64)
+    /// The current file entered another phase (reading again, verifying, finishing).
+    func phase(_ phase: TransferProgress.Phase)
+    /// The current file is done. `skipped`: it was left out or failed, so its bytes count as
+    /// done without having been transferred.
+    func fileFinished(skipped: Bool)
 }
 
 extension TransferMonitor {
+    public func fileStarted(_ source: VFSPath, to destination: VFSPath, size: Int64) {}
+    public func fileProgress(bytes: Int64) {}
+    public func phase(_ phase: TransferProgress.Phase) {}
+    public func fileFinished(skipped: Bool) {}
     public func resolveConflict(_ conflict: FileConflict) async throws -> ConflictResolution { .fail }
     public func handleError(_ error: any Error, at path: VFSPath) async throws -> ItemErrorDecision { throw error }
 }
@@ -237,7 +250,12 @@ public struct SecureCopyEngine: Sendable {
                 case .symlink: summary.symlinks += 1
                 default: summary.files += 1
                 }
-                if fp.kind == .file { monitor.transferred(bytes: fp.size) }
+                if fp.kind == .file {
+                    monitor.fileStarted(source, to: destination, size: fp.size)
+                    monitor.transferred(bytes: fp.size)
+                    monitor.fileProgress(bytes: fp.size)
+                    monitor.fileFinished(skipped: false)
+                }
                 return summary
             } catch VFSError.unsupported {
                 // Different volume after all: fall through to copy and delete.
@@ -257,8 +275,13 @@ public struct SecureCopyEngine: Sendable {
         switch fp.kind {
         case .file:
             guard let r = try await attempt(source, {
-                try await transferFile(source, to: destination, mode: mode, src, dst)
-            }) else { return summary.failed.append(source) }
+                monitor.fileStarted(source, to: destination, size: fp.size)
+                return try await transferFile(source, to: destination, mode: mode, src, dst)
+            }) else {
+                monitor.fileFinished(skipped: true)
+                return summary.failed.append(source)
+            }
+            monitor.fileFinished(skipped: r.outcome == .skipped)
             summary.add(r, source: source)
             if mode == .move, !r.sourceRemoved { summary.sourcesKept.append(source) }
         case .symlink:
@@ -400,7 +423,9 @@ public struct SecureCopyEngine: Sendable {
             do {
                 try await dst.rename(source, to: destination, replacing: replace)
                 monitor.log("Moved \(source.name) by renaming")
-                monitor.transferred(bytes: (try? await dst.fingerprint(of: destination))?.size ?? 0)
+                let size = (try? await dst.fingerprint(of: destination))?.size ?? 0
+                monitor.transferred(bytes: size)
+                monitor.fileProgress(bytes: size)
                 return FileTransferResult(outcome: .completed, strategy: .rename, sourceRemoved: true)
             } catch VFSError.unsupported {
                 // Different volume after all (a folder that is a link into another drive):
@@ -481,6 +506,7 @@ public struct SecureCopyEngine: Sendable {
                 cloned = true
                 result.strategy = .clone
                 monitor.transferred(bytes: fp.size)
+                monitor.fileProgress(bytes: fp.size)
             } catch VFSError.unsupported {}
         }
 
@@ -497,6 +523,7 @@ public struct SecureCopyEngine: Sendable {
                     try await writer.synchronize()
                     try await verify(destination, dst, chunk: chunk, hashes: hashes)
                 }
+                monitor.phase(.finishing)
                 let metadata = try await src.metadata(of: source)
                 for warning in try await writer.apply(metadata) { monitor.log("\(source.name): \(warning)") }
                 await writer.close()
@@ -539,6 +566,7 @@ public struct SecureCopyEngine: Sendable {
             if after == before {
                 try await provider.synchronize(partial)
                 if attempts == 0 { monitor.transferred(bytes: after.size) }
+                monitor.fileProgress(bytes: after.size)
                 return (result, after)
             }
 
@@ -603,6 +631,7 @@ public struct SecureCopyEngine: Sendable {
                     if result.outcome == .acceptedUnstable { break }
                 }
                 monitor.log("\(source.name) changed during the copy, reading it again (attempt \(attempts))")
+                monitor.phase(.rereading(attempt: attempts))
                 try await backoff(attempts)
                 before = try await src.fingerprint(of: source)
                 guard before.kind == .file else { throw CopyError.sourceTypeChanged(source) }
@@ -622,6 +651,7 @@ public struct SecureCopyEngine: Sendable {
                 try await writer.synchronize()
                 try await verify(partial, dst, chunk: chunk, hashes: hashes)
             }
+            monitor.phase(.finishing)
             let metadata = try await src.metadata(of: source)
             for warning in try await writer.apply(metadata) { monitor.log("\(source.name): \(warning)") }
             try await writer.synchronize()
@@ -639,6 +669,8 @@ public struct SecureCopyEngine: Sendable {
     private func pass(_ source: VFSPath, _ src: any WritableProvider, _ writer: any WritableFile,
                       chunk: Int, hashes: inout [BLAKE3Digest], number: Int,
                       hashing: Bool = true) async throws -> (length: Int64, rewritten: Int64) {
+        if number == 0 { monitor.phase(.transferring) }
+        monitor.fileProgress(bytes: 0)
         let reader = try await src.openForReading(source, bypassCache: false)
         let first = hashes.isEmpty
         var offset: Int64 = 0
@@ -675,6 +707,7 @@ public struct SecureCopyEngine: Sendable {
                     }
                     offset += Int64(data.count)
                     index += 1
+                    monitor.fileProgress(bytes: offset)
                     await hooks.afterChunk?(number, index - 1)
                 }
             }
@@ -690,6 +723,8 @@ public struct SecureCopyEngine: Sendable {
     }
 
     private func verify(_ partial: VFSPath, _ dst: any WritableProvider, chunk: Int, hashes: [BLAKE3Digest]) async throws {
+        monitor.phase(.verifying)
+        monitor.fileProgress(bytes: 0)
         let reader = try await dst.openForReading(partial, bypassCache: true)
         do {
             var offset: Int64 = 0
@@ -698,6 +733,7 @@ public struct SecureCopyEngine: Sendable {
                 let data = try await reader.read(at: offset, count: chunk)
                 guard await Self.hash(data) == expected else { throw CopyError.verificationFailed(partial) }
                 offset += Int64(data.count)
+                monitor.fileProgress(bytes: offset)
             }
             guard try await reader.read(at: offset, count: 1).isEmpty else { throw CopyError.verificationFailed(partial) }
         } catch {

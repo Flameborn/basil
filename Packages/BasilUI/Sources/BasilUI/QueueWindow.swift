@@ -234,6 +234,9 @@ struct QueueRow: View {
         var parts = [item.title, stateText]
         if let percent { parts.append(percent) }
         if !item.detail.isEmpty, !item.state.isDone { parts.append(item.detail) }
+        if !item.state.isDone, let left = item.transfer?.secondsLeft {
+            parts.append(TransferEstimator.describe(secondsLeft: left).lowercased())
+        }
         return parts.joined(separator: ", ")
     }
 }
