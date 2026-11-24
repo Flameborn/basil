@@ -121,4 +121,93 @@ import Testing
         #expect(found.first { $0.url.lastPathComponent == "data.db" } == nil)
         #expect(found.allSatisfy { !$0.needsAdmin && $0.sharedWith == nil && $0.size > 0 })
     }
+
+    @Test func pluginBundlesAreMatchedByTheirOwnID() throws {
+        let box = try Box()
+        defer { try? FileManager.default.removeItem(at: box.root) }
+        let lib = box.home.appendingPathComponent("Library")
+        try Box.bundle(at: lib.appendingPathComponent("QuickLook/Preview.qlgenerator"), id: "com.example.Leftie.ql",
+                       name: "Preview", executable: "Preview")
+        try Box.bundle(at: box.system.appendingPathComponent("Audio/Plug-Ins/Components/Verb.component"),
+                       id: "com.example.Leftie.verb", name: "Verb", executable: "Verb")
+        try Box.bundle(at: box.system.appendingPathComponent("Extensions/Driver.kext"), id: "com.example.Leftie.driver",
+                       name: "Driver", executable: "Driver")
+        try Box.bundle(at: box.system.appendingPathComponent("Audio/Plug-Ins/Components/Other.component"),
+                       id: "com.other.verb", name: "Other", executable: "Other")
+        try box.file(box.system, "StartupItems/Leftie/Leftie")
+        try box.file(lib, "Caches/com.apple.nsurlsessiond/Downloads/com.example.Leftie/part")
+        let identity = try #require(AppIdentity.read(appAt: box.app))
+        let names = Set(AppLeftoverFinder(roots: box.roots).find(for: identity).map(\.url.lastPathComponent))
+        #expect(names == ["Preview.qlgenerator", "Verb.component", "Driver.kext", "Leftie", "com.example.Leftie"])
+    }
+
+    /// A package receipt whose BOM (made with mkbom) lists the app and files elsewhere.
+    func makePackage(_ box: Box, id: String, files: [String], dirs: [String] = []) throws {
+        let stage = box.root.appendingPathComponent("stage-\(id)")
+        for d in dirs { try FileManager.default.createDirectory(at: stage.appendingPathComponent(d), withIntermediateDirectories: true) }
+        for f in files { try box.file(stage, f) }
+        try FileManager.default.createDirectory(at: box.receipts, withIntermediateDirectories: true)
+        let mkbom = Process()
+        mkbom.executableURL = URL(fileURLWithPath: "/usr/bin/mkbom")
+        mkbom.arguments = [stage.path, box.receipts.appendingPathComponent("\(id).bom").path]
+        try mkbom.run()
+        mkbom.waitUntilExit()
+        #expect(mkbom.terminationStatus == 0)
+        try box.plist(box.receipts, "\(id).plist", ["PackageIdentifier": id, "InstallPrefixPath": "/"])
+        try FileManager.default.removeItem(at: stage)
+    }
+
+    @Test func packageReceiptsAndWhatThePackageInstalled() throws {
+        let box = try Box()
+        defer { try? FileManager.default.removeItem(at: box.root) }
+        var roots = box.roots
+        roots.volume = box.root
+        let appFiles = ["Apps/Leftie.app/Contents/Info.plist"]
+        let pkgFiles = appFiles + [
+            "usr/local/bin/leftie",
+            "Library/Audio/Plug-Ins/Components/Verb.component/Contents/Info.plist",
+            "Library/Application Support/Acme/settings.json",
+            "Library/Application Support/Leftie/data/a.db",
+            "Library/LaunchDaemons/net.acme.helper.plist",
+            "usr/lib/libleftie.dylib",
+        ]
+        try makePackage(box, id: "net.acme.leftie.pkg", files: pkgFiles)
+        // What is on disk now: the package's files (one already gone), plus other software's files
+        // in the same folders.
+        for f in pkgFiles.dropFirst() where f != "Library/LaunchDaemons/net.acme.helper.plist" { try box.file(box.root, f) }
+        try box.file(box.root, "usr/local/bin/other-tool")
+        try box.file(box.root, "Library/Application Support/Acme/other-product.json")
+        // A package that does not contain the app.
+        try makePackage(box, id: "net.acme.unrelated", files: ["usr/local/bin/unrelated"])
+        try box.file(box.root, "usr/local/bin/unrelated")
+
+        let identity = try #require(AppIdentity.read(appAt: box.app))
+        let found = AppLeftoverFinder(roots: roots).find(for: identity)
+        let rel = Set(found.map { String($0.url.standardizedFileURL.path.dropFirst(box.root.standardizedFileURL.path.count + 1)) })
+        #expect(rel == [
+            "receipts/net.acme.leftie.pkg.plist", "receipts/net.acme.leftie.pkg.bom",
+            "usr/local/bin/leftie",
+            "Library/Audio/Plug-Ins/Components/Verb.component",
+            "Library/Application Support/Acme/settings.json",
+            "Library/Application Support/Leftie",
+        ])
+        #expect(found.first { $0.url.lastPathComponent == "leftie" }?.kind == "Installed by package net.acme.leftie.pkg")
+        #expect(found.allSatisfy { $0.sharedWith == nil })
+    }
+
+    @Test func aPackageThatAlsoInstalledAnotherAppIsShared() throws {
+        let box = try Box()
+        defer { try? FileManager.default.removeItem(at: box.root) }
+        var roots = box.roots
+        roots.volume = box.root
+        try makePackage(box, id: "net.acme.suite", files: [
+            "Apps/Leftie.app/Contents/Info.plist", "Apps/Other.app/Contents/Info.plist", "usr/local/bin/suite",
+        ])
+        try box.file(box.root, "Apps/Other.app/Contents/Info.plist")
+        try box.file(box.root, "usr/local/bin/suite")
+        let identity = try #require(AppIdentity.read(appAt: box.app))
+        let found = AppLeftoverFinder(roots: roots).find(for: identity).filter { !$0.url.path.contains("/Apps/") }
+        #expect(found.count == 3)
+        #expect(found.allSatisfy { $0.sharedWith == "Other" })
+    }
 }

@@ -126,13 +126,17 @@ public struct AppLeftoverFinder: Sendable {
         public var userCache: URL?
         public var userTemp: URL?
         public var receipts: URL
+        /// The volume package paths are relative to ("/"; tests use a folder).
+        public var volume: URL
 
-        public init(home: URL, systemLibrary: URL, userCache: URL?, userTemp: URL?, receipts: URL) {
+        public init(home: URL, systemLibrary: URL, userCache: URL?, userTemp: URL?, receipts: URL,
+                    volume: URL = URL(fileURLWithPath: "/")) {
             self.home = home
             self.systemLibrary = systemLibrary
             self.userCache = userCache
             self.userTemp = userTemp
             self.receipts = receipts
+            self.volume = volume
         }
 
         public static var system: Roots {
@@ -164,6 +168,8 @@ public struct AppLeftoverFinder: Sendable {
         case launchd
         /// Group Containers: an app group or a bundle ID.
         case group
+        /// Plug-in folders: a bundle whose own CFBundleIdentifier (or name) is one of the app's IDs.
+        case bundle
     }
 
     struct Place {
@@ -201,6 +207,11 @@ public struct AppLeftoverFinder: Sendable {
             u("Cookies", "Cookies", .id),
             u("LaunchAgents", "Launch agent", .launchd),
             u("Autosave Information", "Autosaved documents", .id),
+            u("Application Support/FileProvider", "File provider data", .id),
+            u("Caches/com.apple.nsurlsessiond/Downloads", "Background downloads", .id),
+            u("Caches/com.crashlytics.data", "Crash reporter data", .id),
+            u("Caches/com.plausiblelabs.crashreporter.data", "Crash reporter data", .id),
+            u("Application Support/com.crashlytics", "Crash reporter data", .id),
             s("Application Support", "Application support (all users)", .idOrName),
             s("Caches", "Cache (all users)", .idOrName),
             s("Preferences", "Preferences (all users)", .id),
@@ -209,11 +220,50 @@ public struct AppLeftoverFinder: Sendable {
             s("PrivilegedHelperTools", "Privileged helper tool", .id),
             s("Logs", "Logs (all users)", .idOrName),
             s("Logs/DiagnosticReports", "Crash report (all users)", .report),
+            s("StartupItems", "Startup item", .idOrName),
+            s("Extensions", "Kernel extension", .bundle),
+            s("Frameworks", "Framework (all users)", .bundle),
+            s("Security/SecurityAgentPlugins", "Security agent plug-in", .bundle),
+            s("DirectoryServices/PlugIns", "Directory services plug-in", .bundle),
+            s("Audio/MIDI Drivers", "MIDI driver", .bundle),
             Place(folder: roots.receipts, kind: "Installer receipt", rule: .id),
         ]
+        // Plug-ins an app installs for itself, in the user's and the system Library.
+        for (path, kind) in Self.pluginFolders {
+            places.append(u(path, kind, .bundle))
+            places.append(s(path, kind + " (all users)", .bundle))
+        }
         if let cache = roots.userCache { places.append(Place(folder: cache, kind: "Cache (var/folders)", rule: .id)) }
         if let temp = roots.userTemp { places.append(Place(folder: temp, kind: "Temporary files (var/folders)", rule: .id)) }
         return places
+    }
+
+    static let pluginFolders: [(String, String)] = [
+        ("QuickLook", "Quick Look plug-in"),
+        ("Spotlight", "Spotlight importer"),
+        ("PreferencePanes", "Settings pane"),
+        ("Internet Plug-Ins", "Internet plug-in"),
+        ("Screen Savers", "Screen saver"),
+        ("Audio/Plug-Ins/Components", "Audio Unit"),
+        ("Audio/Plug-Ins/VST", "VST plug-in"),
+        ("Audio/Plug-Ins/VST3", "VST3 plug-in"),
+        ("Audio/Plug-Ins/HAL", "Audio driver"),
+        ("Input Methods", "Input method"),
+        ("ColorPickers", "Colour picker"),
+        ("Services", "Service"),
+        ("Contextual Menu Items", "Contextual menu item"),
+        ("Mail/Bundles", "Mail plug-in"),
+    ]
+
+    /// The bundle identifier of a bundle (Contents/Info.plist or Info.plist), lowercased.
+    static func bundleID(of url: URL) -> String? {
+        for info in ["Contents/Info.plist", "Info.plist"] {
+            guard let data = try? Data(contentsOf: url.appendingPathComponent(info)),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+            else { continue }
+            return (plist["CFBundleIdentifier"] as? String)?.lowercased()
+        }
+        return nil
     }
 
     /// Searches every place. Blocking (file system walks); call it off the main thread.
@@ -260,6 +310,9 @@ public struct AppLeftoverFinder: Sendable {
                     match = reportPrefixes.contains { p in
                         lower.hasPrefix(p + "-") || lower.hasPrefix(p + "_") || lower.hasPrefix(p + ".")
                     }
+                case .bundle:
+                    let url = place.folder.appendingPathComponent(entry)
+                    match = Self.bundleID(of: url).map(matchesID) ?? matchesID(lower)
                 case .launchd:
                     let url = place.folder.appendingPathComponent(entry)
                     match = lower.hasSuffix(".plist") && (matchesID(lower) || Self.launchdPlist(url, belongsTo: bundlePath, ids: ids))
@@ -274,7 +327,120 @@ public struct AppLeftoverFinder: Sendable {
                                          sharedWith: sharedWith))
             }
         }
+        for leftover in packageLeftovers(for: app, ids: ids, names: names) {
+            let path = leftover.url.standardizedFileURL.path
+            if seen.insert(path).inserted { found.append(leftover) }
+        }
         return found
+    }
+
+    // MARK: Packages
+
+    /// What an installer package left: the receipts of packages whose file list (BOM) contains
+    /// the app, and what those packages installed outside any app bundle that is still there.
+    /// Bundles (plug-ins, kexts, frameworks) and folders named after the app come whole when every
+    /// item in them is the package's; other files one by one, so folders shared with other
+    /// software (/usr/local/bin, /Library/Audio/Plug-Ins) are never offered. A package that also
+    /// installed another app that is still there marks its items as shared (they start unticked).
+    func packageLeftovers(for app: AppIdentity, ids: [String], names: [String]) -> [AppLeftover] {
+        let fm = FileManager.default
+        let volume = roots.volume.standardizedFileURL.path
+        let bundlePath = app.bundleURL.standardizedFileURL.path
+        let appName = Data(app.bundleURL.lastPathComponent.utf8)
+        guard let entries = try? fm.contentsOfDirectory(atPath: roots.receipts.path) else { return [] }
+        var found: [AppLeftover] = []
+        for entry in entries.sorted() where entry.hasSuffix(".plist") && !entry.hasPrefix("com.apple.") {
+            let plistURL = roots.receipts.appendingPathComponent(entry)
+            let bomURL = plistURL.deletingPathExtension().appendingPathExtension("bom")
+            // Cheap check first: the BOM stores each path part as a string.
+            guard let bom = try? Data(contentsOf: bomURL), bom.range(of: appName) != nil,
+                  let data = try? Data(contentsOf: plistURL),
+                  let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+            else { continue }
+            let packageID = info["PackageIdentifier"] as? String ?? plistURL.deletingPathExtension().lastPathComponent
+            let prefix = (info["InstallPrefixPath"] as? String ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let base = prefix.isEmpty ? volume : (volume as NSString).appendingPathComponent(prefix)
+            let paths = Self.bomPaths(bomURL).map { rel -> String in
+                let r = rel.hasPrefix("./") ? String(rel.dropFirst(2)) : (rel == "." ? "" : rel)
+                return r.isEmpty ? base : (base as NSString).appendingPathComponent(r)
+            }
+            guard paths.contains(bundlePath) else { continue }
+            let owned = Set(paths)
+            // Another app this package installed that is still there.
+            let otherApp = paths.first { p in
+                p.hasSuffix(".app") && p != bundlePath && !Self.insideApp(String(p.dropLast(4))) && fm.fileExists(atPath: p)
+            }.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension }
+            let kind = "Installed by package \(packageID)"
+            func add(_ path: String, kind: String) {
+                let url = URL(fileURLWithPath: path)
+                found.append(AppLeftover(url: url, kind: kind, size: Self.size(of: url),
+                                         needsAdmin: !fm.isDeletableFile(atPath: path), matchedByName: false,
+                                         sharedWith: otherApp))
+            }
+            for receipt in [plistURL, bomURL] where fm.fileExists(atPath: receipt.path) {
+                add(receipt.path, kind: "Installer receipt")
+            }
+            var offered: [String] = []
+            for path in paths.sorted() {
+                guard path != base, path.hasPrefix(volume == "/" ? "/" : volume + "/"),
+                      !Self.insideApp(path), !offered.contains(where: { path.hasPrefix($0 + "/") }) else { continue }
+                let relative = volume == "/" ? path : String(path.dropFirst(volume.count))
+                guard !Self.protectedPrefixes.contains(where: { relative == $0 || relative.hasPrefix($0 + "/") })
+                        || relative.hasPrefix("/usr/local/") || relative.hasPrefix("/opt/") else { continue }
+                var isDir: ObjCBool = false
+                guard (try? fm.attributesOfItem(atPath: path)) != nil else { continue } // gone (lstat)
+                _ = fm.fileExists(atPath: path, isDirectory: &isDir)
+                let isLink = (try? fm.destinationOfSymbolicLink(atPath: path)) != nil
+                if isDir.boolValue, !isLink {
+                    let name = (path as NSString).lastPathComponent.lowercased()
+                    let isBundle = !(name as NSString).pathExtension.isEmpty
+                    let named = names.contains(name) || ids.contains { name == $0 || name.hasPrefix($0 + ".") }
+                    if (isBundle || named), Self.onlyContains(path, owned) {
+                        offered.append(path)
+                        add(path, kind: kind)
+                    }
+                    continue
+                }
+                offered.append(path)
+                add(path, kind: kind)
+            }
+        }
+        return found
+    }
+
+    /// Top-level system places a package's own files are never offered from (except
+    /// /usr/local and /opt, where tools install).
+    static let protectedPrefixes = ["/System", "/usr", "/bin", "/sbin", "/private/var/db", "/dev", "/Volumes", "/Users"]
+
+    /// Whether a path lies inside an app bundle (any part ending in .app before the last one).
+    static func insideApp(_ path: String) -> Bool {
+        let parts = path.split(separator: "/")
+        return parts.dropLast().contains { $0.lowercased().hasSuffix(".app") } || path.lowercased().hasSuffix(".app")
+    }
+
+    /// Whether everything below a folder is in the package's file list.
+    static func onlyContains(_ folder: String, _ owned: Set<String>) -> Bool {
+        guard let walker = FileManager.default.enumerator(atPath: folder) else { return false }
+        for case let rel as String in walker where !owned.contains((folder as NSString).appendingPathComponent(rel)) {
+            return false
+        }
+        return true
+    }
+
+    /// The paths in a BOM file ("./Applications/Foo.app", ...), through lsbom.
+    static func bomPaths(_ bom: URL) -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/lsbom")
+        process.arguments = ["-s", bom.path]
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return [] }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return [] }
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 
     /// App groups of the other installed apps (lowercased group -> app names), read from their
