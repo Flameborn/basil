@@ -415,6 +415,21 @@ import Testing
         #expect(rename("abc.txt") { $0.nameMask = "[=missing]" } == "[=missing].txt")
     }
 
+    @Test func previewChecksNamesPerFolder() {
+        // Search results: the same new name in two folders is fine; a clash counts only in its own folder.
+        let a = FileItem(path: .local("/one/a.txt"), kind: .file), b = FileItem(path: .local("/two/b.txt"), kind: .file)
+        var rule = RenameRule()
+        rule.nameMask = "x"
+        let entries = MultiRenamePreview.make(items: [a, b], rule: rule,
+                                              existingNamesByFolder: [.local("/one"): ["a.txt"], .local("/two"): ["b.txt", "y.txt"]])
+        #expect(entries.allSatisfy { $0.problem == nil })
+        rule.nameMask = "y"
+        let clash = MultiRenamePreview.make(items: [a, b], rule: rule,
+                                            existingNamesByFolder: [.local("/one"): ["a.txt"], .local("/two"): ["b.txt", "y.txt"]])
+        #expect(clash[0].problem == nil)
+        #expect(clash[1].problem == .exists)
+    }
+
     @Test func previewFindsProblems() {
         let items = ["a.txt", "b.txt", "c.txt"].map { item($0) }
         var rule = RenameRule()

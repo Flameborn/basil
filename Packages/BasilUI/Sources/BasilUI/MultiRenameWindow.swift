@@ -9,7 +9,8 @@ import SwiftUI
 @Observable
 final class MultiRenameModel {
     let items: [FileItem]
-    private let existingNames: [String]
+    /// The names in each folder the items are in (one folder, or several in search results).
+    private let existingNames: [VFSPath: Set<String>]
     let undoLog: URL
 
     var rule = RenameRule() { didSet { if rule != oldValue { refreshPreview() } } }
@@ -22,12 +23,12 @@ final class MultiRenameModel {
     @ObservationIgnored var onUndo: (() -> Void)?
     @ObservationIgnored var onClose: (() -> Void)?
 
-    init(items: [FileItem], existingNames: [String], undoLog: URL) {
+    init(items: [FileItem], existingNames: [VFSPath: Set<String>], undoLog: URL) {
         self.items = items
         self.existingNames = existingNames
         self.undoLog = undoLog
         undoAvailable = !(MultiRenameOperation.readLog(undoLog) ?? []).isEmpty
-        entries = MultiRenamePreview.make(items: items, rule: rule, existingNames: existingNames)
+        entries = MultiRenamePreview.make(items: items, rule: rule, existingNamesByFolder: existingNames)
     }
 
     var searchError: String? { MultiRename.searchError(rule) }
@@ -49,7 +50,7 @@ final class MultiRenameModel {
         let (items, rule, existing) = (self.items, self.rule, self.existingNames)
         Task {
             let result = await Task.detached {
-                MultiRenamePreview.make(items: items, rule: rule, existingNames: existing)
+                MultiRenamePreview.make(items: items, rule: rule, existingNamesByFolder: existing)
             }.value
             guard token == self.generation else { return }
             self.entries = result

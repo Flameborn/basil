@@ -73,6 +73,26 @@ public final class SearchResultsProvider: ListingProvider {
         }
     }
 
+    public func itemsMoved(_ pairs: [(from: VFSPath, to: VFSPath)]) {
+        items.withLock { items in
+            items = items.map { item in
+                for (from, to) in pairs {
+                    guard let moved = Self.path(item.path, movedFrom: from, to: to) else { continue }
+                    return FileItem(path: moved, kind: item.kind, size: item.size, modified: item.modified, created: item.created,
+                                    permissions: item.permissions, isHidden: item.isHidden, fileID: item.fileID)
+                }
+                return item
+            }
+        }
+    }
+
+    /// `path` after `from` became `to` (also when `path` is below `from`), or nil when unaffected.
+    static func path(_ path: VFSPath, movedFrom from: VFSPath, to: VFSPath) -> VFSPath? {
+        if path == from { return to }
+        guard path.hasPrefix(from), from.location == to.location else { return nil }
+        return VFSPath(location: to.location, path: to.path + path.path.dropFirst(from.path.count))
+    }
+
     public func item(at path: VFSPath) async throws -> FileItem {
         guard path.location == location else { return try await source.item(at: path) }
         guard path.isRoot else { throw VFSError.notFound(path) }

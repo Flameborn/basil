@@ -90,23 +90,56 @@ extension MainWindowController {
                 return
             }
             let queued = queue.add(RenameOperation(source: item.path, destination: destination, registry: providers))
-            queued.whenDone = { state in
-                if state == .finished { pane.model.reload(cursor: destination) }
+            queued.whenDone = { [weak self] state in
+                guard state == .finished else { return }
+                self?.itemsRenamed([(item.path, destination)], in: pane, cursor: destination)
             }
         }
     }
 
-    /// Cmd+M: the Multi-Rename tool for the selected items, or the cursor item.
+    /// Cmd+M: the Multi-Rename tool for the selected items, or the cursor item. In search results
+    /// the items come from several folders: each folder is listed first, so names clash only with
+    /// names in the item's own folder, and the results show the new names afterwards.
     func multiRename() {
         let items = targetItems
         guard !items.isEmpty else { return announce("No items") }
-        if Listings.info(activePane.model.directory.location) != nil {
-            return activePane.report("Multi-Rename does not work in search results yet. Go to the folder of the items first.")
-        }
-        guard ensureWritable(activePane.model.directory, archives: false) else { return }
         let pane = activePane
+        let directory = pane.model.directory
+        let listing = Listings.info(directory.location)
+        if let listing, listing.origin.location.container != nil {
+            return pane.report("Items found inside an archive can only be copied out of it.")
+        }
+        guard ensureWritable(listing?.origin ?? directory, archives: false) else { return }
+        guard listing != nil else {
+            return openMultiRename(items, existing: [directory: Set(pane.model.allItems.map(\.name))], in: pane)
+        }
+        let folders = Set(items.compactMap(\.path.parent))
+        let registry = providers
+        Task {
+            var existing: [VFSPath: Set<String>] = [:]
+            for folder in folders {
+                guard let provider = try? registry.provider(for: folder.location) else { continue }
+                var names: Set<String> = []
+                do {
+                    for try await batch in provider.list(folder) { names.formUnion(batch.map(\.name)) }
+                } catch {
+                    return pane.report("Could not read \(folder.displayName): \(PaneViewController.describe(error))")
+                }
+                existing[folder] = names
+            }
+            // The tool runs a modal loop. Started from this task (or a main-queue block) the main
+            // queue would stay busy with it and the preview's own tasks would never run, so it
+            // starts from the run loop, like after a key press.
+            let found = existing
+            RunLoop.main.perform {
+                MainActor.assumeIsolated { self.openMultiRename(items, existing: found, in: pane) }
+            }
+        }
+    }
+
+    private func openMultiRename(_ items: [FileItem], existing: [VFSPath: Set<String>], in pane: PaneViewController) {
         let log = dataDirectory.appendingPathComponent("LastMultiRename.json")
-        let model = MultiRenameModel(items: items, existingNames: pane.model.allItems.map(\.name), undoLog: log)
+        let model = MultiRenameModel(items: items, existingNames: existing, undoLog: log)
         let controller = MultiRenameWindowController(model: model, settings: settings)
         model.onStart = { [weak self, weak controller] entries in
             guard let self else { return }
@@ -118,7 +151,9 @@ extension MainWindowController {
             let newCursor = pairs.first { $0.source == cursor }?.destination ?? cursor
             let queued = queue.add(MultiRenameOperation(pairs: pairs, undoLog: log, registry: providers))
             pane.model.deselectAll()
-            queued.whenDone = { _ in pane.model.reload(cursor: newCursor) }
+            queued.whenDone = { [weak self] _ in
+                self?.itemsRenamed(pairs.map { ($0.source, $0.destination) }, in: pane, cursor: newCursor)
+            }
         }
         model.onUndo = { [weak self, weak controller] in
             guard let self else { return }
@@ -127,9 +162,33 @@ extension MainWindowController {
             let cursor = pane.cursorItem?.path
             let newCursor = undo.pairs.first { $0.source == cursor }?.destination ?? cursor
             let queued = queue.add(undo)
-            queued.whenDone = { _ in pane.model.reload(cursor: newCursor) }
+            queued.whenDone = { [weak self] _ in
+                self?.itemsRenamed(undo.pairs.map { ($0.source, $0.destination) }, in: pane, cursor: newCursor)
+            }
         }
         controller.runModal()
+    }
+
+    /// Rereads the pane after renames. Search results first take the new names of the items that
+    /// were renamed (a rename that failed or was skipped keeps its old name), so they stay listed.
+    func itemsRenamed(_ pairs: [(VFSPath, VFSPath)], in pane: PaneViewController, cursor: VFSPath?) {
+        guard !pairs.isEmpty, let listing = providers.listing(pane.model.directory.location) else {
+            return pane.model.reload(cursor: cursor)
+        }
+        let registry = providers
+        Task {
+            var done: [(from: VFSPath, to: VFSPath)] = []
+            for (from, to) in pairs {
+                guard let provider = try? registry.provider(for: to.location) else { continue }
+                // Moved when the new path exists and the old one does not (a case-only change has both).
+                let arrived = (try? await provider.item(at: to)) != nil
+                var left = from.path.lowercased() == to.path.lowercased()
+                if !left { left = (try? await provider.item(at: from)) == nil }
+                if arrived, left { done.append((from, to)) }
+            }
+            listing.itemsMoved(done)
+            pane.model.reload(cursor: cursor)
+        }
     }
 
     func makeDirectory() {

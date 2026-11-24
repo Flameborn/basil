@@ -339,15 +339,30 @@ public enum MultiRenamePreview {
     /// folder, renamed or not. Names are compared without case, as on a default APFS volume.
     public static func make(items: [FileItem], rule: RenameRule, existingNames: some Sequence<String>,
                             calendar: Calendar = .current) -> [RenamePreviewEntry] {
+        let folders = Set(items.compactMap(\.path.parent))
+        let names = Set(existingNames)
+        return make(items: items, rule: rule, existingNamesByFolder: Dictionary(uniqueKeysWithValues: folders.map { ($0, names) }),
+                    calendar: calendar)
+    }
+
+    /// The same for items from several folders (search results): names clash only with names in
+    /// the item's own folder. `existingNamesByFolder` has the names of everything in each folder.
+    public static func make(items: [FileItem], rule: RenameRule, existingNamesByFolder: [VFSPath: Set<String>],
+                            calendar: Calendar = .current) -> [RenamePreviewEntry] {
         let names = items.enumerated().map { index, item in
             MultiRename.newName(for: RenameInput(item: item, index: index), rule: rule, calendar: calendar) ?? item.name
         }
-        let renamed = Set(items.map { $0.name.lowercased() })
-        let untouched = Set(existingNames.map { $0.lowercased() }).subtracting(renamed)
-        var counts: [String: Int] = [:]
-        for name in names { counts[name.lowercased(), default: 0] += 1 }
+        struct Key: Hashable { let folder: VFSPath?; let name: String }
+        let renamed = Set(items.map { Key(folder: $0.path.parent, name: $0.name.lowercased()) })
+        var untouched: Set<Key> = []
+        for (folder, existing) in existingNamesByFolder {
+            for name in existing { untouched.insert(Key(folder: folder, name: name.lowercased())) }
+        }
+        untouched.subtract(renamed)
+        var counts: [Key: Int] = [:]
+        for (item, name) in zip(items, names) { counts[Key(folder: item.path.parent, name: name.lowercased()), default: 0] += 1 }
         return zip(items, names).map { item, name in
-            let key = name.lowercased()
+            let key = Key(folder: item.path.parent, name: name.lowercased())
             let problem: RenamePreviewEntry.Problem?
             if name.isEmpty || name == "." || name == ".." {
                 problem = .empty

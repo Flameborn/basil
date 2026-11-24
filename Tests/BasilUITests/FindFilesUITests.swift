@@ -42,6 +42,13 @@ extension PaneUITests {
         XCTAssertTrue(waitFor { self.app.windows.element(boundBy: 0).title == "Search results - Basil" }, app.windows.element(boundBy: 0).title)
         let row = leftTable.tableRows.allElementsBoundByIndex.first { $0.cells.firstMatch.label.hasPrefix("pack.zip") }
         XCTAssertEqual(row?.cells.firstMatch.label, "pack.zip, in Alpha/Inner")
+        // F3 previews a found file (the real one).
+        let before = app.windows.count
+        leftTable.typeKey(.home, modifierFlags: [])
+        leftTable.typeKey(.F3, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.app.windows.count > before }, app.debugDescription)
+        app.typeKey(.F3, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.app.windows.count == before }, app.debugDescription)
         // Nothing can be created in search results.
         leftTable.typeKey(.F7, modifierFlags: [])
         XCTAssertTrue(waitFor { (self.app.staticTexts["pane.left.status"].value as? String ?? "").contains("Search results only list") })
@@ -53,7 +60,8 @@ extension PaneUITests {
         XCTAssertEqual(window.tables["find.results"].tableRows.count, 3)
         window.comboBoxes["find.name"].typeKey("a", modifierFlags: .command)
         window.comboBoxes["find.name"].typeText("pack\r")
-        XCTAssertTrue(waitFor { self.findStatus(window).hasPrefix("Found 1 item") }, findStatus(window))
+        XCTAssertTrue(waitFor { self.findStatus(window).hasPrefix("Found 1 item") },
+                      "\(findStatus(window)), name: \(window.comboBoxes["find.name"].value ?? "")")
         // The results list has the focus once the search is done.
         window.tables["find.results"].typeKey(.return, modifierFlags: [])
         XCTAssertTrue(waitFor { !window.exists })
@@ -96,5 +104,37 @@ extension PaneUITests {
         text.typeText("x\r")
         XCTAssertTrue(waitFor { self.findStatus(window).hasSuffix("with Live folder walk") }, findStatus(window))
         window.typeKey(.escape, modifierFlags: [])
+    }
+}
+
+extension PaneUITests {
+    /// Multi-Rename works in search results (like TC's feed list); renamed items stay listed.
+    func testMultiRenameInSearchResults() {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        let window = openFindFiles()
+        window.comboBoxes["find.name"].typeText("*.zip;*.mp3\r")
+        XCTAssertTrue(waitFor { self.findStatus(window).hasPrefix("Found 2 items") }, findStatus(window))
+        window.buttons["Show in Pane"].click()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).sorted() == ["pack.zip", "song.mp3"] }, "\(names(in: leftTable))")
+        leftTable.typeKey("a", modifierFlags: .command)
+        leftTable.typeKey("m", modifierFlags: .command)
+        let rename = app.dialogs["Multi-Rename"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 3))
+        let mask = rename.textFields["Name mask"]
+        // The tool opens once the items' folders are read: wait for the mask to have the focus.
+        XCTAssertTrue(waitFor { (mask.value(forKey: "hasKeyboardFocus") as? Bool) == true })
+        mask.typeKey("a", modifierFlags: .command)
+        mask.typeText("[N]-x")
+        let preview = rename.tables["multiRename.preview"]
+        for name in ["pack-x.zip", "song-x.mp3"] {
+            let cell = preview.staticTexts.matching(NSPredicate(format: "label == %@ OR value == %@", name, name)).firstMatch
+            XCTAssertTrue(cell.waitForExistence(timeout: 5), "\(preview.staticTexts.allElementsBoundByIndex.map { "\($0.label)|\($0.value ?? "")" })")
+        }
+        // Names in different folders are checked against their own folder: no problems.
+        XCTAssertEqual(preview.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Problem")).count, 0)
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { !rename.exists })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).sorted() == ["pack-x.zip", "song-x.mp3"] }, "\(names(in: leftTable))")
+        XCTAssertTrue(app.windows.element(boundBy: 0).title.hasPrefix("Search results"))
     }
 }

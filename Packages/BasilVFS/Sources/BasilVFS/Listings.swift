@@ -13,6 +13,9 @@ public protocol ListingProvider: FileSystemProvider {
     var origin: VFSPath { get }
     /// What the path bar and the window title call the listing ("Search results").
     var title: String { get }
+    /// Items Basil renamed or moved: the listing shows them at their new paths from now on
+    /// (an item, or anything below a folder, at a `from` path).
+    func itemsMoved(_ pairs: [(from: VFSPath, to: VFSPath)])
 }
 
 /// The origin and title of every registered listing, by location, for code that names a folder
