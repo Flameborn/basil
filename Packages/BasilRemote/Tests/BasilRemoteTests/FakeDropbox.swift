@@ -54,6 +54,11 @@ final class FakeDropbox: @unchecked Sendable {
         var grantedScopes = DropboxScopes.all
         var signIns = 0
         var longpolls = 0
+        /// A team with a team space: the account's root is this namespace (the member folder
+        /// is "/Test User" in it), and every file call must carry it in Dropbox-API-Path-Root.
+        var teamSpace: String?
+        /// File calls that came without that header.
+        var callsWithoutPathRoot: [String] = []
     }
 
     let state = Mutex(State())
@@ -271,6 +276,17 @@ final class FakeDropbox: @unchecked Sendable {
             return Response(status: 200, body: Data("null".utf8), headers: ["Content-Type": "application/json"])
         case "/2/users/get_current_account":
             return .json(account())
+        default: break
+        }
+        if let team = state.withLock({ $0.teamSpace }) {
+            let root = request.header("Dropbox-API-Path-Root")
+                .flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: String] }
+            guard root == [".tag": "root", "root": team] else {
+                state.withLock { $0.callsWithoutPathRoot.append(request.path) }
+                return .json(["error_summary": "no_permission/", "error": [".tag": "no_permission"]], status: 422)
+            }
+        }
+        switch request.path {
         case "/2/files/list_folder": return listFolder(argument)
         case "/2/files/list_folder/continue": return listContinue(argument)
         case "/2/files/list_folder/get_latest_cursor":
@@ -338,7 +354,9 @@ final class FakeDropbox: @unchecked Sendable {
                   "abbreviated_name": "TU"],
          "email": email, "email_verified": true, "disabled": false, "locale": "en",
          "referral_link": "https://db.tt/x", "is_paired": false, "account_type": [".tag": "basic"],
-         "root_info": [".tag": "user", "root_namespace_id": "1", "home_namespace_id": "1"]]
+         "root_info": state.withLock { $0.teamSpace }.map {
+             [".tag": "team", "root_namespace_id": $0, "home_namespace_id": "2", "home_path": "/Test User"]
+         } ?? [".tag": "user", "root_namespace_id": "1", "home_namespace_id": "1"]]
     }
 
     static func iso(_ date: Date) -> String {

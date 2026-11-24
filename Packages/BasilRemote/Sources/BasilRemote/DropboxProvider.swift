@@ -39,9 +39,14 @@ public final class DropboxProvider: WritableProvider, ConnectedProvider, SharedL
         [.read, .write, .randomAccessRead, .rename, .setDates, .clone, .trash]
     }
 
+    /// The team space's namespace ID when paths start there (`DropboxConnector.teamSpaceRoot`);
+    /// Basil's own requests send it like the SDK's.
+    let teamSpace: String?
+
     init(client: DropboxClient, tokens: DropboxTokens, auth: DropboxAuth, email: String, displayName: String,
-         signedInTarget: RemoteTarget?) {
+         teamSpace: String? = nil, signedInTarget: RemoteTarget?) {
         self.client = client
+        self.teamSpace = teamSpace
         self.tokens = tokens
         self.auth = auth
         self.email = email
@@ -407,6 +412,9 @@ public final class DropboxProvider: WritableProvider, ConnectedProvider, SharedL
             request.httpMethod = "POST"
             request.setValue("Bearer \(try await tokens.current())", forHTTPHeaderField: "Authorization")
             request.setValue(Self.headerJSON(["path": "rev:\(revision)"]), forHTTPHeaderField: "Dropbox-API-Arg")
+            if let teamSpace {
+                request.setValue(Self.headerJSON([".tag": "root", "root": teamSpace]), forHTTPHeaderField: "Dropbox-API-Path-Root")
+            }
             request.setValue("bytes=\(range.lowerBound)-\(range.upperBound - 1)", forHTTPHeaderField: "Range")
             let data: Data
             let response: URLResponse

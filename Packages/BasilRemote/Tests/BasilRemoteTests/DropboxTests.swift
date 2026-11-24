@@ -147,8 +147,9 @@ private final class Monitor: TransferMonitor {
         let prompts: FakeBrowserPrompts
     }
 
-    func setUp(prompts: FakeBrowserPrompts? = nil, path: String? = nil) async throws -> Setup {
+    func setUp(prompts: FakeBrowserPrompts? = nil, path: String? = nil, teamSpace: String? = nil) async throws -> Setup {
         let fake = try FakeDropbox()
+        fake.state.withLock { $0.teamSpace = teamSpace }
         let secrets = MemorySecretStore()
         let connector = DropboxConnector(appKey: FakeDropbox.appKey, secrets: secrets, hosts: fake.hosts, returnPort: 0)
         let registry = ProviderRegistry()
@@ -445,6 +446,39 @@ private final class Monitor: TransferMonitor {
                                                              mode: .move, s.provider, s.provider)
         #expect(move.strategy == .rename)
         #expect(s.fake.data("/to/copy.bin") == data && s.fake.node("/copy.bin") == nil)
+    }
+
+    @Test func aTeamSpaceIsTheTopFolder() async throws {
+        let s = try await setUp(teamSpace: "9001")
+        s.fake.put("/Marketing/plan.txt", Data("team".utf8))
+        s.fake.put("/Test User/mine.txt", Data("mine".utf8))
+        let top = try await collect(s.provider.list(s.root)).map(\.name).sorted()
+        #expect(top == ["Marketing", "Test User"])
+        // Up, down, a server-side copy, a link and the watch, all in the team space.
+        let data = randomData(9 * mb + 5)
+        let src = try local(s, "up.bin", data)
+        _ = try await engine(s.registry).transferFile(src, to: s.root.appending("Marketing/up.bin"), mode: .copy,
+                                                     LocalProvider(), s.provider)
+        #expect(s.fake.data("/Marketing/up.bin") == data)
+        let back = s.folder.appendingPathComponent("back.bin")
+        _ = try await engine(s.registry).transferFile(s.root.appending("Marketing/up.bin"), to: .local(back.path),
+                                                     mode: .copy, s.provider, LocalProvider())
+        #expect(try Data(contentsOf: back) == data)
+        let copy = try await engine(s.registry).transferFile(s.root.appending("Marketing/plan.txt"),
+                                                             to: s.root.appending("Test User/plan.txt"),
+                                                             mode: .copy, s.provider, s.provider)
+        #expect(copy.strategy == .clone && s.fake.data("/Test User/plan.txt") == Data("team".utf8))
+        _ = try await s.provider.sharedLink(for: s.root.appending("Marketing/plan.txt"), lifetime: nil)
+        var changes = try #require(s.provider.watch(s.root.appending("Marketing"))).makeAsyncIterator()
+        try await Task.sleep(for: .milliseconds(300))
+        s.fake.put("/Marketing/new.txt", Data())
+        _ = await changes.next()
+        #expect(s.fake.state.withLock { $0.callsWithoutPathRoot } == [])
+    }
+
+    @Test func aPersonalAccountSendsNoPathRoot() async throws {
+        let s = try await setUp()
+        #expect(s.provider.teamSpace == nil)
     }
 
     @Test func anExistingTargetIsRefusedWhenCreating() async throws {

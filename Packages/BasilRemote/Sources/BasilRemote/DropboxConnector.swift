@@ -72,9 +72,10 @@ public struct DropboxConnector: RemoteConnector {
             secrets.save(granted.joined(separator: " "), for: Self.scopesKey(signedIn.accountID))
         }
         let tokens = DropboxTokens(auth: auth, token: signedIn)
-        let client = DropboxClient(transportClient: DropboxTransportClientImpl(
+        let transport = DropboxTransportClientImpl(
             accessTokenProvider: tokens, baseHosts: auth.hosts.baseHosts, userAgent: "Basil",
-            selectUser: nil))
+            selectUser: nil)
+        let client = DropboxClient(transportClient: transport)
         let account: Users.FullAccount
         switch await client.users.getCurrentAccount().responseResult() {
         case .success(let value): account = value
@@ -82,17 +83,27 @@ public struct DropboxConnector: RemoteConnector {
             throw DropboxFailure(error).vfsError("Reading the Dropbox account", VFSPath(location: .local, path: "/"),
                                                  to: nil, email: target.user ?? "this account")
         }
+        // A team with a team space: paths start at the team space (team folders and the
+        // member's own folder side by side), like Dropbox's apps. Every later call carries it.
+        let teamSpace = Self.teamSpaceRoot(account.rootInfo)
+        if let teamSpace { transport.pathRoot = .root(teamSpace) }
         var updated = target
         updated.host = account.accountId
         updated.user = account.email
         updated.port = nil
         updated.authentication = .automatic
         let provider = DropboxProvider(client: client, tokens: tokens, auth: auth, email: account.email,
-                                       displayName: account.name.displayName,
+                                       displayName: account.name.displayName, teamSpace: teamSpace,
                                        signedInTarget: updated == target ? nil : updated)
         var start = target.path?.trimmingCharacters(in: .whitespaces) ?? ""
         if !start.hasPrefix("/") { start = "/" + start }
         return (provider, VFSPath(location: provider.location, path: start))
+    }
+
+    /// The team space's namespace ID when the account's root is not its home (a team with a team
+    /// space); nil for personal accounts and teams whose folders live inside the member folder.
+    static func teamSpaceRoot(_ info: Common.RootInfo) -> String? {
+        info.rootNamespaceId != info.homeNamespaceId ? info.rootNamespaceId : nil
     }
 
     /// Signs in in the browser: opens the authorization page through `prompts` and waits for
