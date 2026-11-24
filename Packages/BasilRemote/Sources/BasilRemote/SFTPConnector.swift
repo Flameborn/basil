@@ -5,14 +5,15 @@ import Foundation
 
 /// Connects to SFTP servers. Host names go through ~/.ssh/config first (HostName, User, Port,
 /// IdentityFile, IdentitiesOnly), host keys are checked against ~/.ssh/known_hosts, and the login
-/// follows ssh's order: ssh-agent, key files (asking for passphrases), then password or
+/// follows ssh's order: ssh-agent (IdentityAgent, or SSH_AUTH_SOCK and the agents of 1Password,
+/// Bitwarden, Secretive, Strongbox and GnuPG, see `SSHAgents`), key files (asking for passphrases), then password or
 /// keyboard-interactive.
 public struct SFTPConnector: RemoteConnector {
     public var service: ProviderID { .sftp }
     public var displayName: String { "SFTP" }
     public var defaultPort: Int { 22 }
     public var logins: [RemoteLogin] { [.automatic, .password, .keyFile] }
-    public var automaticLoginTitle: String { "Automatic: ssh-agent, key files, then password" }
+    public var automaticLoginTitle: String { "Automatic: ssh agents (also 1Password, Bitwarden, Secretive, Strongbox), key files, then password" }
     public var hostPlaceholder: String { "Name, address or ssh alias" }
     public var userPlaceholder: String { "From ~/.ssh/config, or \(NSUserName())" }
 
@@ -46,7 +47,8 @@ public struct SFTPConnector: RemoteConnector {
             identityFiles: identities,
             identitiesOnly: config.identitiesOnly ?? false,
             authentication: target.authentication,
-            agentSocket: agentSocket
+            agents: agentSocket.map { [SSHAgent(name: "ssh-agent", socket: $0)] }
+                ?? SSHAgents.resolve(identityAgent: config.identityAgent, home: home.path)
         )
         return (endpoint, config.unsupported)
     }
@@ -112,9 +114,12 @@ public struct SFTPConnector: RemoteConnector {
         let auth = endpoint.authentication
         let allowKeys = methods.contains("publickey")
 
-        if allowKeys, case .automatic = auth, !endpoint.identitiesOnly,
-           let identity = try await connection.run({ try connection.authenticateWithAgent() }) {
-            return .agent(identity: identity)
+        if allowKeys, case .automatic = auth, !endpoint.identitiesOnly {
+            for agent in endpoint.agents {
+                if let identity = try await connection.run({ try connection.authenticateWithAgent(agent.socket) }) {
+                    return .agent(identity: identity, socket: agent.socket)
+                }
+            }
         }
         if allowKeys {
             var keys: [String] = []

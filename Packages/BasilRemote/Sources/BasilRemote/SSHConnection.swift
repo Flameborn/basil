@@ -21,8 +21,9 @@ struct SSHEndpoint: Sendable, Hashable {
     var identityFiles: [String]
     var identitiesOnly: Bool
     var authentication: RemoteTarget.Authentication
-    /// ssh-agent socket; nil: SSH_AUTH_SOCK.
-    var agentSocket: String?
+    /// Agent sockets to try in order (IdentityAgent, or SSH_AUTH_SOCK and the known password
+    /// manager agents).
+    var agents: [SSHAgent] = []
 
     /// "[host]:port" or "host", as known_hosts writes it.
     var knownHostsName: String { KnownHosts.hostName(host, port: port) }
@@ -32,7 +33,7 @@ struct SSHEndpoint: Sendable, Hashable {
 /// How the last login worked, so a dropped connection logs in again without asking.
 enum SSHLogin: Sendable {
     case none
-    case agent(identity: Data)
+    case agent(identity: Data, socket: String)
     case key(path: String, passphrase: String?)
     case password(String)
     case keyboard(password: String?, answers: [String: String])
@@ -127,15 +128,15 @@ final class SSHConnection: @unchecked Sendable {
         session.map { libssh2_userauth_authenticated($0) != 0 } ?? false
     }
 
-    /// Tries every identity in the agent. Returns the identity that worked, or nil.
-    func authenticateWithAgent() throws -> Data? {
+    /// Tries every identity in one agent. Returns the identity that worked, or nil.
+    func authenticateWithAgent(_ agentSocket: String) throws -> Data? {
         guard let session else { return nil }
         guard let agent = libssh2_agent_init(session) else { return nil }
         defer {
             libssh2_agent_disconnect(agent)
             libssh2_agent_free(agent)
         }
-        if let socket = endpoint.agentSocket { socket.withCString { libssh2_agent_set_identity_path(agent, $0) } }
+        agentSocket.withCString { libssh2_agent_set_identity_path(agent, $0) }
         guard libssh2_agent_connect(agent) == 0, libssh2_agent_list_identities(agent) == 0 else { return nil }
         var previous: UnsafeMutablePointer<libssh2_agent_publickey>?
         var identity: UnsafeMutablePointer<libssh2_agent_publickey>?
@@ -151,13 +152,13 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     /// Logs in with the agent identity that worked before (after a reconnect).
-    private func authenticateWithAgent(identity: Data) throws -> Bool {
+    private func authenticateWithAgent(identity: Data, socket agentSocket: String) throws -> Bool {
         guard let session, let agent = libssh2_agent_init(session) else { return false }
         defer {
             libssh2_agent_disconnect(agent)
             libssh2_agent_free(agent)
         }
-        if let socket = endpoint.agentSocket { socket.withCString { libssh2_agent_set_identity_path(agent, $0) } }
+        agentSocket.withCString { libssh2_agent_set_identity_path(agent, $0) }
         guard libssh2_agent_connect(agent) == 0, libssh2_agent_list_identities(agent) == 0 else { return false }
         var previous: UnsafeMutablePointer<libssh2_agent_publickey>?
         var current: UnsafeMutablePointer<libssh2_agent_publickey>?
@@ -250,7 +251,7 @@ final class SSHConnection: @unchecked Sendable {
         let ok: Bool
         switch login {
         case .none: ok = try isAuthenticated || authMethods().isEmpty
-        case .agent(let identity): ok = try authenticateWithAgent(identity: identity)
+        case .agent(let identity, let socket): ok = try authenticateWithAgent(identity: identity, socket: socket)
         case .key(let path, let passphrase): ok = try authenticate(keyFile: path, passphrase: passphrase) == .accepted
         case .password(let password): ok = try authenticate(password: password)
         case .keyboard(let password, let answers):

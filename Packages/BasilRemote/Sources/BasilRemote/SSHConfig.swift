@@ -8,6 +8,8 @@ public struct SSHHostConfig: Equatable, Sendable {
     public var port: Int?
     public var identityFiles: [String] = []
     public var identitiesOnly: Bool?
+    /// IdentityAgent as written (tokens expanded later, "none" and "SSH_AUTH_SOCK" kept).
+    public var identityAgent: String?
     /// Keys Basil does not support that apply to this host (ProxyJump, ProxyCommand, ...), as written.
     public var unsupported: [String] = []
 
@@ -75,6 +77,7 @@ public struct SSHConfig: Sendable {
                 case "user": config.user = entry.value
                 case "port": config.port = Int(entry.value)
                 case "identitiesonly": config.identitiesOnly = entry.value.lowercased() == "yes"
+                case "identityagent": config.identityAgent = entry.value
                 default: break
                 }
             }
@@ -83,6 +86,9 @@ public struct SSHConfig: Sendable {
                             port: config.port ?? 22, localUser: localUser, home: home)
         config.hostName = config.hostName.map { $0.replacingOccurrences(of: "%h", with: host) }
         config.identityFiles = rawIdentities.map { tokens.expand($0) }
+        if let agent = config.identityAgent, agent != "SSH_AUTH_SOCK", !agent.hasPrefix("$"), agent.lowercased() != "none" {
+            config.identityAgent = tokens.expand(agent)
+        }
         return config
     }
 

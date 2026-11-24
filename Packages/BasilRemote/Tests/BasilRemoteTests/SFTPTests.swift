@@ -125,6 +125,40 @@ private final class Monitor: TransferMonitor {
         await registry.disconnect(start.location)
     }
 
+    @Test func identityAgentFromSSHConfigLogsIn() async throws {
+        let box = try RemoteSandbox()
+        try box.prepare()
+        try box.trustServer(server)
+        try """
+        Host 127.0.0.1
+            IdentityAgent "\(server.agentSocket)"
+        """.write(to: server.home.appendingPathComponent(".ssh/config"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: server.home.appendingPathComponent(".ssh/config")) }
+        let registry = ProviderRegistry()
+        registry.register(connector: SFTPConnector(home: server.home, knownHostsFile: box.knownHosts, defaultKeys: false))
+        let prompts = TestPrompts()
+        let start = try await registry.connect(server.target(.automatic, path: box.path), prompts: prompts)
+        #expect(prompts.state.withLock { $0.secretRequests.isEmpty })
+        await registry.disconnect(start.location)
+    }
+
+    @Test func passwordManagerAgentIsFoundWithoutConfig() async throws {
+        let box = try RemoteSandbox()
+        try box.prepare()
+        try box.trustServer(server)
+        // Bitwarden's socket (the .dmg build's place), here a link to the test agent.
+        let link = server.home.appendingPathComponent(".bitwarden-ssh-agent.sock")
+        try? FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: server.agentSocket)
+        defer { try? FileManager.default.removeItem(at: link) }
+        let registry = ProviderRegistry()
+        registry.register(connector: SFTPConnector(home: server.home, knownHostsFile: box.knownHosts, defaultKeys: false))
+        let prompts = TestPrompts()
+        let start = try await registry.connect(server.target(.automatic, path: box.path), prompts: prompts)
+        #expect(prompts.state.withLock { $0.secretRequests.isEmpty })
+        await registry.disconnect(start.location)
+    }
+
     @Test func sshConfigAliasIsFollowed() async throws {
         let box = try RemoteSandbox()
         try box.prepare()
