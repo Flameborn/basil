@@ -10,6 +10,8 @@ protocol PaneViewControllerDelegate: AnyObject {
     func paneDidChangeDirectory(_ pane: PaneViewController)
     func paneRequestsSettings(_ pane: PaneViewController)
     func paneCursorDidChange(_ pane: PaneViewController)
+    /// What the column annotators say about the shown folder changed (the Git branch).
+    func paneDidUpdateAnnotations(_ pane: PaneViewController)
     /// The context menu for the pane's cursor item (right click, VO+Shift+M, Shift+F10).
     func paneContextMenu(_ pane: PaneViewController) -> NSMenu?
 }
@@ -49,6 +51,8 @@ final class PaneViewController: NSViewController {
     var gitAnnotation: ColumnAnnotation? { annotations[.git] }
     private var annotationTask: Task<Void, Never>?
     private var annotationGeneration = 0
+    /// Watches what the annotators named (a repository's .git folder) while this folder is shown.
+    private var annotationWatch: (paths: [String], task: Task<Void, Never>)?
     private var isApplyingColumns = false
     private var widthSaveTask: Task<Void, Never>?
     private var sizeTask: Task<Void, Never>?
@@ -81,6 +85,7 @@ final class PaneViewController: NSViewController {
 
     isolated deinit {
         if let settingsToken { settings.removeHandler(settingsToken) }
+        annotationWatch?.task.cancel()
     }
 
     var tableView: NSTableView { table }
@@ -242,10 +247,12 @@ final class PaneViewController: NSViewController {
     }
 
     private func apply(annotations new: [ColumnID: ColumnAnnotation]) {
+        watchAnnotationSources(Array(Set(new.values.flatMap(\.watch))).sorted())
         guard new != annotations else { return }
         let before = shownColumns.map(\.id)
         annotations = new
         columnContext = makeColumnContext()
+        delegate?.paneDidUpdateAnnotations(self)
         if shownColumns.map(\.id) != before {
             applyColumns()
             table.reloadData()
@@ -254,6 +261,22 @@ final class PaneViewController: NSViewController {
             table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
                              columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
         }
+    }
+
+    /// Asks the annotators again whenever what they named changes (a commit made in a terminal
+    /// changes .git). Stops once the pane shows a folder outside the repository.
+    private func watchAnnotationSources(_ paths: [String]) {
+        guard paths != annotationWatch?.paths else { return }
+        annotationWatch?.task.cancel()
+        annotationWatch = nil
+        guard !paths.isEmpty else { return }
+        let task = Task { [weak self] in
+            for await _ in TreeWatcher.changes(in: paths) {
+                guard let self, !Task.isCancelled else { return }
+                self.refreshAnnotations(after: .milliseconds(300))
+            }
+        }
+        annotationWatch = (paths, task)
     }
 
     /// Rebuilds the table columns from the current view.

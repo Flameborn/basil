@@ -489,3 +489,43 @@ final class ScriptedLogin: GitLogin, @unchecked Sendable {
         #expect(try await empty.git.log(root: empty.path).isEmpty)
     }
 }
+
+@MainActor
+@Suite struct GitPublishTests {
+    @Test func publishSetsTheUpstream() async throws {
+        let origin = FileManager.default.temporaryDirectory.appendingPathComponent("basil-git-origin-\(UUID().uuidString).git")
+        defer { try? FileManager.default.removeItem(at: origin) }
+        let repo = try await TestRepository()
+        try repo.write("a.txt", "a")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "first")
+        try await repo.run("init", "-q", "--bare", "-b", "main", origin.path)
+
+        #expect(await repo.git.currentBranch(root: repo.path) == "main")
+        #expect(await repo.git.upstream(root: repo.path) == nil)
+        #expect(try await repo.git.remotes(root: repo.path).isEmpty)
+        try await repo.git.addRemote("origin", url: origin.path, root: repo.path)
+        #expect(try await repo.git.remotes(root: repo.path) == ["origin"])
+
+        let queue = FileOperationQueue()
+        let op = GitRemoteOperation(.publish(branch: "main", remote: "origin"), root: repo.path, git: repo.git, login: nil)
+        #expect(op.title == "Publish main to origin")
+        let item = queue.add(op)
+        while !item.state.isDone { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(item.state == .finished, "\(item.log)")
+        #expect(await repo.git.upstream(root: repo.path) == "origin/main")
+    }
+
+    @Test func gitFoldersToWatch() async throws {
+        let repo = try await TestRepository()
+        try repo.write("sub/x.txt", "x")
+        let found = try #require(await repo.git.repository(of: repo.path + "/sub"))
+        #expect(GitService.relative(repo.path, to: found.root) == "")
+        #expect(found.gitDirectories.count == 1)
+        #expect(found.gitDirectories[0].hasSuffix("/.git"))
+        let annotation = try #require(await GitAnnotator(git: repo.git).annotations(for: .local(repo.path), registry: {
+            let r = ProviderRegistry(); r.register(LocalProvider()); return r
+        }()))
+        #expect(annotation.watch == found.gitDirectories)
+    }
+}

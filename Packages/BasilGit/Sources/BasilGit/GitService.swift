@@ -68,6 +68,19 @@ public final class GitService: Sendable {
         }
     }
 
+    /// The working tree holding `directory` and its git folders (the worktree's own and the
+    /// shared one, which differ for linked worktrees), or nil outside any working tree.
+    public func repository(of directory: String) async -> (root: String, gitDirectories: [String])? {
+        guard let output = try? await output(["rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir"],
+                                             in: directory), output.succeeded else { return nil }
+        let lines = output.text.split(separator: "\n").map(String.init)
+        guard lines.count == 3, !lines[0].isEmpty else { return nil }
+        // --git-common-dir may be relative to the folder git ran in.
+        let common = lines[2].hasPrefix("/") ? lines[2]
+            : URL(fileURLWithPath: lines[2], relativeTo: URL(fileURLWithPath: directory, isDirectory: true)).standardizedFileURL.path
+        return (lines[0], Array(Set([lines[1], Self.realPath(common) ?? common])).sorted())
+    }
+
     /// The top folder of the working tree that holds `directory`, or nil when it is in none
     /// (also inside a .git folder).
     public func repositoryRoot(of directory: String) async -> String? {

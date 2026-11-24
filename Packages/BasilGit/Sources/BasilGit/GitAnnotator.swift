@@ -7,16 +7,22 @@ import Foundation
 public struct GitAnnotator: ColumnAnnotator {
     public let git: GitService
     public var column: ColumnID { .git }
+    /// `ColumnAnnotation.details` key of the current branch.
+    public static let branchDetail = "branch"
 
     public init(git: GitService) { self.git = git }
 
     public func annotations(for directory: VFSPath, registry: ProviderRegistry) async -> ColumnAnnotation? {
         guard let local = registry.localPath(of: directory), Self.mayBeInRepository(local.path) else { return nil }
-        guard let root = await git.repositoryRoot(of: local.path),
-              let folder = GitService.relative(local.path, to: root),
-              let status = try? await git.status(root: root, below: local.path) else { return nil }
+        guard let repository = await git.repository(of: local.path),
+              let folder = GitService.relative(local.path, to: repository.root),
+              let status = try? await git.status(root: repository.root, below: local.path) else { return nil }
         let column = status.column(forFolder: folder)
-        return ColumnAnnotation(byName: column.byName, everything: column.everything)
+        // Commits, checkouts and staging elsewhere (a terminal) change the .git folder.
+        // The window title names the branch: "Beta (main) - Basil".
+        let branch = status.branch.head ?? "detached HEAD"
+        return ColumnAnnotation(byName: column.byName, everything: column.everything, watch: repository.gitDirectories,
+                                details: [GitAnnotator.branchDetail: branch])
     }
 
     /// Whether a ".git" (folder, or file for worktrees and submodules) is in `path` or above it.

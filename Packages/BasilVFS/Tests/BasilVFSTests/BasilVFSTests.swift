@@ -203,3 +203,21 @@ private struct StubProvider: FileSystemProvider {
         #expect(try registry.provider(for: .local).location == .local)
     }
 }
+
+@Suite struct TreeWatcherTests {
+    @Test func reportsChangesDeepInTheTree() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("basil-tree-\(UUID().uuidString)")
+        let deep = base.appendingPathComponent("refs/heads")
+        try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let seen = Task {
+            for await _ in TreeWatcher.changes(in: [base.path], latency: 0.05) { return true }
+            return false
+        }
+        try await Task.sleep(for: .milliseconds(500))
+        try Data("x".utf8).write(to: deep.appendingPathComponent("main"))
+        let timeout = Task { try await Task.sleep(for: .seconds(5)); seen.cancel() }
+        #expect(await seen.value)
+        timeout.cancel()
+    }
+}

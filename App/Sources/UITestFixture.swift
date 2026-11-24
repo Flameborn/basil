@@ -73,6 +73,8 @@ enum UITestFixture {
             }
             if ProcessInfo.processInfo.environment["BASIL_UITEST_GIT"] == "1" {
                 try makeRepository(at: root.appendingPathComponent("Beta"))
+                // An empty remote for publishing, reached from Beta as ../../basil-uitest-origin.git.
+                try makeBareRepository(at: temp.appendingPathComponent("basil-uitest-origin.git"))
             }
             if ProcessInfo.processInfo.environment["BASIL_UITEST_RAR"] == "1" {
                 try Data(base64Encoded: rar4Archive.joined())!.write(to: root.appendingPathComponent("Alpha/Inner/old.rar"))
@@ -82,6 +84,18 @@ enum UITestFixture {
         }
         createdRoot = root
         return (.local(root.path), .local(root.appendingPathComponent("Beta").path))
+    }
+
+    private static func makeBareRepository(at folder: URL) throws {
+        guard let git = GitService.findExecutable() else { throw CocoaError(.fileNoSuchFile) }
+        let process = Process()
+        process.executableURL = git
+        process.arguments = ["init", "-q", "--bare", "-b", "main", folder.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw CocoaError(.fileWriteUnknown) }
     }
 
     /// Beta as a git repository: tracked.txt committed and then changed, new.txt untracked.

@@ -25,10 +25,18 @@ public struct ColumnAnnotation: Sendable, Equatable {
     public var byName: [String: String]
     /// The same text for every item (all of an ignored folder), when set.
     public var everything: String?
+    /// Local folders whose changes make the answer stale (a repository's .git folder): the pane
+    /// watches them while it shows this folder and asks again when they change.
+    public var watch: [String]
+    /// Facts about the folder as a whole, for other parts of the window (Git: "branch").
+    public var details: [String: String]
 
-    public init(byName: [String: String] = [:], everything: String? = nil) {
+    public init(byName: [String: String] = [:], everything: String? = nil, watch: [String] = [],
+                details: [String: String] = [:]) {
         self.byName = byName
         self.everything = everything
+        self.watch = watch
+        self.details = details
     }
 
     public func text(for name: String) -> String? { everything ?? byName[name] }

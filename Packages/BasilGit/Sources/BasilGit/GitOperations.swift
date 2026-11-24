@@ -97,8 +97,10 @@ public struct DiscardChangesOperation: QueueOperation {
 /// Pull, push or fetch for the repository at `root`, as a queue item. Logins are asked through
 /// `login` (GIT_ASKPASS). Cancelling stops git. git's own messages go into the item's log.
 public struct GitRemoteOperation: QueueOperation {
-    public enum Action: String, Sendable {
+    public enum Action: Sendable, Equatable {
         case pull, push, fetch
+        /// Pushes a branch that has no upstream yet and makes the remote's branch its upstream.
+        case publish(branch: String, remote: String)
 
         var arguments: [String] {
             switch self {
@@ -106,10 +108,18 @@ public struct GitRemoteOperation: QueueOperation {
             case .pull: ["pull", "--no-edit"]
             case .push: ["push"]
             case .fetch: ["fetch", "--prune"]
+            case .publish(let branch, let remote): ["push", "--set-upstream", remote, "refs/heads/\(branch):refs/heads/\(branch)"]
             }
         }
 
-        var verb: String { rawValue.capitalized }
+        var verb: String {
+            switch self {
+            case .pull: "Pull"
+            case .push: "Push"
+            case .fetch: "Fetch"
+            case .publish: "Publish"
+            }
+        }
     }
 
     public let action: Action
@@ -127,16 +137,19 @@ public struct GitRemoteOperation: QueueOperation {
     public var kind: OperationKind {
         switch action {
         case .pull: .gitPull
-        case .push: .gitPush
+        case .push, .publish: .gitPush
         case .fetch: .gitFetch
         }
     }
 
-    public var title: String { "\(action.verb) \((root as NSString).lastPathComponent)" }
+    public var title: String {
+        if case .publish(let branch, let remote) = action { return "Publish \(branch) to \(remote)" }
+        return "\(action.verb) \((root as NSString).lastPathComponent)"
+    }
 
     public func run(_ context: OperationContext) async throws {
         try await context.checkpoint()
-        context.progress(nil, action == .push ? "Pushing" : action == .pull ? "Pulling" : "Fetching")
+        context.progress(nil, action == .pull ? "Pulling" : action == .fetch ? "Fetching" : "Pushing")
         let output = try await git.outputWithLogin(action.arguments, in: root, login: login)
         try await context.checkpoint()
         // git writes progress with carriage returns; the last state of each line is kept.

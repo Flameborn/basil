@@ -36,6 +36,9 @@ enum GitCommands {
 extension PaneViewController {
     /// The Git annotator answered for the shown folder: it is inside a working tree.
     var isInGitRepository: Bool { gitAnnotation != nil }
+
+    /// The branch of the repository holding the shown folder ("main", "detached HEAD").
+    var gitBranch: String? { gitAnnotation?.details[GitAnnotator.branchDetail] }
 }
 
 extension MainWindowController {
@@ -61,10 +64,64 @@ extension MainWindowController {
         }
     }
 
+    /// Queues the action. A push of a branch without an upstream asks to publish it first
+    /// (to an existing remote, or to a new one by URL).
     func queueGitRemote(_ action: GitRemoteOperation.Action, root: String) {
         guard let git else { return }
-        let item = queue.add(GitRemoteOperation(action, root: root, git: git, login: GitLoginUI(controller: self, secrets: remoteSecrets)))
-        item.whenDone = { [weak self] _ in self?.gitStateChanged() }
+        Task {
+            var action = action
+            if action == .push, let branch = await git.currentBranch(root: root), await git.upstream(root: root) == nil {
+                guard let remote = await askPublish(branch: branch, root: root) else { return }
+                action = .publish(branch: branch, remote: remote)
+            }
+            let item = queue.add(GitRemoteOperation(action, root: root, git: git,
+                                                    login: GitLoginUI(controller: self, secrets: remoteSecrets)))
+            item.whenDone = { [weak self] _ in self?.gitStateChanged() }
+        }
+    }
+
+    /// "Publish main?": the remote to push to (a new one is added first). nil: cancelled.
+    private func askPublish(branch: String, root: String) async -> String? {
+        guard let git, let window else { return nil }
+        let remotes = (try? await git.remotes(root: root)) ?? []
+        let form = PublishForm(remotes: remotes)
+        let alert = NSAlert()
+        alert.messageText = "Publish \(branch)?"
+        alert.informativeText = remotes.isEmpty
+            ? "\(branch) has no upstream branch, and this repository has no remote yet. Add one: Basil pushes \(branch) there and tracks it."
+            : "\(branch) has no upstream branch yet. Basil pushes it to the remote and tracks it there."
+        alert.addButton(withTitle: "Publish")
+        alert.addButton(withTitle: "Cancel")
+        alert.accessoryView = form
+        alert.window.initialFirstResponder = form.firstControl
+        while true {
+            let confirmed: Bool = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
+                alert.window.makeFirstResponder(form.firstControl)
+            }
+            guard confirmed else { return nil }
+            guard form.addsRemote else { return form.chosenRemote }
+            let name = form.nameField.stringValue.trimmingCharacters(in: .whitespaces)
+            let url = form.urlField.stringValue.trimmingCharacters(in: .whitespaces)
+            var problem: String?
+            if name.isEmpty || name.contains(where: \.isWhitespace) || name.hasPrefix("-") {
+                problem = "Type a remote name without spaces, such as origin."
+            } else if url.isEmpty {
+                problem = "Type the remote's URL."
+            } else if remotes.contains(name) {
+                problem = "A remote named \(name) exists already."
+            } else {
+                do {
+                    try await git.addRemote(name, url: url, root: root)
+                    return name
+                } catch {
+                    problem = "Could not add the remote: \(error.localizedDescription)"
+                }
+            }
+            // Asks again with the reason, keeping what was typed.
+            alert.informativeText = problem ?? ""
+            announce(problem ?? "")
+        }
     }
 
     /// Git state changed (a commit, a pull): the panes ask the Git column again, open Git
@@ -151,5 +208,56 @@ extension MainWindowController {
         guard let window else { return nil }
         let label = text.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: ":"))
         return await askText(in: window, message: text, initial: "", confirm: "OK", fieldLabel: label)
+    }
+}
+
+/// The publish sheet's controls: the remote pop-up (existing remotes, then "New Remote"), and
+/// the new remote's name and URL, used only for a new one.
+final class PublishForm: NSView {
+    static let newRemoteTitle = "New Remote"
+    let popUp = NSPopUpButton()
+    let nameField = NSTextField()
+    let urlField = NSTextField()
+    private let remotes: [String]
+
+    init(remotes: [String]) {
+        self.remotes = remotes
+        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: remotes.isEmpty ? 64 : 98))
+        var y: CGFloat = 0
+        func row(_ label: String, _ control: NSView) {
+            let text = NSTextField(labelWithString: label + ":")
+            // The control carries the same name.
+            text.setAccessibilityElement(false)
+            text.frame = NSRect(x: 0, y: y + 3, width: 70, height: 18)
+            control.frame = NSRect(x: 76, y: y, width: 284, height: 24)
+            control.setAccessibilityLabel(label)
+            addSubview(text)
+            addSubview(control)
+            y += 34
+        }
+        urlField.placeholderString = "git@github.com:user/repo.git"
+        row("URL", urlField)
+        nameField.stringValue = remotes.isEmpty ? "origin" : ""
+        row("Name", nameField)
+        if !remotes.isEmpty {
+            popUp.addItems(withTitles: remotes + [Self.newRemoteTitle])
+            popUp.selectItem(withTitle: remotes.contains("origin") ? "origin" : remotes[0])
+            popUp.target = self
+            popUp.action = #selector(remoteChanged)
+            row("Remote", popUp)
+        }
+        remoteChanged()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    var addsRemote: Bool { remotes.isEmpty || popUp.titleOfSelectedItem == Self.newRemoteTitle }
+    var chosenRemote: String? { popUp.titleOfSelectedItem }
+    var firstControl: NSView { remotes.isEmpty ? urlField : popUp }
+
+    @objc private func remoteChanged() {
+        nameField.isEnabled = addsRemote
+        urlField.isEnabled = addsRemote
     }
 }

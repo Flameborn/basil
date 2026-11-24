@@ -245,6 +245,12 @@ final class PaneUITests: XCTestCase {
         XCTAssertEqual(cellLabels(tracked).prefix(2), ["tracked.txt", "Modified"])
         let new = rightTable.tableRows.matching(NSPredicate(format: "label BEGINSWITH 'new.txt'")).firstMatch
         XCTAssertTrue(waitFor { self.cellLabels(new).contains("Untracked") }, rightTable.debugDescription)
+        // The window title names the branch while the active pane is in the repository.
+        let window = app.windows.element(boundBy: 0)
+        app.typeKey(.tab, modifierFlags: [])
+        XCTAssertTrue(waitFor { window.title == "Beta (main) - Basil" }, window.title)
+        app.typeKey(.tab, modifierFlags: [])
+        XCTAssertTrue(waitFor { window.title.hasPrefix("basil-uitest-") && !window.title.contains("(") }, window.title)
         try audit(app) { _ in false }
     }
 
@@ -392,6 +398,41 @@ final class PaneUITests: XCTestCase {
         }
         blame.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(waitFor { !blame.exists })
+    }
+
+    /// Push of a branch without an upstream asks to publish it; with no remote yet it takes a name
+    /// and a URL, adds the remote and pushes with --set-upstream.
+    func testPushPublishesABranchWithoutUpstream() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_GIT"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable).count == 2 })
+        app.typeKey(.tab, modifierFlags: [])
+        let menuBar = app.menuBars.firstMatch
+        func git(_ item: String) {
+            menuBar.menuBarItems["Commands"].click()
+            menuBar.menuItems["Git"].hover()
+            menuBar.menuItems[item].click()
+        }
+        git("Push")
+        let sheet = app.windows.element(boundBy: 0).sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(sheet.staticTexts["Publish main?"].exists, sheet.debugDescription)
+        XCTAssertEqual(sheet.textFields["Name"].value as? String, "origin")
+        waitForFieldFocus(in: sheet)
+        sheet.typeText("../../basil-uitest-origin.git")
+        sheet.typeKey(.tab, modifierFlags: [])
+        try auditSheet(sheet, "publish")
+        sheet.buttons["Publish"].click()
+        XCTAssertTrue(waitFor { !sheet.exists })
+
+        git("Branches...")
+        let window = app.windows["Branches of Beta"]
+        XCTAssertTrue(window.waitForExistence(timeout: 5), app.debugDescription)
+        let upToDate = window.tables["branches.table"].descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'main, current, up to date with origin/main'")).firstMatch
+        XCTAssertTrue(waitFor({ upToDate.exists }, timeout: 10), window.debugDescription)
+        window.typeKey(.escape, modifierFlags: [])
     }
 
     /// Compare by Content: the cursor file in each pane, a text comparison with one difference,

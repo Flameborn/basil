@@ -197,8 +197,14 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     }
 
     /// "Downloads - Basil": the active pane's folder name, then the product name.
+    /// "Downloads - Basil"; inside a Git repository with the branch: "Beta (main) - Basil".
     func updateTitle() {
-        window?.title = "\(activePane.model.directory.displayName) - Basil"
+        let branch = activePane.gitBranch.map { " (\($0))" } ?? ""
+        window?.title = "\(activePane.model.directory.displayName)\(branch) - Basil"
+    }
+
+    func paneDidUpdateAnnotations(_ pane: PaneViewController) {
+        if pane === activePane { updateTitle() }
     }
 
     /// Tab: VoiceOver already reads the focused list's label ("Left pane"/"Right pane"), so nothing extra is announced.

@@ -86,6 +86,33 @@ extension GitService {
     }
 }
 
+extension GitService {
+    /// The branch HEAD is on, or nil when detached.
+    public func currentBranch(root: String) async -> String? {
+        guard let output = try? await output(["symbolic-ref", "--short", "-q", "HEAD"], in: root), output.succeeded else { return nil }
+        let name = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    /// The upstream of the current branch ("origin/main"), or nil when it has none.
+    public func upstream(root: String) async -> String? {
+        guard let output = try? await output(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root),
+              output.succeeded else { return nil }
+        let name = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    /// The repository's remotes, by name.
+    public func remotes(root: String) async throws -> [String] {
+        String(decoding: try await run(["remote"], in: root), as: UTF8.self).split(separator: "\n").map(String.init)
+    }
+
+    /// Adds a remote (only git's configuration changes).
+    public func addRemote(_ name: String, url: String, root: String) async throws {
+        try await run(["remote", "add", "--", name, url], in: root)
+    }
+}
+
 extension GitError {
     /// `git branch -d` refused a branch whose commits are not merged.
     public var isNotMerged: Bool { message.contains("not fully merged") }
