@@ -4,7 +4,31 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 
 ## Unreleased
 
+- Lua plugins (LuaJIT): a plugin is a folder with a plugin.json and Lua files in Basil's Plugins folder. Plugins can add commands (with keys and menu items, also in the context menu), columns, places to browse, Multi-Rename placeholders and their own queue items, and they work with files through Basil's own copy, move, delete and dialogs. They run in a sandbox; network, shell and native code access are permissions the plugin names and you grant when you turn it on. Settings, Plugins turns each plugin on or off, reloads it and shows its log. Three example plugins and a guide for plugin authors (Plugins/README.md) come with the source.
+- Synchronize Directories (Commands menu), like Total Commander: compares the left and right panes' folders, with subfolders, by size and date (with a tolerance and an option to ignore 1-hour differences) or by content, with a file filter. Each file reads as one sentence with what will happen to it; comma or < copies it to the left, period or > to the right, = leaves it alone, minus leaves it out, and Space selects several to change at once. Checkboxes show or hide each kind of difference. The asymmetric mode deletes files that exist only on the right. Synchronize Now asks with a summary, runs in the queue through the copy engine and compares again when done. S3 files are compared by their kept dates.
+- Settings is now a sidebar of sections, with a new General section (updates) and a Search section (the index).
+- Themes (Settings, Themes): duplicate Basil's theme and change any colour for light and dark mode, import and export themes as .basiltheme files. Every change is checked for WCAG contrast; a colour that would make text or outlines too hard to read is refused, with the reason said. Two of Basil's own colours were raised to pass the same check.
+- The search index can also cover other disks and network volumes, ticked one by one in Settings, Search. Local disks catch up with changes made while Basil was closed; network volumes are scanned again when they are mounted and every few hours (6 by default).
+- Plain FTP, WebDAV over HTTP and S3 over HTTP warn once per server before connecting, because the password and files go over the network unencrypted. "Do not ask again for this server" is there.
+- Bookmarks of server folders connect first, through the saved connection, then open the folder. The F5 and F6 target field accepts server addresses such as sftp://alice@host/path.
+- Dropbox, Google Drive and OneDrive folders stay live while a pane shows them: changes made elsewhere appear on their own (Dropbox within seconds, Drive and OneDrive within about 10 seconds).
+- Nextcloud: sign in in the browser (works with two-factor logins; Basil gets its own app password, kept in the Keychain and revoked when the connection is deleted). Copy Link on Nextcloud and ownCloud gives a read-only public link, reusing one that exists.
+- ownCloud 10: large uploads in checked chunks, dates kept, F8 to its trash bin, like Nextcloud.
+- Copy Link on S3 gives a download address that works for 1 hour, 1 day or 7 days (Basil asks and remembers the choice).
+- S3 in secure copy mode uploads straight to the final name, so big files are no longer copied a second time on the server. The old object stays until the new one is complete.
+- Google Drive: the format for Google Docs, Sheets, Slides and Drawings can be chosen per connection (Office, OpenDocument, PDF, plain text, Markdown, CSV and more). Documents larger than Google's 10 MB export limit can be copied too. F5 on a shortcut to a folder copies the folder it leads to.
+- OneDrive: large uploads go up while they are copied when the size is known, without a temporary copy on the Mac.
+- Archives on mounted SMB shares are packed and changed in place, like local ones.
+- SMB: a password to remember is saved only after the server has really checked it (macOS accepts any password for a few seconds after a share of that server was unmounted).
+- Fixed: Basil could quit unexpectedly when a server connection was closed while a request to it was still being made.
+
 ## 0.2.0 - 2026-11-24
+
+- Progress window like Total Commander's: From, To, the current file with its own bar, the total with bytes and files, speed, time left and time taken. Time left leaves out pauses and questions and allows for the time each file takes, so many small files on a server are estimated fairly.
+- Deleting an app also finds what its installer packages put elsewhere, plug-ins it installed in both Library folders, legacy startup items, background downloads and crash reports. Folders shared with other software are never offered whole.
+- SFTP logins also use the SSH agents of 1Password, Bitwarden, Secretive, Strongbox and GnuPG, and follow IdentityAgent in ~/.ssh/config.
+- In secure copy mode, the queue log says what a server cannot guarantee (for example a file rewritten at the same size within one second, or no way to flush to disk).
+- Help, Report an Issue on GitHub opens the new-issue page.
 
 - Find Files (Option+F7, Commands > Find Files...), like Total Commander: search by name (wildcards, several patterns, exclusions or a regular expression), for text inside files (case, regular expression, whole words, files not containing it, UTF-8, UTF-16 and Windows-1252), by size and by date, in the current folder and its subfolders, and optionally inside archives (zip, 7z, RAR, tar and the rest, also archives in archives). Results appear as they are found; Return goes to a file, Show in Pane lists all results in the pane, where copy, move, delete, Quick Look, edit, rename and Multi-Rename work on them and Backspace goes back.
 - Basil keeps its own index of the startup disk, like Everything on Windows, so Find Files finds names at once. It is built in the background the first time and kept up to date, also with changes made while Basil was closed. Settings, Navigation shows its status, rebuilds it or turns it off. Spotlight can be chosen as the search engine too.
