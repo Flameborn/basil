@@ -45,6 +45,8 @@ public final class SMBProvider: ConnectedProvider, WritableProvider, LocalBacked
             return list.values.filter(\.ours).map(\.path)
         }
         for path in ours { await SMBClient.unmount(path) }
+        // macOS stays logged in for a few seconds: a password typed now is checked after that.
+        if !ours.isEmpty { SMBClient.noteSession(endpoint) }
     }
 
     /// The share mount points Basil made, for tests.

@@ -102,6 +102,8 @@ final class FTPPrompts: RemotePrompts {
         var secrets: [String?] = []
         var secretRequests: [SecretRequest] = []
         var worked = 0
+        /// Answers ask to remember the secret.
+        var remember = false
     }
 
     let state: Mutex<State>
@@ -120,7 +122,7 @@ final class FTPPrompts: RemotePrompts {
         state.withLock { s in
             s.secretRequests.append(request)
             guard !s.secrets.isEmpty, let next = s.secrets.removeFirst() else { return nil }
-            return SecretAnswer(secret: next, remember: false)
+            return SecretAnswer(secret: next, remember: s.remember)
         }
     }
 

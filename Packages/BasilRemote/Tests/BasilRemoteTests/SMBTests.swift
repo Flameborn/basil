@@ -147,6 +147,20 @@ struct SMBTests {
         await c.close()
     }
 
+    /// Right after Basil's last share of the server was unmounted macOS still takes any
+    /// password: a password to remember is checked only once that session has ended, so a
+    /// wrong one is refused (and never saved).
+    @Test func aPasswordToRememberIsCheckedAfterTheSessionEnded() async throws {
+        let first = try await connect(path: "/files")
+        await first.close()
+        let prompts = FTPPrompts(secrets: ["wrong", server.password])
+        prompts.state.withLock { $0.remember = true }
+        let c = try await connect(prompts: prompts)
+        #expect(prompts.state.withLock { $0.secretRequests.map(\.retry) } == [false, true])
+        #expect(prompts.state.withLock { $0.worked } == 1)
+        await c.close()
+    }
+
     @Test func wrongPasswordIsAskedAgain() async throws {
         try await waitUntilLoggedOut()
         let prompts = FTPPrompts(secrets: ["wrong", server.password])

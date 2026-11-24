@@ -4,6 +4,7 @@ import CNetFSShares
 import Darwin
 import Foundation
 import NetFS
+import Synchronization
 
 extension ProviderID {
     public static let smb = ProviderID("smb")
@@ -40,6 +41,7 @@ public struct SMBConnector: RemoteConnector {
             }
         } else if SMBClient.hasSession(endpoint),
                   (try? await SMBClient.shares(endpoint, password: nil)) != nil {
+            SMBClient.noteSession(endpoint)
             // A share of the server is mounted for this user already: macOS has a logged-in
             // session and uses it for any password, so none is asked (or saved unchecked).
         } else {
@@ -47,7 +49,9 @@ public struct SMBConnector: RemoteConnector {
             while true {
                 let request = SecretRequest(kind: .password, account: endpoint.account, retry: tries > 0,
                                             keychainKey: "\(service.rawValue):\(endpoint.account)")
-                guard let answer = await prompts.secret(request) else { throw RemoteCancelled() }
+                guard var answer = await prompts.secret(request) else { throw RemoteCancelled() }
+                // A password to remember is checked only once a lingering session has ended.
+                if answer.remember, !(await SMBClient.waitForLogout(endpoint)) { answer.remember = false }
                 do {
                     _ = try await SMBClient.shares(endpoint, password: answer.secret)
                     password = answer.secret
@@ -122,6 +126,37 @@ struct SMBError: Error, LocalizedError, Sendable {
 enum SMBClient {
     static let queue = DispatchQueue(label: "basil.smb", qos: .userInitiated, attributes: .concurrent)
 
+    /// When Basil last saw a logged-in session of a server and user (a mount, an unmount).
+    private static let sessionsSeen = Mutex<[String: Date]>([:])
+
+    private static func sessionKey(_ endpoint: SMBEndpoint) -> String { (endpoint.host + "|" + endpoint.user).lowercased() }
+
+    static func noteSession(_ endpoint: SMBEndpoint) {
+        guard !endpoint.isGuest else { return }
+        sessionsSeen.withLock { $0[sessionKey(endpoint)] = Date() }
+    }
+
+    /// macOS keeps a session for a few seconds after the last share of a server is unmounted
+    /// and takes any password while it lasts. When Basil saw one within `window`, it waits until
+    /// a made-up password is refused again (at most `limit`), so the password typed is really
+    /// checked. False when the session did not end in time.
+    static func waitForLogout(_ endpoint: SMBEndpoint, window: TimeInterval = 60, limit: Duration = .seconds(30)) async -> Bool {
+        guard let seen = sessionsSeen.withLock({ $0[sessionKey(endpoint)] }), Date().timeIntervalSince(seen) < window,
+              !hasSession(endpoint) else { return true }
+        let deadline = ContinuousClock.now + limit
+        while ContinuousClock.now < deadline {
+            do {
+                _ = try await shares(endpoint, password: "basil-check-" + UUID().uuidString)
+            } catch let error as SMBError where error.code == EAUTH {
+                return true
+            } catch {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return false
+    }
+
     static func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { continuation.resume(with: Result { try body() }) }
@@ -162,6 +197,7 @@ enum SMBClient {
             guard status == 0, let point = list?.first else {
                 throw error(status == 0 ? EIO : status, endpoint: endpoint, share: share)
             }
+            noteSession(endpoint)
             return point
         }
     }
