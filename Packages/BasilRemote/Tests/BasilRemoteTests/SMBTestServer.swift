@@ -5,7 +5,7 @@ import Foundation
 
 /// Samba in Docker (OrbStack) as the container "basil-test-samba" (Alpine with its samba
 /// package, installed on the first start). Shares: files and media (user alice), open (guests
-/// welcome). smbclient in the container plays another computer changing files. macOS's SMB client refuses servers on this Mac's own addresses, so the tests
+/// welcome). Server-side copy is on (fruit:copyfile), as on Windows servers. smbclient in the container plays another computer changing files. macOS's SMB client refuses servers on this Mac's own addresses, so the tests
 /// connect to the container's address, which OrbStack routes to. The container is stopped when
 /// the tests end and started again next time. nil when Docker is not running.
 final class SMBTestServer: Sendable {
@@ -32,6 +32,7 @@ final class SMBTestServer: Sendable {
           map to guest = Bad User
           vfs objects = catia fruit streams_xattr
           fruit:metadata = stream
+          fruit:copyfile = yes
         [files]
           path = /shares/files
           read only = no
@@ -49,12 +50,21 @@ final class SMBTestServer: Sendable {
         exec smbd --foreground --no-process-group --debug-stdout
         """
 
+    /// Raised whenever `setup` changes: a container made with an older setup is made again
+    /// (a container keeps the command it was created with). 2: server-side copy (fruit:copyfile).
+    static let setupVersion = "2"
+
     init() throws {
         let docker = try Self.docker()
-        if (try? Self.output(docker, ["inspect", Self.container])) != nil {
+        let label = try? Self.output(docker, ["inspect", "-f", "{{index .Config.Labels \"basil.setup\"}}", Self.container])
+        if let label, label.trimmingCharacters(in: .whitespacesAndNewlines) != Self.setupVersion {
+            _ = try Self.output(docker, ["rm", "-f", Self.container])
+        }
+        if label?.trimmingCharacters(in: .whitespacesAndNewlines) == Self.setupVersion {
             _ = try Self.output(docker, ["start", Self.container])
         } else {
-            _ = try Self.output(docker, ["run", "-d", "--name", Self.container, "alpine:latest", "sh", "-c", Self.setup])
+            _ = try Self.output(docker, ["run", "-d", "--name", Self.container, "--label", "basil.setup=\(Self.setupVersion)",
+                                         "alpine:latest", "sh", "-c", Self.setup])
         }
         atexit {
             if let docker = try? SMBTestServer.docker() {

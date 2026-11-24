@@ -19,6 +19,7 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - Google Drive: the format for Google Docs, Sheets, Slides and Drawings can be chosen per connection (Office, OpenDocument, PDF, plain text, Markdown, CSV and more). Documents larger than Google's 10 MB export limit can be copied too. F5 on a shortcut to a folder copies the folder it leads to.
 - OneDrive: large uploads go up while they are copied when the size is known, without a temporary copy on the Mac.
 - Archives on mounted SMB shares are packed and changed in place, like local ones.
+- Copies inside an SMB share are made by the server when it can (Windows servers, Samba with fruit:copyfile), so the data does not travel to the Mac and back. This also works on shares mounted by Finder.
 - SMB: a password to remember is saved only after the server has really checked it (macOS accepts any password for a few seconds after a share of that server was unmounted).
 - Fixed: Basil could quit unexpectedly when a server connection was closed while a request to it was still being made.
 

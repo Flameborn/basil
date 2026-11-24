@@ -113,13 +113,39 @@ extension LocalProvider: WritableProvider {
         }
     }
 
+    /// clonefile on APFS. Where the volume can't clone, a file server that copies by itself
+    /// (SMB with server-side copy: Windows, or Samba with fruit:copyfile) is asked to copy through
+    /// the kernel's copyfile call, so the data never crosses the network. Like a clone, the
+    /// result then gets the source's permissions, dates, extended attributes and ACL (BSD flags
+    /// are left to the caller, which sets them once the file is in place).
     public func clone(_ from: VFSPath, to: VFSPath) async throws {
-        try await LocalIO.run {
-            guard clonefile(from.path, to.path, UInt32(CLONE_NOFOLLOW)) == 0 else {
-                let code = errno
-                if code == ENOTSUP || code == EXDEV { throw VFSError.unsupported("clone on this volume") }
-                throw Self.writeError(code, code == EEXIST ? to : from)
+        let serverCopied = try await LocalIO.run {
+            if clonefile(from.path, to.path, UInt32(CLONE_NOFOLLOW)) == 0 { return false }
+            let code = errno
+            guard code == ENOTSUP || code == EXDEV else { throw Self.writeError(code, code == EEXIST ? to : from) }
+            var st = Darwin.stat()
+            guard code == ENOTSUP, lstat(from.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG,
+                  let serverCopy = ServerCopy.call else {
+                throw VFSError.unsupported("clone on this volume")
             }
+            guard serverCopy(from.path, to.path, 0, 0) == 0 else {
+                let failure = errno
+                if failure == ENOTSUP || failure == EXDEV {
+                    throw VFSError.unsupported("clone on this volume")
+                }
+                if failure != EEXIST { unlink(to.path) }
+                throw Self.writeError(failure, failure == EEXIST ? to : from)
+            }
+            return true
+        }
+        guard serverCopied else { return }
+        do {
+            var metadata = try await self.metadata(of: from)
+            metadata.flags = nil
+            _ = try await applyMetadata(metadata, to: to)
+        } catch {
+            _ = try? await LocalIO.run { unlink(to.path) }
+            throw error
         }
     }
 
@@ -361,4 +387,16 @@ enum Times {
         guard var (list, values) = build(m) else { return true }
         return values.withUnsafeMutableBytes { fsetattrlist(fd, &list, $0.baseAddress, $0.count, 0) == 0 }
     }
+}
+
+/// The kernel's copyfile system call (`__copyfile` in libsystem_kernel; syscall 227), which a
+/// file system can carry out itself. smbfs turns it into SMB's server-side copy (copychunk)
+/// when the server offers it (the volume then has VOL_CAP_INT_COPYFILE). Looked up at run time
+/// because the SDK declares no header for it; nil if it ever goes away.
+enum ServerCopy {
+    typealias Function = @convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>, Int32, UInt32) -> Int32
+    static let call: Function? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__copyfile") else { return nil }
+        return unsafeBitCast(symbol, to: Function.self)
+    }()
 }

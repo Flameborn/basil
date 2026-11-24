@@ -29,9 +29,12 @@ private final class Monitor: TransferMonitor {
     func decide(_ source: UnstableSource) async -> UnstableSourceDecision { .acceptLatest }
 }
 
-private func engine(_ registry: ProviderRegistry, afterChunk: (@Sendable (Int, Int) async -> Void)? = nil) -> SecureCopyEngine {
-    SecureCopyEngine(registry: registry, options: SecureCopyOptions(retryDelay: .milliseconds(1), secure: true),
-                     monitor: Monitor(), hooks: EngineHooks(afterChunk: afterChunk, afterClone: nil, allowed: [.rename, .clone, .stream]))
+private func engine(_ registry: ProviderRegistry, secure: Bool = true,
+                    afterChunk: (@Sendable (Int, Int) async -> Void)? = nil,
+                    afterClone: (@Sendable (Int) async -> Void)? = nil) -> SecureCopyEngine {
+    SecureCopyEngine(registry: registry, options: SecureCopyOptions(retryDelay: .milliseconds(1), secure: secure),
+                     monitor: Monitor(), hooks: EngineHooks(afterChunk: afterChunk, afterClone: afterClone,
+                                                            allowed: [.rename, .clone, .stream]))
 }
 
 private func scratch() throws -> URL {
@@ -289,14 +292,71 @@ struct SMBTests {
         await c.close()
     }
 
-    @Test func copyInsideAShareStreamsWhenTheServerCannotClone() async throws {
+    // Copies inside a share: the server copies (SMB copychunk through the kernel's copyfile),
+    // the data never crosses the network. smbfs cannot clonefile, so `.clone` means the server
+    // copied.
+
+    @Test(arguments: [true, false])
+    func copyInsideAShareIsDoneByTheServer(secure: Bool) async throws {
         let c = try await sandbox()
         let data = randomData(3 * mb + 7)
-        try data.write(to: try c.local(c.start.appending("s.bin")))
-        _ = try await engine(c.registry).transferFile(c.start.appending("s.bin"), to: c.start.appending("t.bin"),
-                                                      mode: .copy, c.smb, c.smb)
-        #expect(try Data(contentsOf: try c.local(c.start.appending("t.bin"))) == data)
+        let source = try c.local(c.start.appending("s.bin"))
+        try data.write(to: source)
+        #expect(setxattr(source.path, "user.basil", "kept", 4, 0, 0) == 0)
+        #expect(chmod(source.path, 0o640) == 0)
+        var times = [timespec(tv_sec: 1_577_880_000, tv_nsec: 0), timespec(tv_sec: 1_577_880_000, tv_nsec: 0)]
+        #expect(utimensat(AT_FDCWD, source.path, &times, 0) == 0)
+        let result = try await engine(c.registry, secure: secure)
+            .transferFile(c.start.appending("s.bin"), to: c.start.appending("t.bin"), mode: .copy, c.smb, c.smb)
+        #expect(result.strategy == .clone)
+        let target = try c.local(c.start.appending("t.bin"))
+        #expect(try Data(contentsOf: target) == data)
+        var st = Darwin.stat()
+        #expect(stat(target.path, &st) == 0)
+        #expect(st.st_mode & 0o777 == 0o640)
+        #expect(st.st_mtimespec.tv_sec == 1_577_880_000)
+        var value = [UInt8](repeating: 0, count: 16)
+        #expect(getxattr(target.path, "user.basil", &value, value.count, 0, 0) == 4)
+        #expect(try await names(c, c.start) == ["s.bin", "t.bin"])
         await c.close()
+    }
+
+    /// Another SMB client changes the source right after the server copied it.
+    func serverCopyWithSourceChanged(_ make: String, size: Int) async throws -> (FileTransferResult, Data, Data) {
+        let c = try await sandbox()
+        let source = c.start.appending("s.bin")
+        try randomData(size).write(to: try c.local(source))
+        let once = Once()
+        let copy = engine(c.registry, afterClone: { attempt in
+            if attempt == 0 { once { try! server.otherClient(source.path, make: make) } }
+        })
+        let result = try await copy.transferFile(source, to: c.start.appending("t.bin"), mode: .copy, c.smb, c.smb)
+        let copied = try Data(contentsOf: try c.local(c.start.appending("t.bin")))
+        let original = try Data(contentsOf: try c.local(source))
+        #expect(try await names(c, c.start) == ["s.bin", "t.bin"])
+        await c.close()
+        return (result, copied, original)
+    }
+
+    @Test func sourceAppendedDuringServerCopy() async throws {
+        let (result, copied, original) = try await serverCopyWithSourceChanged(
+            "{ cat $F; head -c 1048576 /dev/urandom; } > /tmp/new", size: 3 * mb)
+        #expect(result.strategy == .clone && result.retries == 1)
+        #expect(copied.count == 4 * mb && copied == original)
+    }
+
+    @Test func sourceTruncatedDuringServerCopy() async throws {
+        let (result, copied, original) = try await serverCopyWithSourceChanged("head -c \(mb + 5) $F > /tmp/new", size: 3 * mb)
+        #expect(result.strategy == .clone && result.retries == 1)
+        #expect(copied.count == mb + 5 && copied == original)
+    }
+
+    @Test func sourceRewrittenInTheMiddleDuringServerCopy() async throws {
+        let (result, copied, original) = try await serverCopyWithSourceChanged(
+            "cp $F /tmp/new && head -c 50 /dev/urandom | dd of=/tmp/new bs=1 seek=\(mb + 100) conv=notrunc 2>/dev/null",
+            size: 3 * mb)
+        #expect(result.strategy == .clone && result.retries == 1)
+        #expect(copied.count == 3 * mb && copied == original)
     }
 
     @Test func localSourceAppendedDuringUpload() async throws {
