@@ -7,6 +7,8 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Building libssh2 and OpenSSL"
 "$root/Vendor/libssh2/build.sh"
+echo "Building LuaJIT"
+"$root/Vendor/luajit/build.sh"
 echo "Building 7zz"
 "$root/Vendor/7zip/build.sh"
 echo "Done"

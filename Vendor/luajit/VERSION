@@ -1,0 +1,15 @@
+LuaJIT 2.1, rolling release
+Commit:  96f7b297326e9fd454b7186c6858b2773f94a0dc (branch v2.1, commit time 1795119671 in .relver)
+Source:  https://github.com/LuaJIT/LuaJIT (the official mirror of https://luajit.org/git/luajit.git)
+Archive: https://codeload.github.com/LuaJIT/LuaJIT/tar.gz/96f7b297326e9fd454b7186c6858b2773f94a0dc
+SHA-256 of the archive: ce9d03b33e4c28492e8dacacf69c6975a0502cf9225957a6b42dc28f92cbbd34
+License: MIT (LuaJIT/COPYRIGHT)
+
+Left out: doc/ (HTML documentation). Everything else is unmodified.
+
+Built by build.sh (static, arm64, macOS 27) into build/LuaJIT.xcframework, module CLuaJIT.
+JIT: the app is not built with the hardened runtime. If it ever is, it needs the
+com.apple.security.cs.allow-jit entitlement, or LuaJIT falls back to its interpreter.
+
+Updating: download the new commit's archive from codeload as above, replace LuaJIT/ (without
+doc/), keep .relver, update this file, run build.sh and swift test --package-path Vendor/luajit.
