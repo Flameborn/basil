@@ -371,3 +371,75 @@ final class ScriptedLogin: GitLogin, @unchecked Sendable {
         if case .failed = failed.state {} else { Issue.record("not failed: \(failed.state)") }
     }
 }
+
+@MainActor
+@Suite struct GitBranchTests {
+    func run(_ queue: FileOperationQueue, _ op: GitBranchOperation) async throws -> QueueItem {
+        let item = queue.add(op)
+        while !item.state.isDone { try await Task.sleep(for: .milliseconds(20)) }
+        return item
+    }
+
+    @Test func listCreateRenameDeleteCheckoutMerge() async throws {
+        let origin = FileManager.default.temporaryDirectory.appendingPathComponent("basil-git-origin-\(UUID().uuidString).git")
+        defer { try? FileManager.default.removeItem(at: origin) }
+        let repo = try await TestRepository()
+        try repo.write("a.txt", "a\n")
+        try await repo.run("add", ".")
+        try await repo.run("commit", "-q", "-m", "first")
+        try await repo.run("init", "-q", "--bare", "-b", "main", origin.path)
+        try await repo.run("remote", "add", "origin", origin.path)
+        try await repo.run("push", "-q", "-u", "origin", "main")
+        try await repo.run("push", "-q", "origin", "main:remote-only")
+        try await repo.run("fetch", "-q", "origin")
+
+        try await repo.git.createBranch("feature", switchTo: true, root: repo.path)
+        try repo.write("f.txt", "f\n")
+        try await repo.git.stage(["f.txt"], root: repo.path)
+        try await repo.git.commit(message: "feature work", amend: false, root: repo.path)
+
+        var branches = try await repo.git.branches(root: repo.path)
+        #expect(branches.map(\.name) == ["feature", "main", "origin/main", "origin/remote-only"])
+        #expect(branches.first { $0.isCurrent }?.name == "feature")
+        #expect(branches[0].subject == "feature work")
+        #expect(branches[1].upstream == "origin/main")
+        #expect(branches[3].isRemote && branches[3].localName == "remote-only")
+
+        #expect(await repo.git.isValidBranchName("ok-name", root: repo.path))
+        #expect(!(await repo.git.isValidBranchName("bad..name", root: repo.path)))
+
+        let queue = FileOperationQueue()
+        let main = try #require(branches.first { $0.name == "main" })
+        #expect(try await run(queue, GitBranchOperation(.checkout(main), root: repo.path, git: repo.git)).state == .finished)
+        // feature is not merged into main: a plain delete refuses.
+        do {
+            try await repo.git.deleteBranch("feature", force: false, root: repo.path)
+            Issue.record("deleted an unmerged branch")
+        } catch let error as GitError {
+            #expect(error.isNotMerged, "\(error.message)")
+        }
+        let feature = try #require(branches.first { $0.name == "feature" })
+        let merge = try await run(queue, GitBranchOperation(.merge(feature, into: "main"), root: repo.path, git: repo.git))
+        #expect(merge.state == .finished, "\(merge.log)")
+        #expect(FileManager.default.fileExists(atPath: repo.root.appendingPathComponent("f.txt").path))
+        try await repo.git.deleteBranch("feature", force: false, root: repo.path)
+
+        let remoteOnly = try #require(branches.first { $0.name == "origin/remote-only" })
+        #expect(try await run(queue, GitBranchOperation(.checkout(remoteOnly), root: repo.path, git: repo.git)).state == .finished)
+        try await repo.git.renameBranch("remote-only", to: "renamed", root: repo.path)
+        branches = try await repo.git.branches(root: repo.path)
+        let current = try #require(branches.first { $0.isCurrent })
+        #expect(current.name == "renamed" && current.upstream == "origin/remote-only")
+    }
+
+    @Test func parsesTrackingState() {
+        let line = ["refs/heads/x", "x", "abc1234", "origin/x", "[ahead 2, behind 1]", " ", "1700000000", "Subject with spaces"]
+            .joined(separator: "\0")
+        let gone = ["refs/heads/y", "y", "abc1235", "origin/y", "[gone]", "*", "1700000000", "S"].joined(separator: "\0")
+        let head = ["refs/remotes/origin/HEAD", "origin", "abc", "", "", " ", "1", "s"].joined(separator: "\0")
+        let branches = GitService.parseBranches([line, gone, head].joined(separator: "\n"))
+        #expect(branches.count == 2)
+        #expect(branches[0].ahead == 2 && branches[0].behind == 1 && !branches[0].upstreamGone)
+        #expect(branches[1].upstreamGone && branches[1].isCurrent)
+    }
+}

@@ -18,6 +18,8 @@ public enum GitOperationKinds {
         OperationKindCatalog.register(OperationKindInfo(kind: .gitPull, name: "Git Pull", pastTense: "pulled"))
         OperationKindCatalog.register(OperationKindInfo(kind: .gitPush, name: "Git Push", pastTense: "pushed"))
         OperationKindCatalog.register(OperationKindInfo(kind: .gitFetch, name: "Git Fetch", pastTense: "fetched"))
+        OperationKindCatalog.register(OperationKindInfo(kind: .gitCheckout, name: "Git Checkout", pastTense: "checked out"))
+        OperationKindCatalog.register(OperationKindInfo(kind: .gitMerge, name: "Git Merge", pastTense: "merged"))
     }
 }
 
@@ -141,6 +143,69 @@ public struct GitRemoteOperation: QueueOperation {
         for line in (output.stderr + output.text).split(whereSeparator: \.isNewline) {
             let last = line.split(separator: "\r").last.map(String.init) ?? ""
             if !last.trimmingCharacters(in: .whitespaces).isEmpty { context.log(last) }
+        }
+        guard output.succeeded else { throw GitError(output.message) }
+        context.progress(1, "Done")
+    }
+}
+
+extension OperationKind {
+    public static let gitCheckout: OperationKind = "gitcheckout"
+    public static let gitMerge: OperationKind = "gitmerge"
+}
+
+/// Checkout and merge: they change the working tree's files, so they are queue items. A
+/// remote branch ("origin/feature") is checked out as the local branch tracking it.
+public struct GitBranchOperation: QueueOperation {
+    public enum Action: Sendable, Equatable {
+        case checkout(GitBranch)
+        /// Merges the branch into the current one (git's default message, never an editor).
+        case merge(GitBranch, into: String)
+    }
+
+    public let action: Action
+    public let root: String
+    let git: GitService
+
+    public init(_ action: Action, root: String, git: GitService) {
+        self.action = action
+        self.root = root
+        self.git = git
+    }
+
+    public var kind: OperationKind {
+        if case .merge = action { return .gitMerge }
+        return .gitCheckout
+    }
+
+    public var title: String {
+        switch action {
+        case .checkout(let branch): "Check out \(branch.localName)"
+        case .merge(let branch, let into): "Merge \(branch.name) into \(into)"
+        }
+    }
+
+    public func run(_ context: OperationContext) async throws {
+        try await context.checkpoint()
+        let arguments: [String]
+        switch action {
+        case .checkout(let branch):
+            context.progress(nil, "Checking out \(branch.localName)")
+            if branch.isRemote {
+                // An existing local branch of that name is switched to; otherwise one is made.
+                let exists = (try? await git.output(["show-ref", "--verify", "--quiet", "refs/heads/" + branch.localName],
+                                                    in: root))?.succeeded ?? false
+                arguments = exists ? ["switch", "--", branch.localName] : ["switch", "--track", branch.name]
+            } else {
+                arguments = ["switch", "--", branch.name]
+            }
+        case .merge(let branch, _):
+            context.progress(nil, "Merging \(branch.name)")
+            arguments = ["merge", "--no-edit", branch.name]
+        }
+        let output = try await git.output(arguments, in: root)
+        for line in (output.text + output.stderr).split(whereSeparator: \.isNewline) where !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            context.log(String(line))
         }
         guard output.succeeded else { throw GitError(output.message) }
         context.progress(1, "Done")

@@ -297,6 +297,47 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { !window.exists })
     }
 
+    /// Branches window: rows read as sentences, Cmd+N makes and switches to a branch, Return on
+    /// another branch checks it out (a queue item).
+    func testBranchesWindowCreatesAndChecksOut() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_GIT"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable).count == 2 })
+        app.typeKey(.tab, modifierFlags: [])
+        let menuBar = app.menuBars.firstMatch
+        menuBar.menuBarItems["Commands"].click()
+        menuBar.menuItems["Git"].hover()
+        menuBar.menuItems["Branches..."].click()
+        let window = app.windows["Branches of Beta"]
+        XCTAssertTrue(window.waitForExistence(timeout: 5), app.debugDescription)
+        let table = window.tables["branches.table"]
+        func row(_ prefix: String) -> XCUIElement {
+            table.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+        }
+        XCTAssertTrue(waitFor { row("main, current, local only, first").exists }, table.debugDescription)
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: window) { return true }
+            print("AUDIT branches: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
+            return false
+        }
+
+        window.typeKey("n", modifierFlags: .command)
+        let sheet = window.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        waitForFieldFocus(in: sheet)
+        sheet.typeText("topic\r")
+        XCTAssertTrue(waitFor { row("topic, current, local only").exists }, table.debugDescription)
+        XCTAssertTrue(row("main, local only").exists, table.debugDescription)
+
+        // main is the first row; Return checks it out.
+        window.typeKey(.upArrow, modifierFlags: [])
+        window.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { row("main, current").exists }, table.debugDescription)
+        window.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !window.exists })
+    }
+
     /// Compare by Content: the cursor file in each pane, a text comparison with one difference,
     /// Binary mode, Show only differences; two identical selected files get a message with OK.
     func testCompareByContent() throws {

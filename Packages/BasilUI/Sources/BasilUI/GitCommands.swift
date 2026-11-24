@@ -16,12 +16,13 @@ enum GitCommands {
         let inRepository: @MainActor (any WorkspaceContext) -> Bool = { _ in w?.activePane.isInGitRepository ?? false }
         let commands = [
             C(id: "git.commit", title: "Commit...", isApplicable: inRepository) { _ in w?.openCommitWindow() },
+            C(id: "git.branches", title: "Branches...", isApplicable: inRepository) { _ in w?.openBranchesWindow() },
             C(id: "git.pull", title: "Pull", isApplicable: inRepository) { _ in w?.queueGitRemote(.pull) },
             C(id: "git.push", title: "Push", isApplicable: inRepository) { _ in w?.queueGitRemote(.push) },
             C(id: "git.fetch", title: "Fetch", isApplicable: inRepository) { _ in w?.queueGitRemote(.fetch) },
         ]
         for command in commands { registry.register(command) }
-        registry.menus.addToContextMenu([.separator, .submenu("Git", ["git.commit", "git.pull", "git.push"].map(MenuNode.command))])
+        registry.menus.addToContextMenu([.separator, .submenu("Git", ["git.commit", "git.branches", "git.pull", "git.push"].map(MenuNode.command))])
     }
 }
 
@@ -65,6 +66,15 @@ extension MainWindowController {
         left.refreshAnnotations(after: .zero)
         right.refreshAnnotations(after: .zero)
         CommitWindowController.refreshAll()
+        BranchesWindowController.refreshAll()
+    }
+
+    func openBranchesWindow() {
+        guard let git else { return }
+        Task {
+            guard let root = await activeRepositoryRoot() else { return }
+            BranchesWindowController.show(root: root, git: git, controller: self)
+        }
     }
 
     func openCommitWindow() {
