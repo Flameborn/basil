@@ -24,6 +24,7 @@ public struct OperationKind: RawRepresentable, Hashable, Sendable, Codable, Expr
     /// F4 on a server: an edited copy put back.
     public static let upload: OperationKind = "upload"
     /// Operations without a kind of their own (for example the debug test operation).
+    public static let sync: OperationKind = "sync"
     public static let other: OperationKind = "other"
 }
 
@@ -62,6 +63,7 @@ public enum OperationKindCatalog {
         OperationKindInfo(kind: .split, name: "Split File", pastTense: "split"),
         OperationKindInfo(kind: .combine, name: "Combine Files", pastTense: "combined"),
         OperationKindInfo(kind: .upload, name: "Upload Edited File", pastTense: "uploaded"),
+        OperationKindInfo(kind: .sync, name: "Synchronize Directories", pastTense: "synchronized"),
         OperationKindInfo(kind: .other, name: "Other", pastTense: "done"),
     ]
 
