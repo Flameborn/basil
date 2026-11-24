@@ -4,14 +4,32 @@ import BasilIntegrations
 import BasilPlugins
 import SwiftUI
 
-public enum SettingsTab: String, Hashable, Sendable {
-    case views, display, navigation, bookmarks, copying, editing, sounds, keys, plugins
+/// The sections of Settings, in the sidebar's order.
+public enum SettingsTab: String, Hashable, Sendable, CaseIterable {
+    case general, views, display, navigation, search, bookmarks, copying, editing, sounds, keys, plugins, themes
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .views: "Views and Columns"
+        case .display: "Display"
+        case .navigation: "Navigation"
+        case .search: "Search"
+        case .bookmarks: "Bookmarks"
+        case .copying: "Copying"
+        case .editing: "Editor and Terminal"
+        case .sounds: "Sounds and Speech"
+        case .keys: "Keys"
+        case .plugins: "Plugins"
+        case .themes: "Themes"
+        }
+    }
 }
 
 @MainActor
 @Observable
 final class SettingsNavigation {
-    var tab: SettingsTab = .views
+    var tab: SettingsTab = .general
 }
 
 /// The settings window (Cmd+,). One shared window; `show(tab:)` brings it forward on a tab.
@@ -21,14 +39,14 @@ public final class SettingsWindowController: NSWindowController {
     private let navigation = SettingsNavigation()
     /// The commands whose keys the Keys tab changes (set by the main window).
     static var commands: CommandRegistry?
-    /// Check Now on the Navigation tab (set by the main window).
+    /// Check Now in General (set by the main window).
     static var checkForUpdates: (() -> Void)?
-    /// The search index's status and Rebuild on the Navigation tab (set by the main window).
+    /// The search index's status and Rebuild in Search (set by the main window).
     static var searchIndex: SearchIndexStatus?
     /// The plugins for the Plugins tab (set by the main window).
     static var plugins: PluginManager?
 
-    public static func show(settings: SettingsStore, tab: SettingsTab = .views) {
+    public static func show(settings: SettingsStore, tab: SettingsTab = .general) {
         let controller = shared ?? SettingsWindowController(settings: settings)
         shared = controller
         controller.navigation.tab = tab
@@ -38,20 +56,34 @@ public final class SettingsWindowController: NSWindowController {
 
     private init(settings: SettingsStore) {
         let window = SettingsNSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 1300, height: 640),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Basil Settings"
         window.basilAutosave("BasilSettingsWindow")
-        // Wide enough that all tabs fit in the toolbar (otherwise one hides behind an overflow button).
-        window.contentMinSize = NSSize(width: 1100, height: 520)
+        window.contentMinSize = NSSize(width: 1000, height: 520)
         super.init(window: window)
         let keys = Self.commands.map { KeysModel(registry: $0) }
-        let hosting = NSHostingController(rootView: SettingsView(store: settings, navigation: navigation, keys: keys))
-        hosting.view.setAccessibilityLabel("Settings")
-        window.contentViewController = hosting
+        // The sidebar and the chosen section side by side, as two hosting controllers in an
+        // AppKit split view (so the sidebar's container has a name for VoiceOver).
+        let sidebar = NSHostingController(rootView: SettingsSidebar(navigation: navigation, keys: keys))
+        sidebar.view.setAccessibilityLabel("Settings sections")
+        let detail = NSHostingController(rootView: SettingsView(store: settings, navigation: navigation, keys: keys))
+        detail.view.setAccessibilityLabel("Settings")
+        let split = NSSplitViewController()
+        split.splitView.isVertical = true
+        split.splitView.dividerStyle = .thin
+        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
+        sidebarItem.minimumThickness = 180
+        sidebarItem.maximumThickness = 260
+        sidebarItem.canCollapse = false
+        sidebarItem.holdingPriority = .init(260)
+        split.addSplitViewItem(sidebarItem)
+        split.addSplitViewItem(NSSplitViewItem(viewController: detail))
+        split.view.setAccessibilityLabel("Settings")
+        window.contentViewController = split
         if !window.setFrameUsingName("BasilSettingsWindow") { window.center() }
         // A frame saved before a tab was added can be too narrow for all tabs.
         let content = window.contentRect(forFrameRect: window.frame)
@@ -81,47 +113,123 @@ final class SettingsNSWindow: NSWindow {
     }
 }
 
+/// The sections of Settings; Up and Down move between them, Tab goes into the section. Drawn
+/// by Basil (not a List): the system draws a selected row white on the accent colour, under
+/// 4.5 to 1; here it is white on the cursor colour (5.8 to 1 and more).
+struct SettingsSidebar: View {
+    @Bindable var navigation: SettingsNavigation
+    let keys: KeysModel?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let sections = SettingsView.sections(keys: keys)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(sections, id: \.self) { tab in
+                    let selected = tab == navigation.tab
+                    Text(tab.title)
+                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(selected ? Color(nsColor: Theme.cursorBackground) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            navigation.tab = tab
+                            focused = true
+                        }
+                        .accessibilityElement()
+                        .accessibilityLabel(tab.title)
+                        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                        .accessibilityAction { navigation.tab = tab }
+                }
+            }
+            .padding(10)
+        }
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled(false)
+        .onKeyPress(.upArrow) { move(-1, in: sections) }
+        .onKeyPress(.downArrow) { move(1, in: sections) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Settings sections")
+        .accessibilityIdentifier("settings.sections")
+        .frame(minWidth: 180)
+        .onAppear { focused = true }
+    }
+
+    private func move(_ step: Int, in sections: [SettingsTab]) -> KeyPress.Result {
+        guard let index = sections.firstIndex(of: navigation.tab) else { return .ignored }
+        let next = min(max(index + step, 0), sections.count - 1)
+        navigation.tab = sections[next]
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: sections[next].title, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        return .handled
+    }
+}
+
+/// The chosen section of Settings.
 struct SettingsView: View {
     @Bindable var store: SettingsStore
     @Bindable var navigation: SettingsNavigation
     let keys: KeysModel?
 
-    var body: some View {
-        TabView(selection: $navigation.tab) {
-            ViewsSettings(store: store)
-                .tabItem { Text("Views and Columns") }
-                .tag(SettingsTab.views)
-            DisplaySettings(store: store)
-                .tabItem { Text("Display") }
-                .tag(SettingsTab.display)
-            NavigationSettings(store: store)
-                .tabItem { Text("Navigation") }
-                .tag(SettingsTab.navigation)
-            BookmarkSettings(store: store)
-                .tabItem { Text("Bookmarks") }
-                .tag(SettingsTab.bookmarks)
-            CopySettings(store: store)
-                .tabItem { Text("Copying") }
-                .tag(SettingsTab.copying)
-            EditorSettings(store: store)
-                .tabItem { Text("Editor and Terminal") }
-                .tag(SettingsTab.editing)
-            FeedbackSettingsView(store: store)
-                .tabItem { Text("Sounds and Speech") }
-                .tag(SettingsTab.sounds)
-            if let keys {
-                KeySettings(model: keys)
-                    .tabItem { Text("Keys") }
-                    .tag(SettingsTab.keys)
-            }
-            if let plugins = SettingsWindowController.plugins {
-                PluginSettings(manager: plugins)
-                    .tabItem { Text("Plugins") }
-                    .tag(SettingsTab.plugins)
+    static func sections(keys: KeysModel?) -> [SettingsTab] {
+        SettingsTab.allCases.filter { tab in
+            switch tab {
+            case .keys: keys != nil
+            case .plugins: SettingsWindowController.plugins != nil
+            case .search: SettingsWindowController.searchIndex != nil
+            default: true
             }
         }
-        .padding()
-        .frame(minWidth: 1400, minHeight: 520)
+    }
+
+    var body: some View {
+        section(navigation.tab)
+            .padding()
+            .frame(minWidth: 800, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func section(_ tab: SettingsTab) -> some View {
+        switch tab {
+        case .general: GeneralSettings(store: store)
+        case .views: ViewsSettings(store: store)
+        case .display: DisplaySettings(store: store)
+        case .navigation: NavigationSettings(store: store)
+        case .search:
+            if let index = SettingsWindowController.searchIndex {
+                Form { SearchIndexSettings(store: store, index: index) }.formStyle(.grouped)
+            }
+        case .bookmarks: BookmarkSettings(store: store)
+        case .copying: CopySettings(store: store)
+        case .editing: EditorSettings(store: store)
+        case .sounds: FeedbackSettingsView(store: store)
+        case .keys: if let keys { KeySettings(model: keys) }
+        case .plugins: if let plugins = SettingsWindowController.plugins { PluginSettings(manager: plugins) }
+        case .themes: ThemeSettings(store: store)
+        }
+    }
+}
+
+/// General: updates.
+struct GeneralSettings: View {
+    @Bindable var store: SettingsStore
+
+    var body: some View {
+        Form {
+            Toggle("Check for updates automatically", isOn: $store.settings.checkForUpdates)
+                .accessibilityLabel("Check for updates automatically")
+            Text("Basil looks for a new release on GitHub when it starts and once a day, and asks before installing it. Basil > Check for Updates... looks at any time.")
+                .font(.callout)
+                .foregroundStyle(Theme.secondaryTextColor)
+            if let check = SettingsWindowController.checkForUpdates {
+                Button("Check for Updates Now") { check() }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 
@@ -340,17 +448,6 @@ struct NavigationSettings: View {
             Text("When on, selecting a folder with Space also calculates its size, like Cmd+Shift+S.")
                 .font(.callout)
                 .foregroundStyle(Theme.secondaryTextColor)
-            Toggle("Check for updates automatically", isOn: $store.settings.checkForUpdates)
-                .accessibilityLabel("Check for updates automatically")
-            Text("Basil looks for a new release on GitHub when it starts and once a day, and asks before installing it. Basil > Check for Updates... looks at any time.")
-                .font(.callout)
-                .foregroundStyle(Theme.secondaryTextColor)
-            if let check = SettingsWindowController.checkForUpdates {
-                Button("Check for Updates Now") { check() }
-            }
-            if let index = SettingsWindowController.searchIndex {
-                SearchIndexSettings(store: store, index: index)
-            }
         }
         .formStyle(.grouped)
     }

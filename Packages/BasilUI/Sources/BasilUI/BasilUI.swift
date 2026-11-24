@@ -64,6 +64,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public let searchIndexes: SearchIndexes?
     var searchIndexStatus: SearchIndexStatus?
     private var searchIndexToken: UUID?
+    var themeToken: UUID?
     /// The Lua plugins (Settings > Plugins); set by the app, which starts them.
     public var plugins: PluginManager? {
         didSet {
@@ -179,6 +180,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
                 self?.right.refreshAnnotations(after: .zero)
             }
         }
+        followTheme()
         if searchIndexes != nil {
             searchIndexToken = settings.onChange { [weak self] _ in self?.applySearchIndexSetting() }
             applySearchIndexSetting()

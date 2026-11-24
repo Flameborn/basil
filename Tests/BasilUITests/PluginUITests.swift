@@ -8,7 +8,7 @@ extension PaneUITests {
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Plugins'")).firstMatch
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Plugins' OR value == 'Plugins'")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
         tab.click()
         let toggle = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Hello Test 1.0'")).firstMatch

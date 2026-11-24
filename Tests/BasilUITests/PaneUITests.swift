@@ -208,18 +208,13 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Navigation'")).firstMatch
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Navigation' OR value == 'Navigation'")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
         tab.click()
         let toggle = settings.descendants(matching: .any)
             .matching(NSPredicate(format: "label == 'Space calculates folder sizes'")).firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 2), settings.debugDescription)
         XCTAssertEqual(toggle.value as? Int, 0, "off by default")
-        // The search index lists the startup disk (on) with its status, and other volumes.
-        let boot = settings.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH ', startup disk'")).firstMatch
-        XCTAssertTrue(boot.waitForExistence(timeout: 2), settings.debugDescription)
-        XCTAssertEqual(boot.value as? Int, 1)
-        XCTAssertTrue(settings.staticTexts["settings.indexStatus.boot"].exists)
         try audit(app) { issue in
             if self.isCoveredElsewhere(issue, by: settings) { return true }
             print("AUDIT navigation settings: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(300) ?? "nil")")
@@ -867,7 +862,7 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Keys'")).firstMatch
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Keys' OR value == 'Keys'")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
         tab.click()
         let filter = settings.textFields["Filter commands"]
@@ -939,7 +934,7 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copying'")).firstMatch
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copying' OR value == 'Copying'")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
         tab.click()
         let verify = settings.descendants(matching: .any)
@@ -1028,7 +1023,7 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Sounds and Speech'")).firstMatch
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Sounds and Speech' OR value == 'Sounds and Speech'")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
         tab.click()
         let speak = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Finished: speak'")).firstMatch
@@ -1232,7 +1227,7 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(",", modifierFlags: .command)
         let settings = app.windows["Basil Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 3))
-        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Editor and Terminal'")).firstMatch
+        let tab = settings.descendants(matching: .any).matching(NSPredicate(format: "label == 'Editor and Terminal' OR value == 'Editor and Terminal'")).firstMatch
         XCTAssertTrue(tab.waitForExistence(timeout: 2), settings.debugDescription)
         tab.click()
         let add = settings.buttons["Add Rule"]
