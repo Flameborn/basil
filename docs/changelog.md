@@ -4,6 +4,8 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-24
+
 - Find Files (Option+F7, Commands > Find Files...), like Total Commander: search by name (wildcards, several patterns, exclusions or a regular expression), for text inside files (case, regular expression, whole words, files not containing it, UTF-8, UTF-16 and Windows-1252), by size and by date, in the current folder and its subfolders, and optionally inside archives (zip, 7z, RAR, tar and the rest, also archives in archives). Results appear as they are found; Return goes to a file, Show in Pane lists all results in the pane, where copy, move, delete, Quick Look, edit, rename and Multi-Rename work on them and Backspace goes back.
 - Basil keeps its own index of the startup disk, like Everything on Windows, so Find Files finds names at once. It is built in the background the first time and kept up to date, also with changes made while Basil was closed. Settings, Navigation shows its status, rebuilds it or turns it off. Spotlight can be chosen as the search engine too.
 - WebDAV over HTTP and HTTPS: saved connections and Quick Connect (http:// and https:// addresses work), Basic and Digest logins with the password asked only when the server wants one, untrusted certificates asked about and remembered, copy and move both ways through the secure copy engine, server-side copies and moves.
