@@ -38,6 +38,8 @@ final class PaneViewController: NSViewController {
     private lazy var pathBar = PathBar(identifier: "pane.\(side.identifier).path")
     private let statusLabel = NSTextField(labelWithString: "")
     private let filterBar = QuickFilterBar()
+    /// The command line (Left or Right), `CommandLineBar.swift`.
+    private(set) lazy var commandBar = CommandLineBar(defaults: defaults)
     /// The directory currently displayed (after a load completes).
     private var shownDirectory: VFSPath?
     private var settingsToken: UUID?
@@ -123,6 +125,13 @@ final class PaneViewController: NSViewController {
         filterBar.onChange = { [weak self] text, isRegex in self?.applyFilter(text: text, isRegex: isRegex) }
         filterBar.onFinish = { [weak self] cleared in self?.finishFilter(cleared: cleared) }
 
+        commandBar.isHidden = true
+        commandBar.onClose = { [weak self] in self?.hideCommandLine() }
+        commandBar.cursorText = { [weak self] fullPath in
+            guard let self, let item = cursorItem else { return nil }
+            return CommandLineBar.shellQuoted(fullPath ? item.path.path : item.name)
+        }
+
         statusLabel.font = Theme.barFont
         statusLabel.textColor = Theme.barText
         statusLabel.lineBreakMode = .byTruncatingTail
@@ -133,7 +142,7 @@ final class PaneViewController: NSViewController {
 
         tabBar.onSelect = { [weak self] index in self?.switchToTab(index) }
         tabBar.isHidden = true
-        let stack = NSStackView(views: [driveBar, tabBar, pathBar, scrollView, filterBar, statusBox])
+        let stack = NSStackView(views: [driveBar, tabBar, pathBar, scrollView, filterBar, commandBar, statusBox])
         stack.detachesHiddenViews = true
         stack.orientation = .vertical
         stack.spacing = 0
@@ -153,6 +162,7 @@ final class PaneViewController: NSViewController {
             tabBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             filterBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            commandBar.widthAnchor.constraint(equalTo: stack.widthAnchor),
             statusBox.widthAnchor.constraint(equalTo: stack.widthAnchor),
             pathBar.heightAnchor.constraint(equalToConstant: 22),
             statusBox.heightAnchor.constraint(equalToConstant: 20),
@@ -635,6 +645,29 @@ final class PaneViewController: NSViewController {
         guard let volume = try? url.resourceValues(forKeys: [.volumeURLKey]).volume else { return }
         lastDirectoryByVolume[volume.standardizedFileURL.path] = model.directory.path
         defaults.set(lastDirectoryByVolume, forKey: "pane.\(side.identifier).volumeDirectories")
+    }
+
+    // MARK: Command line
+
+    /// Left or Right: the command line for this pane's folder.
+    func showCommandLine() {
+        commandBar.show(folder: commandLineFolderName)
+    }
+
+    func hideCommandLine() {
+        commandBar.isHidden = true
+        view.window?.makeFirstResponder(table)
+    }
+
+    /// The folder's name as the command line shows and speaks it; the top of a disk by its volume name.
+    var commandLineFolderName: String {
+        let directory = model.directory
+        guard directory.isRoot else { return directory.name }
+        if directory.location == .local,
+           let name = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
+            return name
+        }
+        return directory.path
     }
 
     // MARK: Quick filter

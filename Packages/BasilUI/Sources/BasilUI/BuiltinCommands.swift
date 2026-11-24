@@ -46,6 +46,10 @@ enum BuiltinCommands {
             C(id: "pane.focusPath", title: "Go to Path Bar", defaultKeys: [K(.character("l"), .command)]) { _ in
                 pane()?.focusPathBar()
             },
+            // Not in the menus: VoiceOver would read the item's title on every Left and Right.
+            C(id: "pane.commandLine", title: "Command Line", defaultKeys: [K(.left), K(.right)]) { _ in
+                pane()?.showCommandLine()
+            },
             C(id: "pane.quickFilter", title: "Quick Filter", defaultKeys: [K(.character("s"), .command)]) { _ in pane()?.showQuickFilter() },
             C(id: "pane.readStatus", title: "Read Status Bar", defaultKeys: [K(.character("i"), .option)]) { ctx in
                 guard let p = pane() else { return }

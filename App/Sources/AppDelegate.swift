@@ -21,6 +21,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         DebugMenu.install(queue: queue)
         #endif
+        // A file manager needs to read every folder: until macOS grants Full Disk Access, only the
+        // permission window shows (Quit, Open System Settings, Continue once granted).
+        var check: @MainActor () -> FullDiskAccess.Status = { FullDiskAccess.status() }
+        #if DEBUG
+        // UI tests (whose runner may lack the grant) skip the check, unless BASIL_UITEST_FDA=1:
+        // then access counts as granted three seconds after the window opened.
+        if UITestFixture.isActive {
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_FDA"] == "1" {
+                var opened: Date?
+                check = {
+                    let start = opened ?? Date()
+                    opened = start
+                    return Date().timeIntervalSince(start) >= 3 ? .granted : .notGranted
+                }
+            } else {
+                check = { .granted }
+            }
+        }
+        #endif
+        FullDiskAccessWindowController.runIfNeeded(check: check) { [weak self] in self?.start() }
+    }
+
+    private func start() {
         providers.register(LocalProvider())
         let archives = ArchiveOpener() // UnRAR (linked in) and libarchive
         // 7z through the 7zz built from Vendor/7zip and copied into Contents/MacOS.

@@ -102,6 +102,12 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         window.basilAutosave("BasilMainWindow")
         super.init(window: window)
 
+        for pane in [left, right] {
+            pane.commandBar.onRun = { [weak self, weak pane] text in
+                guard let self, let pane else { return }
+                runCommandLine(text, in: pane)
+            }
+        }
         BuiltinCommands.register(in: commands, window: self)
         ContextMenuCommands.register(in: commands, window: self)
         if git != nil { GitCommands.register(in: commands, window: self) }
