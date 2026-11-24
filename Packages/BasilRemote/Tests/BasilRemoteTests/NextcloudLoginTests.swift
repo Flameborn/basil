@@ -84,7 +84,7 @@ struct NextcloudLoginTests {
     fileprivate func connect(_ target: RemoteTarget, secrets: MemorySecretStore, prompts: BrowserPrompts) async throws
         -> (ProviderRegistry, WebDAVProvider, VFSPath) {
         let registry = ProviderRegistry()
-        let trust = FileManager.default.temporaryDirectory.appendingPathComponent("basil-trust-\(UUID().uuidString)")
+        let trust = TestScratch.url.appendingPathComponent("basil-trust-\(UUID().uuidString)")
         var connector = WebDAVConnector(secure: false, trustFile: trust, secrets: secrets)
         connector.pollInterval = .milliseconds(200)
         registry.register(connector: connector)

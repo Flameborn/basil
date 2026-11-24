@@ -129,7 +129,7 @@ private final class Monitor: TransferMonitor {
         let prompts = GoogleBrowserPrompts(fake)
         let start = try await registry.connect(RemoteTarget(service: .googleDrive, host: "", path: path, options: options), prompts: prompts)
         let provider = try #require(try registry.provider(for: start.location) as? GoogleDriveProvider)
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-gdrive-\(UUID().uuidString)")
+        let folder = TestScratch.url.appendingPathComponent("basil-gdrive-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return Setup(fake: fake, secrets: secrets, connector: connector, registry: registry, provider: provider,
                      start: start, folder: folder, prompts: prompts)

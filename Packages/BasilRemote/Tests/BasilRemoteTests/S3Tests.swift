@@ -36,7 +36,7 @@ private func engine(_ registry: ProviderRegistry, secure: Bool = true,
 }
 
 private func scratch() throws -> URL {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-s3-\(UUID().uuidString)")
+    let url = TestScratch.url.appendingPathComponent("basil-s3-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
@@ -143,7 +143,7 @@ struct S3Tests {
     func connect(_ target: RemoteTarget, prompts: FTPPrompts, profiles: AWSProfiles? = nil) async throws -> S3Connection {
         let registry = ProviderRegistry()
         registry.register(LocalProvider())
-        let trust = FileManager.default.temporaryDirectory.appendingPathComponent("basil-trust-\(UUID().uuidString)")
+        let trust = TestScratch.url.appendingPathComponent("basil-trust-\(UUID().uuidString)")
         registry.register(connector: S3Connector(trustFile: trust, profiles: try profiles ?? AWSProfiles(home: scratch(), environment: [:])))
         let start = try await registry.connect(target, prompts: prompts)
         let s3 = try #require(try registry.provider(for: start.location) as? S3Provider)

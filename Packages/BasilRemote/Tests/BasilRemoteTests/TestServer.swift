@@ -119,8 +119,39 @@ final class TestServer: Sendable {
             atexit {
                 for pid in TestServer.children.withLock({ $0 }) { kill(pid, SIGTERM) }
                 for folder in TestServer.folders.withLock({ $0 }) { try? FileManager.default.removeItem(atPath: folder) }
+                try? FileManager.default.removeItem(at: TestServer.watchList)
             }
+            startWatchdog()
         }
+        writeWatchList()
+    }
+
+    /// The servers and folders of this run, for the watchdog: "pid" lines and "folder path" lines.
+    static let watchList = FileManager.default.temporaryDirectory.appendingPathComponent("basil-test-servers-\(getpid()).txt")
+
+    static func writeWatchList() {
+        let lines = children.withLock { $0.map { "\($0)" } } + folders.withLock { $0.map { "folder \($0)" } }
+        try? (lines.joined(separator: "\n") + "\n").write(to: watchList, atomically: true, encoding: .utf8)
+    }
+
+    /// atexit does not run when a test run is killed (a timeout, Ctrl+C, a crash), which left
+    /// sshd, ssh-agent and httpd serving this Mac with their folders gone. A shell waits for
+    /// this process to end and then stops what the watch list names.
+    static func startWatchdog() {
+        let script = """
+            while kill -0 \(getpid()) 2>/dev/null; do sleep 1; done
+            [ -f "$1" ] || exit 0
+            while read -r a b; do
+              if [ "$a" = folder ]; then rm -rf "$b"; else kill "$a" 2>/dev/null; fi
+            done < "$1"
+            rm -f "$1"
+            """
+        let watchdog = Process()
+        watchdog.executableURL = URL(fileURLWithPath: "/bin/sh")
+        watchdog.arguments = ["-c", script, "watchdog", watchList.path]
+        watchdog.standardOutput = FileHandle.nullDevice
+        watchdog.standardError = FileHandle.nullDevice
+        try? watchdog.run()
     }
 
     static func waitFor(_ condition: () -> Bool) throws {
@@ -187,7 +218,7 @@ final class RemoteSandbox: Sendable {
     let knownHosts: URL
 
     init() throws {
-        folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-sftp-\(UUID().uuidString)")
+        folder = TestScratch.url.appendingPathComponent("basil-sftp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         knownHosts = folder.appendingPathComponent("known_hosts")
     }

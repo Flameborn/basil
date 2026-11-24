@@ -43,8 +43,22 @@ final class FakeHost: PluginHost, WorkspaceContext {
 }
 
 /// A Plugins folder with plugins written by the tests.
+/// A test's folder and its settings file next to it, removed when the test's `Setup` goes
+/// away. A suite named by an absolute path keeps its domain in that file, where a named suite
+/// would leave a plist in ~/Library/Preferences that cfprefsd writes back after removal.
+final class Leftovers: Sendable {
+    let folder: URL
+    var suite: String { folder.path + "-settings" }
+    init(folder: URL) { self.folder = folder }
+    deinit {
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.removeItem(atPath: suite + ".plist")
+    }
+}
+
 @MainActor
 struct Setup {
+    let leftovers: Leftovers
     let root: URL
     let folder: URL
     let registry = ProviderRegistry()
@@ -56,11 +70,12 @@ struct Setup {
     init() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-plugins-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        leftovers = Leftovers(folder: url)
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
         root = URL(fileURLWithPath: String(cString: realpath(url.path, &buffer)))
         folder = root.appendingPathComponent("Plugins")
         registry.register(LocalProvider())
-        let defaults = UserDefaults(suiteName: "basil-plugin-tests-\(UUID().uuidString)")!
+        let defaults = UserDefaults(suiteName: leftovers.suite)!
         settings = SettingsStore(defaults: defaults)
         manager = PluginManager(folder: folder, registry: registry, commands: commands, settings: settings)
         host = FakeHost(folder: .local(root.path))

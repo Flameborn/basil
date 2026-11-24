@@ -38,7 +38,7 @@ private func engine(_ registry: ProviderRegistry, secure: Bool = true,
 }
 
 private func scratch() throws -> URL {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-smb-\(UUID().uuidString)")
+    let url = TestScratch.url.appendingPathComponent("basil-smb-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }

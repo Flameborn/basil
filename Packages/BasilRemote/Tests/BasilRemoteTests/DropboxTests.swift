@@ -159,7 +159,7 @@ private final class Monitor: TransferMonitor {
         let start = try await registry.connect(RemoteTarget(service: .dropbox, host: "", path: path),
                                                prompts: browser)
         let provider = try #require(try registry.provider(for: start.location) as? DropboxProvider)
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-dropbox-\(UUID().uuidString)")
+        let folder = TestScratch.url.appendingPathComponent("basil-dropbox-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return Setup(fake: fake, secrets: secrets, connector: connector, registry: registry, provider: provider,
                      root: provider.homeDirectory, folder: folder, prompts: browser)

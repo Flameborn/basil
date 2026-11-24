@@ -298,7 +298,11 @@ import Testing
 @MainActor
 @Suite struct SettingsTests {
     @Test func persistsAndToleratesMissingKeys() throws {
-        let defaults = try #require(UserDefaults(suiteName: "basil-test-\(UUID())"))
+        // A suite named by a path keeps its domain in that file (nothing in ~/Library/Preferences).
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-defaults-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let defaults = try #require(UserDefaults(suiteName: folder.appendingPathComponent("settings").path))
         let store = SettingsStore(defaults: defaults)
         var changed = 0
         store.onChange { _ in changed += 1 }

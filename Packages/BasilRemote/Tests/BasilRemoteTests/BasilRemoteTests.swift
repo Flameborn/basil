@@ -65,7 +65,7 @@ import Testing
     }
 
     @Test func followsIncludes() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-sshconfig-\(UUID().uuidString)")
+        let folder = TestScratch.url.appendingPathComponent("basil-sshconfig-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("conf.d"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         try "Host box\n  HostName 10.0.0.5\n".write(to: folder.appendingPathComponent("conf.d/a.conf"), atomically: true, encoding: .utf8)
@@ -84,7 +84,7 @@ import Testing
     }
 
     func file(_ text: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-kh-\(UUID().uuidString)")
+        let url = TestScratch.url.appendingPathComponent("basil-kh-\(UUID().uuidString)")
         try text.write(to: url, atomically: true, encoding: .utf8)
         return url
     }

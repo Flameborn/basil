@@ -154,7 +154,7 @@ private func referenceQuickXor(_ data: Data) -> String {
         let prompts = MicrosoftBrowserPrompts(fake)
         let start = try await registry.connect(RemoteTarget(service: .oneDrive, host: "", path: path), prompts: prompts)
         let provider = try #require(try registry.provider(for: start.location) as? OneDriveProvider)
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-onedrive-\(UUID().uuidString)")
+        let folder = TestScratch.url.appendingPathComponent("basil-onedrive-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return Setup(fake: fake, secrets: secrets, connector: connector, registry: registry, provider: provider,
                      start: start, folder: folder, prompts: prompts)

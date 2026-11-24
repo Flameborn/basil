@@ -12,7 +12,7 @@ import Testing
         private var fd: Int32 = -1
 
         init() throws {
-            home = FileManager.default.temporaryDirectory.appendingPathComponent("basil-agents-\(UUID().uuidString)")
+            home = TestScratch.url.appendingPathComponent("basil-agents-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             socket = "/tmp/basil-agent-\(UUID().uuidString.prefix(8)).sock"
             fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)

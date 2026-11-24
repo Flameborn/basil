@@ -28,9 +28,11 @@ import Testing
     }
 
     @Test func historyKeepsTheNewestFiftyWithoutRepeats() throws {
-        let suite = "basil-cmdline-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        // A suite named by a path keeps its domain in that file (nothing in ~/Library/Preferences).
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-defaults-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let defaults = try #require(UserDefaults(suiteName: folder.appendingPathComponent("settings").path))
         let history = CommandHistory(defaults: defaults)
         for i in 0..<60 { history.add("echo \(i)") }
         history.add("echo 20")

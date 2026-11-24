@@ -45,7 +45,7 @@ struct WebDAVConnection {
 private func connect(_ target: RemoteTarget, secure: Bool = false, prompts: FTPPrompts, trustFile: URL? = nil) async throws -> WebDAVConnection {
     let registry = ProviderRegistry()
     registry.register(LocalProvider())
-    let trust = trustFile ?? FileManager.default.temporaryDirectory.appendingPathComponent("basil-trust-\(UUID().uuidString)")
+    let trust = trustFile ?? TestScratch.url.appendingPathComponent("basil-trust-\(UUID().uuidString)")
     registry.register(connector: WebDAVConnector(secure: secure, trustFile: trust))
     let start = try await registry.connect(target, prompts: prompts)
     let dav = try #require(try registry.provider(for: start.location) as? WebDAVProvider)
@@ -54,7 +54,7 @@ private func connect(_ target: RemoteTarget, secure: Bool = false, prompts: FTPP
 
 /// A local scratch folder.
 private func scratch() throws -> URL {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("basil-webdav-\(UUID().uuidString)")
+    let url = TestScratch.url.appendingPathComponent("basil-webdav-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }
