@@ -17,6 +17,7 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - Copy Link on S3 gives a download address that works for 1 hour, 1 day or 7 days (Basil asks and remembers the choice).
 - S3 in secure copy mode uploads straight to the final name, so big files are no longer copied a second time on the server. The old object stays until the new one is complete.
 - Google Drive: the format for Google Docs, Sheets, Slides and Drawings can be chosen per connection (Office, OpenDocument, PDF, plain text, Markdown, CSV and more). Documents larger than Google's 10 MB export limit can be copied too. F5 on a shortcut to a folder copies the folder it leads to.
+- Multi-Rename has photo and audio fields, like Total Commander's plugins: the date a photo was taken ([=exif.year], [=exif.month], [=exif.day], [=exif.hour], [=exif.minute], [=exif.second]), the camera ([=exif.make], [=exif.model]) and the size ([=exif.width], [=exif.height]); a song's [=audio.artist], [=audio.title], [=audio.album], [=audio.track], [=audio.year] and [=audio.genre] (MP3, M4A, AIFF, FLAC and more). They are in the Insert menus.
 - Dropbox team accounts with a team space open at the team space, like Dropbox's own apps: the team folders and your member folder side by side.
 - OneDrive: large uploads go up while they are copied when the size is known, without a temporary copy on the Mac.
 - Archives on mounted SMB shares are packed and changed in place, like local ones.

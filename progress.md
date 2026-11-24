@@ -48,7 +48,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 ## Decisions log
 
 - 2026-11-24 (asked): Dropbox team accounts with a team space (root namespace different from the member's home namespace) open with the team space as the top folder, like Dropbox's own apps: the team folders and the member's folder side by side. Paths saved for such an account gain the member folder in front once. Personal accounts and older team accounts (team folders inside the member folder) are unchanged.
-- 2026-11-24 (asked): Multi-Rename media placeholders in the style of TC's plugin fields: [=exif.year] [=exif.month] [=exif.day] [=exif.hour] [=exif.minute] [=exif.second] (date taken), [=exif.make] [=exif.model] [=exif.width] [=exif.height]; [=audio.artist] [=audio.title] [=audio.album] [=audio.track] [=audio.year] [=audio.genre]. Photos through ImageIO, audio through AVFoundation; local files and mounted shares only, empty elsewhere.
+- 2026-11-24 (asked): Multi-Rename media placeholders in the style of TC's plugin fields: [=exif.year] [=exif.month] [=exif.day] [=exif.hour] [=exif.minute] [=exif.second] (date taken), [=exif.make] [=exif.model] [=exif.width] [=exif.height]; [=audio.artist] [=audio.title] [=audio.album] [=audio.track] [=audio.year] [=audio.genre]. Photos through ImageIO, audio through AudioToolbox (synchronous, same tags as AVFoundation, which only loads asynchronously; Basil reads ID3v2.4's TDRC date itself, which AudioToolbox skips); local files and mounted shares only, empty elsewhere. Chosen without asking, change if wanted: track numbers have two digits at least ("03", as in the example the user picked); width and height are as the photo is seen (turned for orientations 5 to 8).
 - 2026-11-24 (asked): SMB copies inside a share use the server's own copy when it offers one.
 - 2026-11-24 (asked): OneNote on OneDrive stays open: the user has no notebook to try with.
 
@@ -366,7 +366,7 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [x] Sounds and speech for operation events (Settings, Sounds and Speech tab)
 - [x] Retry / Skip / Skip All / Cancel prompt when an item of a copy, move or delete fails
 - [ ] Verified by the user with VoiceOver: dialogs, speech wording
-- [x] Multi-rename tool (masks, counter, search/replace + regex, case, preview, presets, undo, cycle-safe batch op); core placeholders, EXIF/ID3 later
+- [x] Multi-rename tool (masks, counter, search/replace + regex, case, preview, presets, undo, cycle-safe batch op); core placeholders; photo and audio fields ([=exif.*], [=audio.*]) 2026-11-24
 
 ### M3 - View/Edit/Terminal
 - [x] Shift+F4 new file in the editor (chosen app or system default)

@@ -67,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             providers.register(annotator: GitAnnotator(git: git))
             GitOperationKinds.register()
         }
+        // Multi-Rename fields of photos and audio ([=exif.year], [=audio.artist], ...), read
+        // from local files and mounted shares.
+        MediaPlaceholders.register { [providers] path in providers.localPath(of: path)?.path }
         // Remote services: SFTP (libssh2 with OpenSSL, from Vendor/libssh2); FTP below.
         providers.register(connector: SFTPConnector())
         var start: (left: VFSPath, right: VFSPath)?
