@@ -54,6 +54,9 @@ final class FakeGoogleDrive: @unchecked Sendable {
         var refreshes = 0
         var revokes = 0
         var exports = 0
+        /// Exports larger than this are refused by files.export (Google: 10 MB); exportLinks work.
+        var exportLimit = 10 << 20
+        var exportLinkDownloads = 0
         var chunks = 0
         /// Answer this many API calls with Drive's rate-limit error first.
         var rateLimited = 0
@@ -344,7 +347,7 @@ final class FakeGoogleDrive: @unchecked Sendable {
         if api, rest.count == 2, rest[0] == "files" {
             let id = rest[1]
             switch method {
-            case "GET": return request.query["alt"] == "media" ? media(id, request) : get(id)
+            case "GET": return request.query["alt"] == "media" ? media(id, request) : get(id, request)
             case "PATCH": return update(id, request)
             case "DELETE": return delete(id)
             default: break
@@ -352,6 +355,15 @@ final class FakeGoogleDrive: @unchecked Sendable {
         }
         if api, rest.count == 3, rest[0] == "files", rest[2] == "copy", method == "POST" { return copy(rest[1], request) }
         if api, rest.count == 3, rest[0] == "files", rest[2] == "export", method == "GET" { return export(rest[1], request) }
+        if parts.count == 2, parts[0] == "exportlink", method == "GET" {
+            // Like docs.google.com's export links: any size, the token in the header.
+            let item = state.withLock { s -> Item? in
+                s.exportLinkDownloads += 1
+                return s.items[parts[1]]
+            }
+            guard let item, let mime = request.query["mime"] else { return .error(404, "notFound", "No such export") }
+            return Response(status: 200, body: Self.exported(item.data, as: mime))
+        }
         if parts == ["upload", "drive", "v3", "files"], method == "POST" {
             return request.query["uploadType"] == "resumable" ? startUpload(request) : multipart(request)
         }
@@ -448,10 +460,20 @@ final class FakeGoogleDrive: @unchecked Sendable {
 
     private func resolve(_ id: String) -> String { id == "root" ? rootID : id }
 
-    private func get(_ id: String) -> Response {
+    private func get(_ id: String, _ request: Request? = nil) -> Response {
         state.withLock { s in
             guard let item = s.items[resolve(id)] else { return .error(404, "notFound", "File not found: \(id).") }
-            return .json(json(item))
+            var answer = json(item)
+            if (request?.query["fields"] ?? "").contains("exportLinks"), DriveFile.isGoogleType(item.mimeType) {
+                var links: [String: String] = [:]
+                for kind in DriveExportFormats.kinds where kind.googleType == item.mimeType {
+                    for format in kind.formats {
+                        links[format.mimeType] = "\(base)/exportlink/\(item.id)?exportFormat=\(format.fileExtension)&mime=\(format.mimeType.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)"
+                    }
+                }
+                answer = ["exportLinks": links]
+            }
+            return .json(answer)
         }
     }
 
@@ -510,6 +532,9 @@ final class FakeGoogleDrive: @unchecked Sendable {
         guard let item else { return .error(404, "notFound", "File not found: \(id).") }
         guard let mime = request.query["mimeType"], DriveFile.isGoogleType(item.mimeType) else {
             return .error(400, "badRequest", "Export only supports Docs Editors files.")
+        }
+        if Self.exported(item.data, as: mime).count > state.withLock({ $0.exportLimit }) {
+            return .error(403, "exportSizeLimitExceeded", "This file is too large to be exported.")
         }
         return Response(status: 200, body: Self.exported(item.data, as: mime))
     }

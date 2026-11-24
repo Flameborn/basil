@@ -51,8 +51,12 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         [.read, .write, .randomAccessRead, .rename, .clone, .setDates, .trash]
     }
 
+    /// How Google documents are exported (the connection's choices).
+    let formats: DriveExportFormats
+
     init(client: HTTPClient, tokens: GoogleTokens, hosts: GoogleHosts, email: String, displayName: String,
-         rootID: String, signedInTarget: RemoteTarget?) {
+         rootID: String, signedInTarget: RemoteTarget?, formats: DriveExportFormats = DriveExportFormats()) {
+        self.formats = formats
         self.client = client
         self.tokens = tokens
         self.hosts = hosts
@@ -62,6 +66,9 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         self.signedInTarget = signedInTarget
         location = ProviderLocation(provider: .googleDrive, instance: email)
     }
+
+    /// F5 on a shortcut to a folder copies that folder's contents (the user's choice).
+    public var copiesFolderLinksAsFolders: Bool { true }
 
     public func disconnect() async { client.close() }
 
@@ -127,7 +134,7 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         case (_, "storageQuotaExceeded"), (_, "quotaExceeded"):
             return VFSError.failed("\(action) failed: there is no space left in Google Drive")
         case (_, "exportSizeLimitExceeded"):
-            return VFSError.failed("\(action) failed: Google exports documents only up to 10 MB")
+            return VFSError.failed("\(action) failed: Google did not export \(path.name) because it is too large")
         case (_, "cannotDownloadAbusiveFile"):
             return VFSError.failed("\(action) failed: Google flagged \(path.name) as harmful and does not hand it out")
         case (403, "insufficientFilePermissions"), (403, "forbidden"), (403, "insufficientPermissions"),
@@ -298,7 +305,7 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         let targets = await shortcutTargets(found)
         let entries = found.map { file -> (name: String, folder: Bool, created: Date?, id: String, value: DriveRef) in
             let target = file.shortcutDetails?.targetId.flatMap { targets[$0] }
-            let (name, ref) = Self.describe(file, target: target, volume: volume)
+            let (name, ref) = Self.describe(file, target: target, volume: volume, formats: formats)
             return (name: name, folder: ref.kind != .file, created: file.created, id: file.id, value: ref)
         }
         return DriveNames.unique(entries)
@@ -329,7 +336,8 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
     }
 
     /// The name and reference of one listed item.
-    static func describe(_ file: DriveFile, target: DriveFile?, volume: String) -> (String, DriveRef) {
+    static func describe(_ file: DriveFile, target: DriveFile?, volume: String,
+                         formats: DriveExportFormats = DriveExportFormats()) -> (String, DriveRef) {
         let contentType = file.isShortcut ? (target?.mimeType ?? file.shortcutDetails?.targetMimeType ?? "") : file.mimeType
         let kind: DriveRef.Kind
         if file.isShortcut {
@@ -339,7 +347,7 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         }
         var name = file.name
         var added: String?
-        if kind == .file, DriveFile.isGoogleType(contentType), let export = DriveExport.of(contentType),
+        if kind == .file, DriveFile.isGoogleType(contentType), let export = formats.export(for: contentType),
            !name.lowercased().hasSuffix("." + export.fileExtension) {
             name += "." + export.fileExtension
             added = export.fileExtension
@@ -422,16 +430,16 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
             return match
         }
         // Names Basil made (numbered extras, exports) exist only in a full listing.
-        if Self.mayBeMadeName(path.name) {
+        if Self.mayBeMadeName(path.name, formats) {
             return try await children(of: parent, at: parentPath).first { $0.path == path }?.ref
         }
         return nil
     }
 
     /// "notes (2).txt", or a name with the extension of an export.
-    static func mayBeMadeName(_ name: String) -> Bool {
+    static func mayBeMadeName(_ name: String, _ formats: DriveExportFormats = DriveExportFormats()) -> Bool {
         let lower = name.lowercased()
-        if ["docx", "xlsx", "pptx", "pdf", "json"].contains(where: { lower.hasSuffix("." + $0) }) { return true }
+        if formats.extensions.contains(where: { lower.hasSuffix("." + $0) }) { return true }
         return name.range(of: #" \(\d+\)(\.[^.]*)?$"#, options: .regularExpression) != nil
     }
 
@@ -439,9 +447,19 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
 
     /// A Google document's export (up to 10 MB, made by Google), kept while its version stays.
     func exportData(_ file: DriveFile, _ export: DriveExport, _ path: VFSPath) async throws -> Data {
-        let key = file.id + "@" + (file.version ?? file.modifiedTime ?? "")
+        let key = file.id + "@" + (file.version ?? file.modifiedTime ?? "") + "@" + export.mimeType
         if let data = exports.withLock({ $0.first { $0.key == key }?.data }) { return data }
-        let response = try await send("GET", url("/files/\(file.id)/export", [("mimeType", export.mimeType)]))
+        var response = try await send("GET", url("/files/\(file.id)/export", [("mimeType", export.mimeType)]))
+        if !response.isSuccess, DriveProblem(response).reason == "exportSizeLimitExceeded" {
+            // Larger than files.export makes: the document's own export link has no such limit.
+            let links = try await send("GET", url("/files/\(file.id)", [("fields", "exportLinks"), ("supportsAllDrives", "true")]))
+            guard links.isSuccess else { throw failure(links, "Exporting \(path.name)", path) }
+            let json = (try? JSONSerialization.jsonObject(with: links.body)) as? [String: Any]
+            guard let text = (json?["exportLinks"] as? [String: String])?[export.mimeType], let link = URL(string: text) else {
+                throw VFSError.failed("Google Drive offers no \(export.fileExtension) export of \(path.name)")
+            }
+            response = try await send("GET", link)
+        }
         guard response.isSuccess else { throw failure(response, "Exporting \(path.name)", path) }
         exports.withLock { list in
             list.removeAll { $0.key == key }
@@ -582,7 +600,7 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
         case .file:
             guard let file else { throw VFSError.notFound(path) }
             let size: Int64
-            if let export = ref.export {
+            if let export = ref.export(formats) {
                 size = Int64(try await exportData(file, export, path).count)
             } else {
                 size = file.byteCount ?? 0
@@ -633,7 +651,7 @@ public final class GoogleDriveProvider: WritableProvider, ConnectedProvider, Sha
     public func openForReading(_ path: VFSPath, bypassCache: Bool) async throws -> any ReadableFile {
         let (ref, file) = try await current(path)
         guard ref.kind == .file, let file else { throw VFSError.failed("\(path.displayName) is a folder") }
-        if let export = ref.export {
+        if let export = ref.export(formats) {
             return MemoryReadFile(data: try await exportData(file, export, path))
         }
         if ref.isGoogleType {

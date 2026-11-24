@@ -25,6 +25,8 @@ public struct GoogleDriveConnector: RemoteConnector {
     public var automaticLoginTitle: String { "Google website" }
     public var usesServerAddress: Bool { false }
     public var pathPlaceholder: String? { "/My Drive" }
+    /// The export format of each kind of Google document.
+    public var options: [RemoteOption] { DriveExportFormats.options }
     public var loginNote: String? {
         "Connecting opens accounts.google.com in your browser, where you sign in and allow Basil. Basil never sees your Google password; its sign-in is kept in the Keychain."
     }
@@ -74,7 +76,8 @@ public struct GoogleDriveConnector: RemoteConnector {
         updated.authentication = .automatic
         let provider = GoogleDriveProvider(client: client, tokens: tokens, hosts: auth.hosts, email: about.email,
                                            displayName: about.name, rootID: about.rootID,
-                                           signedInTarget: updated == target ? nil : updated)
+                                           signedInTarget: updated == target ? nil : updated,
+                                           formats: DriveExportFormats(options: target.options))
         var start = target.path?.trimmingCharacters(in: .whitespaces) ?? ""
         if start.isEmpty || start == "/" { start = "/" + DriveNames.myDrive }
         if !start.hasPrefix("/") { start = "/" + start }

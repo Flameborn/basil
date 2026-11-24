@@ -128,6 +128,10 @@ public protocol WritableProvider: FileSystemProvider {
     /// Where this provider as a copy source falls short of the secure copy contract (changes it
     /// cannot see), in sentences for the queue log. Empty when it does not.
     var sourceCaveats: [String] { get }
+    /// True when a link to a folder (Google Drive's folder shortcuts) is copied as the folder it
+    /// leads to, when it is the item being copied (F5 on it). Moves, deletes and links found
+    /// inside copied folders still treat it as a link.
+    var copiesFolderLinksAsFolders: Bool { get }
     /// The same as a copy target (no fsync, replacing that is not atomic).
     var destinationCaveats: [String] { get }
     /// For providers whose new files appear only whole, when committed (`WritableFile.apply` or
@@ -141,6 +145,7 @@ public protocol WritableProvider: FileSystemProvider {
 extension WritableProvider {
     public var maxTransferChunkSize: Int? { nil }
     public var sourceCaveats: [String] { [] }
+    public var copiesFolderLinksAsFolders: Bool { false }
     public var destinationCaveats: [String] { [] }
     public func createFileInPlace(_ path: VFSPath, replacing: Bool) async throws -> (any WritableFile)? { nil }
     public func trash(_ path: VFSPath) async throws { throw VFSError.unsupported("moving to the Trash") }

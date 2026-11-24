@@ -264,6 +264,13 @@ public struct SecureCopyEngine: Sendable {
                 // file transfer below asks how to resolve the conflict.
             }
         }
+        if mode == .copy, fp.kind == .symlink, src.copiesFolderLinksAsFolders,
+           case .symlink(target: .directory) = try await src.item(at: source).kind {
+            // F5 on a folder shortcut: the folder it leads to, under the shortcut's name.
+            monitor.log("Copying the folder \(source.name) leads to")
+            try await copyDirectory(source, to: destination, mode: mode, src, dst, &summary)
+            return summary
+        }
         try await transferItem(source, fp, to: destination, mode: mode, src, dst, &summary)
         return summary
     }

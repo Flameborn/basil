@@ -146,7 +146,7 @@ public struct TransferOperation: QueueOperation {
         var files = 0
         var counts: [(bytes: Int64, files: Int)] = []
         for (source, _) in pairs {
-            let c = try await Self.count(source, registry, context) { bytes, n in
+            let c = try await Self.count(source, registry, context, followingFolderLink: mode == .copy) { bytes, n in
                 counting.bytesTotal = total + bytes
                 counting.filesTotal = files + n
                 context.transfer(counting)
@@ -200,13 +200,17 @@ public struct TransferOperation: QueueOperation {
 
     /// Bytes and regular files of a file, or of everything below a folder (symlinks not
     /// followed). `found` hears the running totals of this path while folders are walked.
+    /// `followingFolderLink`: `path` is a link to a folder that copying follows (`copiesFolderLinksAsFolders`).
     static func count(_ path: VFSPath, _ registry: ProviderRegistry, _ context: OperationContext,
+                      followingFolderLink: Bool = false,
                       found: (Int64, Int) -> Void = { _, _ in }) async throws -> (bytes: Int64, files: Int) {
         let provider = try registry.provider(for: path.location)
         let item = try await provider.item(at: path)
         switch item.kind {
         case .directory: break
         case .file: return (item.size ?? 0, 1)
+        case .symlink(target: .directory) where followingFolderLink
+            && (provider as? any WritableProvider)?.copiesFolderLinksAsFolders == true: break
         default: return (0, 0)
         }
         var bytes: Int64 = 0

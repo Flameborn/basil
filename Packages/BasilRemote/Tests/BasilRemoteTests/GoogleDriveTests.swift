@@ -74,7 +74,7 @@ private final class Monitor: TransferMonitor {
     @Test func googleDocumentsAreNamedAfterTheirExport() {
         let doc = DriveFile(id: "1", name: "Report", mimeType: "application/vnd.google-apps.document")
         let (name, ref) = GoogleDriveProvider.describe(doc, target: nil, volume: "my")
-        #expect(name == "Report.docx" && ref.addedExtension == "docx" && ref.export?.fileExtension == "docx")
+        #expect(name == "Report.docx" && ref.addedExtension == "docx" && ref.export(DriveExportFormats())?.fileExtension == "docx")
         #expect(GoogleDriveProvider.storedName("Notes.docx", for: ref) == "Notes")
         #expect(GoogleDriveProvider.storedName("Notes.txt", for: ref) == "Notes.txt")
         // A converted upload often keeps its extension in the name: nothing is added.
@@ -85,7 +85,7 @@ private final class Monitor: TransferMonitor {
         // Forms cannot be downloaded: listed under their own name.
         let form = DriveFile(id: "4", name: "Survey", mimeType: "application/vnd.google-apps.form")
         let (formName, formRef) = GoogleDriveProvider.describe(form, target: nil, volume: "my")
-        #expect(formName == "Survey" && formRef.export == nil && formRef.isGoogleType)
+        #expect(formName == "Survey" && formRef.export(DriveExportFormats()) == nil && formRef.isGoogleType)
         #expect(GoogleDriveProvider.mayBeMadeName("a (2).txt") && GoogleDriveProvider.mayBeMadeName("Report.docx"))
         #expect(!GoogleDriveProvider.mayBeMadeName("a.txt") && !GoogleDriveProvider.mayBeMadeName("a (x).txt"))
     }
@@ -118,7 +118,7 @@ private final class Monitor: TransferMonitor {
         var my: VFSPath { provider.homeDirectory }
     }
 
-    func setUp(path: String? = nil, fill: ((FakeGoogleDrive) -> Void)? = nil) async throws -> Setup {
+    func setUp(path: String? = nil, options: [String: String]? = nil, fill: ((FakeGoogleDrive) -> Void)? = nil) async throws -> Setup {
         let fake = try FakeGoogleDrive()
         fill?(fake)
         let secrets = MemorySecretStore()
@@ -127,7 +127,7 @@ private final class Monitor: TransferMonitor {
         registry.register(LocalProvider())
         registry.register(connector: connector)
         let prompts = GoogleBrowserPrompts(fake)
-        let start = try await registry.connect(RemoteTarget(service: .googleDrive, host: "", path: path), prompts: prompts)
+        let start = try await registry.connect(RemoteTarget(service: .googleDrive, host: "", path: path, options: options), prompts: prompts)
         let provider = try #require(try registry.provider(for: start.location) as? GoogleDriveProvider)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("basil-gdrive-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -326,6 +326,34 @@ private final class Monitor: TransferMonitor {
 
     // MARK: Google documents
 
+    @Test func exportFormatsAreChosenPerConnectionAndLargeExportsUseExportLinks() async throws {
+        let s = try await setUp(options: ["exportDocuments": "md", "exportSpreadsheets": "csv"]) { fake in
+            fake.put("Notes", Data("# Title".utf8), mime: FakeGoogleDrive.googleDoc)
+            fake.put("Budget", Data("1,2".utf8), mime: "application/vnd.google-apps.spreadsheet")
+            fake.put("Deck", Data("slides".utf8), mime: "application/vnd.google-apps.presentation")
+        }
+        #expect(try await names(s, s.my) == ["Budget.csv", "Deck.pptx", "Notes.md"])
+        let target = VFSPath.local(s.folder.appendingPathComponent("Notes.md").path)
+        _ = try await engine(s.registry).transferFile(s.my.appending("Notes.md"), to: target, mode: .copy, s.provider, LocalProvider())
+        #expect(try Data(contentsOf: URL(fileURLWithPath: target.path)) == FakeGoogleDrive.exported(Data("# Title".utf8), as: "text/markdown"))
+        #expect(s.fake.state.withLock { $0.exportLinkDownloads } == 0)
+
+        // Too large for files.export: the document's export link is used instead.
+        s.fake.state.withLock { $0.exportLimit = 10 }
+        let big = VFSPath.local(s.folder.appendingPathComponent("Budget.csv").path)
+        _ = try await engine(s.registry).transferFile(s.my.appending("Budget.csv"), to: big, mode: .copy, s.provider, LocalProvider())
+        #expect(try Data(contentsOf: URL(fileURLWithPath: big.path)) == FakeGoogleDrive.exported(Data("1,2".utf8), as: "text/csv"))
+        #expect(s.fake.state.withLock { $0.exportLinkDownloads } == 1)
+        // The editor offers one pop-up per kind of document, Office (PDF for Drawings) first.
+        let options = s.connector.options
+        #expect(options.map(\.key) == ["exportDocuments", "exportSpreadsheets", "exportPresentations", "exportDrawings"])
+        if case .choice(let choices, let first) = options[0].kind {
+            #expect(first == "docx" && choices.map(\.value).contains("md"))
+        } else {
+            Issue.record("not a pop-up")
+        }
+    }
+
     @Test func googleDocumentsAreReadAsTheirExport() async throws {
         var doc = ""
         let s = try await setUp { fake in
@@ -387,10 +415,20 @@ private final class Monitor: TransferMonitor {
         let target = VFSPath.local(s.folder.appendingPathComponent("Data link").path)
         _ = try await engine(s.registry).transferFile(s.my.appending("Data link"), to: target, mode: .copy, s.provider, LocalProvider())
         #expect(try Data(contentsOf: URL(fileURLWithPath: target.path)) == Data("target data".utf8))
+        // F5 on a folder shortcut copies the folder it leads to, under the shortcut's name; a
+        // shortcut inside a copied folder stays a link (no endless copies through a link upwards).
+        s.fake.shortcut("Back up", in: folder, to: folder)
+        let copied = VFSPath.local(s.folder.appendingPathComponent("Projects link").path)
+        let summary = try await engine(s.registry).transfer(s.my.appending("Projects link"), to: copied, mode: .copy)
+        #expect(summary.files == 1 && summary.directories == 1)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: copied.path + "/inside.txt")) == Data("in".utf8))
+        let inner = try FileManager.default.attributesOfItem(atPath: copied.path + "/Back up")[.type] as? FileAttributeType
+        #expect(inner == .typeSymbolicLink)
         // Deleting a folder shortcut (as Shift+F8 does, through the delete operation) removes only the shortcut.
         #expect(try await s.provider.fingerprint(of: s.my.appending("Projects link")).kind == .symlink)
         try await s.provider.remove(s.my.appending("Projects link"))
         try await s.provider.remove(s.my.appending("Data link"))
+        try await s.provider.remove(s.my.appending("Projects").appending("Back up"))
         #expect(s.fake.child("inside.txt", in: folder) != nil && s.fake.item(file) != nil)
         #expect(try await names(s, s.my) == ["Projects", "data.bin"])
     }

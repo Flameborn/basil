@@ -45,6 +45,8 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 
 ## Decisions log
 
+- 2026-11-24 (Google Drive details, chosen without asking, change if wanted): only the shortcut F5 is pressed on is followed; shortcuts inside the copied folder are copied as links, so a shortcut to a folder above it cannot copy forever. CSV and TSV exports of Sheets hold the first sheet only (Google's limit), said in the pop-up. Large documents use the export link only after files.export refused them, so ordinary exports stay on the API.
+
 - 2026-11-24 (Nextcloud browser sign-in, chosen without asking, change if wanted): it is the automatic login of WebDAV connections ("Browser sign-in on Nextcloud, else password"; Password stays selectable), so existing connections with a password in the Keychain keep working without the browser (the kept secret is tried first). The app password is always kept in the Keychain (it is Basil's own token, like Dropbox's), named after the login Nextcloud reports, and the saved connection's User is filled in from it. Nextcloud lists the app password as "Basil (Mac)" under the account's devices. Deleting the saved connection revokes it on the server.
 
 - 2026-11-24 (searchfs measured, so not used under the user's rule "only where clearly faster"): on the startup disk's data volume searchfs took 21.8 s for 3.18 million entries (getattrlistbulk, levels in parallel: 16 s for 3.68 million with the system volume); on a USB SSD after remounting (cold) 9.8 s against 12.6 s, warm 0.58 s against 1.3 s; but searchfs on APFS refuses ATTR_CMN_ACCESSMASK (EINVAL), so permissions would need one more call per entry. `VolumeScanBenchmark` (BASIL_SCAN_ROOT=/Volumes/X) times the scanner on any volume.
@@ -301,9 +303,9 @@ Also on 2026-11-22: a TC-style pane context menu (right click, VO+Shift+M, Shift
 - [ ] SMB server-side copies: macOS's smbfs has no clonefile, so copies inside a share stream through the Mac. Moves inside a share are renames on the server.
 - [x] Google Drive OAuth client (done by the user 2026-11-23): create it in the Google Cloud Console (steps in README), put the ID and secret in Config/GoogleDrive.local.xcconfig, and set the consent screen to "In production" (in "Testing" Google ends sign-ins after 7 days). Then a first real sign-in.
 - [x] Done 2026-11-24 (live through each change feed): Google Drive folders are not watched; Drive has a changes feed (changes.list with a page token) that could make panes live. Wanted?
-- [ ] Google Drive: a shortcut to a folder copies as a link (see Decisions). Should F5 on it copy the target folder's contents instead (copy only; delete and move keep treating it as a link)?
-- [ ] Google Drive: Google documents in other formats (PDF, ODF, plain text, Markdown) as an option, per type?
-- [ ] Google Drive: a Google document larger than Google's 10 MB export limit cannot be copied; the Drive API's exportLinks allow bigger exports. Needed?
+- [x] Done 2026-11-24 (F5 copies the target's contents under the shortcut's name): Google Drive: a shortcut to a folder copies as a link (see Decisions). Should F5 on it copy the target folder's contents instead (copy only; delete and move keep treating it as a link)?
+- [x] Done 2026-11-24 (per connection, one pop-up per type): Google Drive: Google documents in other formats (PDF, ODF, plain text, Markdown) as an option, per type?
+- [x] Done 2026-11-24 (export links): Google Drive: a Google document larger than Google's 10 MB export limit cannot be copied; the Drive API's exportLinks allow bigger exports. Needed?
 - [ ] OneDrive app registration: register Basil in the Microsoft Entra admin center (steps in README), put the client ID in Config/OneDrive.local.xcconfig, then a first real sign-in and upload.
 - [ ] OneDrive: "Shared with me" has no place, because Microsoft's API for it stopped returning data in November 2026. Shared folders added to My files work. Revisit if Microsoft offers a replacement (the Search API is the community's suggestion, work accounts only).
 - [x] Done 2026-11-24 (live through each change feed): OneDrive folders are not watched; Graph's delta query could make panes live. Wanted?

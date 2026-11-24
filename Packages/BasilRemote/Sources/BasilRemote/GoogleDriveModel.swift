@@ -51,22 +51,8 @@ struct DriveExport: Sendable, Equatable {
     /// Added to the name in listings ("Report" is listed as "Report.docx").
     var fileExtension: String
 
-    static func of(_ googleType: String) -> DriveExport? {
-        switch googleType {
-        case "application/vnd.google-apps.document":
-            DriveExport(mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileExtension: "docx")
-        case "application/vnd.google-apps.spreadsheet":
-            DriveExport(mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileExtension: "xlsx")
-        case "application/vnd.google-apps.presentation":
-            DriveExport(mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", fileExtension: "pptx")
-        case "application/vnd.google-apps.drawing":
-            DriveExport(mimeType: "application/pdf", fileExtension: "pdf")
-        case "application/vnd.google-apps.script":
-            DriveExport(mimeType: "application/vnd.google-apps.script+json", fileExtension: "json")
-        default:
-            nil
-        }
-    }
+    /// The export with the default formats (Office for Docs, Sheets and Slides, PDF for Drawings).
+    static func of(_ googleType: String) -> DriveExport? { DriveExportFormats().export(for: googleType) }
 
     /// "Google Forms", for messages about types that cannot be downloaded.
     static func typeName(_ googleType: String) -> String {
@@ -78,6 +64,89 @@ struct DriveExport: Sendable, Equatable {
         case "jam": return "Jamboard"
         case "fusiontable": return "Fusion Tables"
         default: return "Google " + kind
+        }
+    }
+}
+
+/// The export format of each kind of Google document, chosen per connection in the editor
+/// (`RemoteTarget.options`, keys like "exportDocuments" holding the extension).
+struct DriveExportFormats: Sendable, Equatable {
+    struct Format: Sendable, Equatable {
+        var fileExtension: String
+        var mimeType: String
+        var title: String
+    }
+
+    struct Kind: Sendable {
+        var googleType: String
+        var optionKey: String
+        var title: String
+        /// The first is the default.
+        var formats: [Format]
+    }
+
+    static let kinds: [Kind] = [
+        Kind(googleType: "application/vnd.google-apps.document", optionKey: "exportDocuments", title: "Google Docs as", formats: [
+            Format(fileExtension: "docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", title: "Word (docx)"),
+            Format(fileExtension: "odt", mimeType: "application/vnd.oasis.opendocument.text", title: "OpenDocument (odt)"),
+            Format(fileExtension: "pdf", mimeType: "application/pdf", title: "PDF"),
+            Format(fileExtension: "txt", mimeType: "text/plain", title: "Plain text (txt)"),
+            Format(fileExtension: "md", mimeType: "text/markdown", title: "Markdown (md)"),
+            Format(fileExtension: "rtf", mimeType: "application/rtf", title: "Rich Text (rtf)"),
+            Format(fileExtension: "epub", mimeType: "application/epub+zip", title: "EPUB"),
+        ]),
+        Kind(googleType: "application/vnd.google-apps.spreadsheet", optionKey: "exportSpreadsheets", title: "Google Sheets as", formats: [
+            Format(fileExtension: "xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", title: "Excel (xlsx)"),
+            Format(fileExtension: "ods", mimeType: "application/vnd.oasis.opendocument.spreadsheet", title: "OpenDocument (ods)"),
+            Format(fileExtension: "pdf", mimeType: "application/pdf", title: "PDF"),
+            Format(fileExtension: "csv", mimeType: "text/csv", title: "CSV, first sheet only"),
+            Format(fileExtension: "tsv", mimeType: "text/tab-separated-values", title: "TSV, first sheet only"),
+        ]),
+        Kind(googleType: "application/vnd.google-apps.presentation", optionKey: "exportPresentations", title: "Google Slides as", formats: [
+            Format(fileExtension: "pptx", mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", title: "PowerPoint (pptx)"),
+            Format(fileExtension: "odp", mimeType: "application/vnd.oasis.opendocument.presentation", title: "OpenDocument (odp)"),
+            Format(fileExtension: "pdf", mimeType: "application/pdf", title: "PDF"),
+            Format(fileExtension: "txt", mimeType: "text/plain", title: "Plain text (txt)"),
+        ]),
+        Kind(googleType: "application/vnd.google-apps.drawing", optionKey: "exportDrawings", title: "Google Drawings as", formats: [
+            Format(fileExtension: "pdf", mimeType: "application/pdf", title: "PDF"),
+            Format(fileExtension: "svg", mimeType: "image/svg+xml", title: "SVG"),
+            Format(fileExtension: "png", mimeType: "image/png", title: "PNG"),
+            Format(fileExtension: "jpg", mimeType: "image/jpeg", title: "JPEG"),
+        ]),
+    ]
+
+    /// Chosen extension by Google type; missing ones take the default.
+    var chosen: [String: String] = [:]
+
+    init(options: [String: String]? = nil) {
+        for kind in Self.kinds {
+            if let value = options?[kind.optionKey], kind.formats.contains(where: { $0.fileExtension == value }) {
+                chosen[kind.googleType] = value
+            }
+        }
+    }
+
+    func export(for googleType: String) -> DriveExport? {
+        if googleType == "application/vnd.google-apps.script" {
+            return DriveExport(mimeType: "application/vnd.google-apps.script+json", fileExtension: "json")
+        }
+        guard let kind = Self.kinds.first(where: { $0.googleType == googleType }) else { return nil }
+        let format = kind.formats.first { $0.fileExtension == chosen[googleType] } ?? kind.formats[0]
+        return DriveExport(mimeType: format.mimeType, fileExtension: format.fileExtension)
+    }
+
+    /// The extensions exports of this connection get (names Basil made end in one).
+    var extensions: Set<String> {
+        Set(Self.kinds.compactMap { export(for: $0.googleType)?.fileExtension } + ["json"])
+    }
+
+    /// The editor's pop-ups.
+    static var options: [RemoteOption] {
+        kinds.map { kind in
+            RemoteOption(key: kind.optionKey, title: kind.title,
+                         kind: .choice(kind.formats.map { RemoteOption.Choice(value: $0.fileExtension, title: $0.title) },
+                                       default: kind.formats[0].fileExtension))
         }
     }
 }
@@ -131,8 +200,10 @@ struct DriveRef: Sendable, Equatable {
 
     var isPlace: Bool { kind == .top || kind == .sharedWithMe || kind == .sharedDrives }
     var isFolderLike: Bool { kind != .file }
-    /// A Google document Basil downloads as an export.
-    var export: DriveExport? { DriveFile.isGoogleType(mimeType) ? DriveExport.of(mimeType) : nil }
+    /// A Google document Basil downloads as an export, in the connection's format.
+    func export(_ formats: DriveExportFormats) -> DriveExport? {
+        DriveFile.isGoogleType(mimeType) ? formats.export(for: mimeType) : nil
+    }
     var isGoogleType: Bool { DriveFile.isGoogleType(mimeType) }
 }
 
