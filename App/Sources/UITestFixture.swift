@@ -1,5 +1,6 @@
 #if DEBUG
 import BasilCore
+import BasilGit
 import BasilRemote
 import CryptoKit
 import Foundation
@@ -70,6 +71,9 @@ enum UITestFixture {
                 // notes.md is "x"; this one has a second line.
                 try Data("x\nnew line\n".utf8).write(to: root.appendingPathComponent("Beta/notes.md"))
             }
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_GIT"] == "1" {
+                try makeRepository(at: root.appendingPathComponent("Beta"))
+            }
             if ProcessInfo.processInfo.environment["BASIL_UITEST_RAR"] == "1" {
                 try Data(base64Encoded: rar4Archive.joined())!.write(to: root.appendingPathComponent("Alpha/Inner/old.rar"))
             }
@@ -78,6 +82,29 @@ enum UITestFixture {
         }
         createdRoot = root
         return (.local(root.path), .local(root.appendingPathComponent("Beta").path))
+    }
+
+    /// Beta as a git repository: tracked.txt committed and then changed, new.txt untracked.
+    private static func makeRepository(at folder: URL) throws {
+        guard let git = GitService.findExecutable() else { throw CocoaError(.fileNoSuchFile) }
+        func run(_ arguments: String...) throws {
+            let process = Process()
+            process.executableURL = git
+            process.arguments = ["-c", "user.name=Basil Test", "-c", "user.email=test@example.invalid",
+                                 "-c", "commit.gpgsign=false"] + arguments
+            process.currentDirectoryURL = folder
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw CocoaError(.fileWriteUnknown) }
+        }
+        try Data("one".utf8).write(to: folder.appendingPathComponent("tracked.txt"))
+        try run("init", "-q", "-b", "main")
+        try run("add", "tracked.txt")
+        try run("commit", "-q", "-m", "first")
+        try Data("two".utf8).write(to: folder.appendingPathComponent("tracked.txt"))
+        try Data("new".utf8).write(to: folder.appendingPathComponent("new.txt"))
     }
 
     /// Alpha/Inner/pack.zip with docs/readme.txt and top.txt, made with the system zip tool.

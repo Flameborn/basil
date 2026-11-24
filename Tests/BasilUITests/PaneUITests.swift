@@ -232,6 +232,22 @@ final class PaneUITests: XCTestCase {
                       "\(cellLabels(leftTable.tableRows.element(boundBy: 0)))")
     }
 
+    /// The Git column: inside a repository (Beta) rows read their status after the name, and the
+    /// column is there; outside one (the fixture root) it is left out.
+    func testGitColumnInsideRepositoriesOnly() throws {
+        app.terminate()
+        app.launchEnvironment["BASIL_UITEST_GIT"] = "1"
+        app.launch()
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        XCTAssertFalse(leftTable.buttons["Git"].exists || leftTable.staticTexts["Git"].exists, leftTable.debugDescription)
+        let tracked = rightTable.tableRows.matching(NSPredicate(format: "label BEGINSWITH 'tracked.txt'")).firstMatch
+        XCTAssertTrue(waitFor { self.cellLabels(tracked).contains("Modified") }, rightTable.debugDescription)
+        XCTAssertEqual(cellLabels(tracked).prefix(2), ["tracked.txt", "Modified"])
+        let new = rightTable.tableRows.matching(NSPredicate(format: "label BEGINSWITH 'new.txt'")).firstMatch
+        XCTAssertTrue(waitFor { self.cellLabels(new).contains("Untracked") }, rightTable.debugDescription)
+        try audit(app) { _ in false }
+    }
+
     /// Compare by Content: the cursor file in each pane, a text comparison with one difference,
     /// Binary mode, Show only differences; two identical selected files get a message with OK.
     func testCompareByContent() throws {

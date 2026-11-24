@@ -43,6 +43,10 @@ final class PaneViewController: NSViewController {
     /// The list view (Brief, Full, custom) shown in this pane.
     private(set) var viewID: String
     private var columnContext: ColumnDefinition.Context
+    /// What the column annotators (Git status) said about the shown folder, by column.
+    private var annotations: [ColumnID: ColumnAnnotation] = [:]
+    private var annotationTask: Task<Void, Never>?
+    private var annotationGeneration = 0
     private var isApplyingColumns = false
     private var widthSaveTask: Task<Void, Never>?
     private var sizeTask: Task<Void, Never>?
@@ -202,11 +206,59 @@ final class PaneViewController: NSViewController {
         table.reloadData()
     }
 
+    /// The view's visible columns, without those shown only where an annotator answered (the
+    /// Git column outside a repository).
+    private var shownColumns: [ColumnSpec] {
+        currentView.visibleColumns.filter { spec in
+            guard let def = ColumnCatalog.definition(spec.id) else { return false }
+            return !def.onlyWhenAnnotated || annotations[spec.id] != nil
+        }
+    }
+
+    private func makeColumnContext() -> ColumnDefinition.Context {
+        ColumnDefinition.Context(formatters: settings.formatters, annotations: annotations)
+    }
+
+    /// Asks the column annotators about the shown folder again, shortly (folder loads and
+    /// watcher changes come in bursts). Stale answers (another folder, a newer refresh) are
+    /// dropped. Also called after queue items and when Basil comes to the front: git state can
+    /// change outside the folder (a commit in a terminal).
+    func refreshAnnotations(after delay: Duration = .milliseconds(150)) {
+        annotationTask?.cancel()
+        annotationGeneration += 1
+        let generation = annotationGeneration
+        let directory = model.directory
+        let registry = model.registry
+        guard !registry.columnAnnotators.isEmpty else { return }
+        annotationTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            let result = await Task.detached { await registry.annotations(for: directory) }.value
+            guard let self, generation == self.annotationGeneration, directory == self.model.directory else { return }
+            self.apply(annotations: result)
+        }
+    }
+
+    private func apply(annotations new: [ColumnID: ColumnAnnotation]) {
+        guard new != annotations else { return }
+        let before = shownColumns.map(\.id)
+        annotations = new
+        columnContext = makeColumnContext()
+        if shownColumns.map(\.id) != before {
+            applyColumns()
+            table.reloadData()
+        } else {
+            let visible = table.rows(in: table.visibleRect)
+            table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
+                             columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
+        }
+    }
+
     /// Rebuilds the table columns from the current view.
     private func applyColumns() {
         isApplyingColumns = true
         defer { isApplyingColumns = false }
-        let specs = currentView.visibleColumns
+        let specs = shownColumns
         for column in table.tableColumns { table.removeTableColumn(column) }
         for spec in specs {
             guard let def = ColumnCatalog.definition(spec.id) else { continue }
@@ -223,23 +275,23 @@ final class PaneViewController: NSViewController {
         }
         let order = model.sortOrder
         table.sortDescriptors = [NSSortDescriptor(key: order.key.rawValue, ascending: order.ascending)]
-        columnContext = ColumnDefinition.Context(formatters: settings.formatters)
+        columnContext = makeColumnContext()
     }
 
     private func settingsChanged() {
-        let wanted = currentView.visibleColumns.map(\.id.rawValue)
+        let wanted = shownColumns.map(\.id.rawValue)
         let shown = table.tableColumns.map(\.identifier.rawValue)
         if wanted != shown {
             applyColumns()
         } else {
             // Same columns: only widths/formatting may have changed. Don't rebuild (the user may be dragging).
-            for spec in currentView.visibleColumns {
+            for spec in shownColumns {
                 if let column = table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(spec.id.rawValue)),
                    abs(column.width - spec.width) > 0.5 {
                     column.width = spec.width
                 }
             }
-            columnContext = ColumnDefinition.Context(formatters: settings.formatters)
+            columnContext = makeColumnContext()
         }
         table.reloadData()
         updateStatus()
@@ -263,7 +315,13 @@ final class PaneViewController: NSViewController {
                 }
                 reordered.append(spec)
             }
-            reordered += view.columns.filter { spec in !tableOrder.contains(spec.id) }
+            // Columns not in the table (hidden ones, the Git column outside a repository) keep
+            // their place after the column they followed.
+            for (index, spec) in view.columns.enumerated() where !tableOrder.contains(spec.id) {
+                let previous = view.columns[..<index].last { prev in reordered.contains { $0.id == prev.id } }
+                let at = previous.flatMap { prev in reordered.firstIndex { $0.id == prev.id } }.map { $0 + 1 } ?? 0
+                reordered.insert(spec, at: at)
+            }
             view.columns = reordered
             if let index = self.settings.settings.views.firstIndex(where: { $0.id == view.id }) {
                 self.settings.settings.views[index] = view
@@ -606,6 +664,10 @@ final class PaneViewController: NSViewController {
             updateStatus()
             if shownDirectory != model.directory {
                 shownDirectory = model.directory
+                // The old folder's answers do not apply; keep the columns until the new ones
+                // arrive, so the table does not jump in and out of the Git column.
+                annotations = annotations.mapValues { _ in ColumnAnnotation() }
+                columnContext = makeColumnContext()
                 sizeTask?.cancel()
                 cancelSpaceSizes()
                 rememberVolumeDirectory()
@@ -615,6 +677,7 @@ final class PaneViewController: NSViewController {
             if filterBar.isEditing {
                 filterBar.matchCount = model.rows.count
             }
+            refreshAnnotations()
         case .selectionChanged:
             let visible = table.rows(in: table.visibleRect)
             table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),

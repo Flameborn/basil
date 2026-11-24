@@ -82,7 +82,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     /// Changes to the built-in views applied to saved settings. 2: the Name column shows the
     /// extension and Full no longer shows the Ext column.
     public var viewsVersion = BasilSettings.currentViewsVersion
-    public static let currentViewsVersion = 2
+    public static let currentViewsVersion = 3
 
     public init() {}
 
@@ -129,6 +129,12 @@ public struct BasilSettings: Codable, Equatable, Sendable {
             for i in views[full].columns.indices where views[full].columns[i].id == .ext {
                 views[full].columns[i].isVisible = false
             }
+        }
+        // 3: the Git column (shown only inside repositories) after Name in the saved Full view.
+        if viewsVersion < 3, let full = views.firstIndex(where: { $0.id == ListView.full.id }),
+           !views[full].columns.contains(where: { $0.id == .git }) {
+            let after = (views[full].columns.firstIndex { $0.id == .name }).map { $0 + 1 } ?? 0
+            views[full].columns.insert(ColumnSpec(.git), at: after)
         }
         viewsVersion = Self.currentViewsVersion
         // Built-in views must always exist.

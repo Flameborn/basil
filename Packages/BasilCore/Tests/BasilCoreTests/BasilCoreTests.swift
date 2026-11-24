@@ -252,7 +252,8 @@ import Testing
 
     @Test func savedFullViewLosesItsExtColumnOnce() throws {
         var old = BasilSettings()
-        old.views[1].columns[1].isVisible = true
+        let extIndex = try #require(old.views[1].columns.firstIndex { $0.id == .ext })
+        old.views[1].columns[extIndex].isVisible = true
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as! [String: Any]
         json.removeValue(forKey: "viewsVersion")
         let migrated = try JSONDecoder().decode(BasilSettings.self, from: JSONSerialization.data(withJSONObject: json))
@@ -260,9 +261,24 @@ import Testing
         #expect(migrated.viewsVersion == BasilSettings.currentViewsVersion)
         // Shown again by the user later, it stays.
         var current = migrated
-        current.views[1].columns[1].isVisible = true
+        current.views[1].columns[extIndex].isVisible = true
         let again = try JSONDecoder().decode(BasilSettings.self, from: JSONEncoder().encode(current))
         #expect(again.view(id: "full").columns.first { $0.id == .ext }?.isVisible == true)
+    }
+
+    @Test func savedFullViewGetsTheGitColumnAfterNameOnce() throws {
+        var old = BasilSettings()
+        old.views[1].columns.removeAll { $0.id == .git }
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(old)) as! [String: Any]
+        json["viewsVersion"] = 2
+        let migrated = try JSONDecoder().decode(BasilSettings.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(migrated.view(id: "full").columns.map(\.id).prefix(2) == [.name, .git])
+        // Removed by the user later, it stays away.
+        var current = migrated
+        current.views[1].columns.removeAll { $0.id == .git }
+        let again = try JSONDecoder().decode(BasilSettings.self, from: JSONEncoder().encode(current))
+        #expect(!again.view(id: "full").columns.contains { $0.id == .git })
+        #expect(ColumnCatalog.definition(.git)?.onlyWhenAnnotated == true)
     }
 
     @Test func directorySizeShowsDirAndSpeaksDir() throws {

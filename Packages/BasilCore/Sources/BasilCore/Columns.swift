@@ -14,6 +14,24 @@ public struct ColumnID: RawRepresentable, Hashable, Codable, Sendable, Expressib
     public static let created: ColumnID = "created"
     public static let attributes: ColumnID = "attributes"
     public static let kind: ColumnID = "kind"
+    /// Git status, filled by the Git annotator inside repositories.
+    public static let git: ColumnID = "git"
+}
+
+/// Text a `ColumnAnnotator` (BasilVFS) supplies for the items of one folder, for a column whose
+/// value is not part of `FileItem` (Git status).
+public struct ColumnAnnotation: Sendable, Equatable {
+    /// Text by item name; items without one are left out.
+    public var byName: [String: String]
+    /// The same text for every item (all of an ignored folder), when set.
+    public var everything: String?
+
+    public init(byName: [String: String] = [:], everything: String? = nil) {
+        self.byName = byName
+        self.everything = everything
+    }
+
+    public func text(for name: String) -> String? { everything ?? byName[name] }
 }
 
 /// How one column of a view is shown.
@@ -55,7 +73,7 @@ public struct ListView: Codable, Hashable, Sendable, Identifiable {
     ], isBuiltin: true)
 
     public static let full = ListView(id: "full", name: "Full", columns: [
-        ColumnSpec(.name), ColumnSpec(.ext, visible: false), ColumnSpec(.size), ColumnSpec(.modified), ColumnSpec(.attributes),
+        ColumnSpec(.name), ColumnSpec(.git), ColumnSpec(.ext, visible: false), ColumnSpec(.size), ColumnSpec(.modified), ColumnSpec(.attributes),
         ColumnSpec(.created, visible: false), ColumnSpec(.kind, visible: false),
     ], isBuiltin: true)
 
@@ -69,8 +87,15 @@ public struct ColumnDefinition: Sendable {
     /// Context a column needs to render a row.
     public struct Context: Sendable {
         public let formatters: DisplayFormatters
-        public init(formatters: DisplayFormatters) {
+        /// What annotators supplied for the pane's folder, by column.
+        public let annotations: [ColumnID: ColumnAnnotation]
+        public init(formatters: DisplayFormatters, annotations: [ColumnID: ColumnAnnotation] = [:]) {
             self.formatters = formatters
+            self.annotations = annotations
+        }
+
+        public func annotation(_ column: ColumnID, for item: FileItem) -> String? {
+            annotations[column]?.text(for: item.name)
         }
     }
 
@@ -82,11 +107,15 @@ public struct ColumnDefinition: Sendable {
     public let text: @Sendable (FileItem, Context) -> String
     /// What VoiceOver reads; nil means the visible text. "" means silent.
     public let spoken: @Sendable (FileItem, Context) -> String?
+    /// Shown only in folders where an annotator supplied this column (the Git column outside a
+    /// repository is left out, though the view lists it).
+    public let onlyWhenAnnotated: Bool
 
     public init(id: ColumnID, title: String, defaultWidth: Double, alignment: Alignment = .leading,
-                sortKey: SortKey?, text: @escaping @Sendable (FileItem, Context) -> String,
+                sortKey: SortKey?, onlyWhenAnnotated: Bool = false, text: @escaping @Sendable (FileItem, Context) -> String,
                 spoken: @escaping @Sendable (FileItem, Context) -> String? = { _, _ in nil }) {
         self.id = id
+        self.onlyWhenAnnotated = onlyWhenAnnotated
         self.title = title
         self.defaultWidth = defaultWidth
         self.alignment = alignment
@@ -137,6 +166,10 @@ private final class ColumnStorage: @unchecked Sendable {
             guard item.isDirectoryLike else { return nil }
             return item.size.map { "dir, \(ctx.formatters.size.string($0))" } ?? "dir"
         }),
+        // "Modified", "Staged", "Untracked", "Changes" (a folder with changes inside); empty when clean.
+        ColumnDefinition(id: .git, title: "Git", defaultWidth: 110, sortKey: nil, onlyWhenAnnotated: true) { item, ctx in
+            ctx.annotation(.git, for: item) ?? ""
+        },
         ColumnDefinition(id: .modified, title: "Date", defaultWidth: 128, sortKey: .modified) { item, ctx in
             ctx.formatters.date(item.modified)
         },

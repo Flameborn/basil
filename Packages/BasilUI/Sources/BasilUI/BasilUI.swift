@@ -124,7 +124,11 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         quickLook.copies = copies
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.offerEditedCopies() }
+            MainActor.assumeIsolated {
+                self?.offerEditedCopies()
+                self?.left.refreshAnnotations(after: .zero)
+                self?.right.refreshAnnotations(after: .zero)
+            }
         }
         for pane in [left, right] {
             pane.persistsTabs = persistsDirectories
@@ -160,6 +164,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         queue.onItemStopped = { [weak self] item in
             self?.progressWindow.itemStopped(item)
             self?.rereadRemotePanes()
+            self?.left.refreshAnnotations()
+            self?.right.refreshAnnotations()
             // Wait until the queue has started what comes next (whenDone may have queued it).
             Task { @MainActor in self?.closeUnusedContainers() }
         }

@@ -1,6 +1,7 @@
 import AppKit
 import BasilArchives
 import BasilCore
+import BasilGit
 import BasilIntegrations
 import BasilOperations
 import BasilRemote
@@ -34,6 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileLists = FileListOpener()
         providers.register(opener: fileLists)
         providers.register(writer: fileLists)
+        // The Git column: status of items in local working trees, through the system git.
+        if let git = GitService.findExecutable() {
+            providers.register(annotator: GitAnnotator(git: GitService(executable: git)))
+        }
         // Remote services: SFTP (libssh2 with OpenSSL, from Vendor/libssh2); FTP below.
         providers.register(connector: SFTPConnector())
         var start: (left: VFSPath, right: VFSPath)?
