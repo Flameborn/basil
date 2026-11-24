@@ -207,6 +207,7 @@ public final class FileListOpener: ContainerOpener, ContainerWriter {
     /// synchronised, read back and compared, then renamed into place.
     public func create(_ destination: VFSPath, options: PackOptions, changes: [ContainerChange], replacing: Bool,
                        registry: ProviderRegistry, monitor: any ContainerWriteMonitor) async throws -> ContainerWriteResult {
+        let destination = registry.localPath(of: destination) ?? destination
         guard destination.location == .local, let folder = destination.parent else {
             throw VFSError.unsupported("creating file lists outside local folders")
         }

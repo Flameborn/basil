@@ -19,6 +19,8 @@ extension ArchiveOpener: ContainerWriter {
 
     public func create(_ destination: VFSPath, options: PackOptions, changes: [ContainerChange], replacing: Bool,
                        registry: ProviderRegistry, monitor: any ContainerWriteMonitor) async throws -> ContainerWriteResult {
+        // A folder on a mounted share (SMB) is written in place, like a local one.
+        let destination = registry.localPath(of: destination) ?? destination
         if SevenZipWriter.creates(options) {
             guard let writer = sevenZip.withLock({ $0 }) else { throw VFSError.unsupported("the format \(options.format)") }
             return try await writer.create(destination, options: options, changes: changes, replacing: replacing,
@@ -44,7 +46,10 @@ extension ArchiveOpener: ContainerWriter {
     }
 
     public func updateRefusal(for container: VFSPath, registry: ProviderRegistry) -> String? {
-        if container.location != .local { return "Archives inside archives cannot be changed yet." }
+        if registry.localPath(of: container) == nil {
+            return container.location.container != nil ? "Archives inside archives cannot be changed yet."
+                : "Archives on servers cannot be changed yet."
+        }
         let location = ProviderLocation(provider: .archive, container: container)
         if let provider = try? registry.provider(for: location) as? ArchiveProvider {
             if provider.isSingleCompressedFile { return "\(container.name) is a single compressed file and cannot be changed." }
@@ -66,8 +71,8 @@ extension ArchiveOpener: ContainerWriter {
            let writer = sevenZip.withLock({ $0 }) {
             return try await writer.update(container, provider: provider, changes: changes, registry: registry, monitor: monitor)
         }
-        guard let folder = container.parent else { throw VFSError.notFound(container) }
-        let url = URL(fileURLWithPath: container.path)
+        guard let local = registry.localPath(of: container), let folder = local.parent else { throw VFSError.notFound(container) }
+        let url = URL(fileURLWithPath: local.path)
         let before = ArchiveProvider.stamp(url)
         let format = try await Self.blocking { () -> (Int32, [Int32]) in
             guard let reader = try LibArchiveReader(url: url, raw: false) else {

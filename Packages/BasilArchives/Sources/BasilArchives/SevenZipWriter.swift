@@ -71,10 +71,11 @@ struct SevenZipWriter: Sendable {
 
     func update(_ container: VFSPath, provider: ArchiveProvider, changes: [ContainerChange],
                 registry: ProviderRegistry, monitor: any ContainerWriteMonitor) async throws -> ContainerWriteResult {
-        guard container.location == .local, let folder = container.parent else {
+        // On a mounted share the archive file is changed in place.
+        guard let local = registry.localPath(of: container), let folder = local.parent else {
             throw VFSError.unsupported("Archives inside archives cannot be changed yet.")
         }
-        let url = URL(fileURLWithPath: container.path)
+        let url = URL(fileURLWithPath: local.path)
         let before = ArchiveProvider.stamp(url)
         let password: String? = provider.hasEncryptedEntries || provider.namesEncrypted ? try await provider.knownPassword() : nil
         // 7zz asks twice when it changes an encrypted archive: to open it, and for the new items.
