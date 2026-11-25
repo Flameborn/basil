@@ -194,7 +194,7 @@ final class PaneUITests: XCTestCase {
         menuBar.menuBarItems["Files"].click()
         menuBar.menuItems["Checksums"].click()
         menuBar.menuItems["Verify Checksums"].click()
-        leftTable.typeKey("j", modifierFlags: .command)
+        leftTable.typeKey("j", modifierFlags: [.command, .shift])
         let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
         XCTAssertTrue(waitFor {
             rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).hasPrefix("Verify song.mp3.sha256, finished") }
@@ -523,9 +523,53 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { !sheet.exists })
     }
 
+    /// Cmd+J: View Options change only the active tab; Reset to Global Settings shows only then.
+    func testViewOptionsChangeOnlyThisTab() throws {
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        leftTable.typeKey("j", modifierFlags: .command)
+        let sheet = app.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(sheet.buttons["Reset to Global Settings"].exists)
+        // The sheet slides in: audited once it is in place (the audit samples screen pixels).
+        Thread.sleep(forTimeInterval: 1)
+        try auditSheet(sheet, "view options")
+        for name in ["Folders on top", "Show hidden files", "Relative dates in the last week"] {
+            let control = toggle(name, in: sheet)
+            let before = control.value as? Int
+            // The form scrolls: bring the switch above the sheet's buttons first.
+            let form = sheet.scrollViews.firstMatch
+            for _ in 0..<10 where control.frame.maxY > form.frame.maxY - 4 { form.scroll(byDeltaX: 0, deltaY: -120) }
+            control.click()
+            XCTAssertTrue(waitFor { (control.value as? Int) != before }, "\(name): \(control.debugDescription)")
+        }
+        XCTAssertTrue(waitFor { sheet.buttons["Reset to Global Settings"].exists }, sheet.debugDescription)
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable)
+            == [".secret", "Alpha", "apple pie.txt", "Beta", "notes.md", "song.mp3", "track.flac"] },
+            "\(names(in: leftTable))")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !sheet.exists })
+        let row = leftTable.tableRows.element(boundBy: 2)
+        XCTAssertTrue(row.label.contains("just now") || row.label.contains("minute ago"), row.label)
+        // The other pane keeps the global settings (it starts in Beta; its parent is the fixture).
+        leftTable.typeKey(.tab, modifierFlags: [])
+        rightTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.rightTable)
+            == ["Alpha", "Beta", "apple pie.txt", "notes.md", "song.mp3", "track.flac"] }, "\(names(in: rightTable))")
+        rightTable.typeKey(.tab, modifierFlags: [])
+
+        leftTable.typeKey("j", modifierFlags: .command)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        sheet.buttons["Reset to Global Settings"].click()
+        XCTAssertTrue(waitFor { !sheet.buttons["Reset to Global Settings"].exists })
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable)
+            == ["Alpha", "Beta", "apple pie.txt", "notes.md", "song.mp3", "track.flac"] }, "\(names(in: leftTable))")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(waitFor { !sheet.exists })
+    }
+
     func testGoToPathWithSuggestions() throws {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
-        leftTable.typeKey("g", modifierFlags: .command)
+        leftTable.typeKey("g", modifierFlags: [.command, .shift])
         let field = app.textFields["goto.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 3), app.debugDescription)
         XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true })
@@ -546,7 +590,7 @@ final class PaneUITests: XCTestCase {
         XCTAssertTrue(waitFor { self.names(in: self.leftTable) == ["Inner"] }, "\(names(in: leftTable))")
 
         // A file: its folder opens with the cursor on it.
-        leftTable.typeKey("g", modifierFlags: .command)
+        leftTable.typeKey("g", modifierFlags: [.command, .shift])
         XCTAssertTrue(field.waitForExistence(timeout: 3))
         XCTAssertTrue(waitFor { (field.value(forKey: "hasKeyboardFocus") as? Bool) == true })
         app.typeText("../track.flac\r")
@@ -1084,7 +1128,7 @@ final class PaneUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
         if !waitFor({ self.names(in: self.rightTable) == ["song.mp3"] }) {
             let sheetText = sheet.exists ? sheet.debugDescription : "no sheet"
-            leftTable.typeKey("j", modifierFlags: .command)
+            leftTable.typeKey("j", modifierFlags: [.command, .shift])
             let query = app.descendants(matching: .any).matching(identifier: "queue.row")
             _ = waitFor { query.allElementsBoundByIndex.allSatisfy { !$0.label.isEmpty } }
             let rows = query.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label }
@@ -1111,7 +1155,7 @@ final class PaneUITests: XCTestCase {
         }
         app.typeKey(.return, modifierFlags: [])
         if !waitFor({ !self.names(in: self.leftTable).contains("tune.mp3") }) {
-            leftTable.typeKey("j", modifierFlags: .command)
+            leftTable.typeKey("j", modifierFlags: [.command, .shift])
             let query = app.descendants(matching: .any).matching(identifier: "queue.row")
             _ = waitFor { query.count > 0 }
             XCTFail("left=\(names(in: leftTable)) queue=\(query.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
@@ -1213,7 +1257,7 @@ final class PaneUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(waitFor { !table.exists })
 
-        rightTable.typeKey("j", modifierFlags: .command)
+        rightTable.typeKey("j", modifierFlags: [.command, .shift])
         let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
         XCTAssertTrue(waitFor {
             rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).hasPrefix("Delete 2 leftovers of Leftie, finished") }
@@ -1972,12 +2016,12 @@ final class PaneUITests: XCTestCase {
         sheet.buttons["Pack"].click()
         XCTAssertTrue(waitFor { self.names(in: self.rightTable) == ["song.zip"] }, "\(names(in: rightTable))")
         // The test runs as its own queue item once packing is done.
-        leftTable.typeKey("j", modifierFlags: .command)
+        leftTable.typeKey("j", modifierFlags: [.command, .shift])
         let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
         XCTAssertTrue(waitFor {
             rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).hasPrefix("Test song.zip, finished") }
         }, "\(rows.allElementsBoundByIndex.map { ($0.value as? String) ?? $0.label })")
-        leftTable.typeKey("j", modifierFlags: .command)
+        leftTable.typeKey("j", modifierFlags: [.command, .shift])
         // Enter opens the new archive.
         app.typeKey(.tab, modifierFlags: [])
         rightTable.typeKey(.enter, modifierFlags: [])
@@ -2170,7 +2214,7 @@ final class PaneUITests: XCTestCase {
         target.typeKey("a", modifierFlags: .command)
         target.typeText("joined.zip\r")                               // relative to the right pane
         XCTAssertTrue(waitFor({ self.names(in: self.rightTable).contains("joined.zip") }, timeout: 10), "\(names(in: rightTable))")
-        rightTable.typeKey("j", modifierFlags: .command)
+        rightTable.typeKey("j", modifierFlags: [.command, .shift])
         let rows = app.descendants(matching: .any).matching(identifier: "queue.row")
         XCTAssertTrue(waitFor {
             rows.allElementsBoundByIndex.contains { (($0.value as? String) ?? $0.label).contains("into joined.zip, finished") }
@@ -2209,6 +2253,12 @@ extension XCTestCase {
         guard issue.auditType == .contrast, let element = issue.element, let root = try? window.snapshot() else { return false }
         let frame = element.frame, type = element.elementType, identifier = element.identifier
         if !root.frame.contains(frame) { return true }
+        // Partly scrolled out of a scroll view (a long form): the audit samples the clipped pixels.
+        func clipped(_ s: any XCUIElementSnapshot) -> Bool {
+            if s.elementType == .scrollView, s.frame.intersects(frame), !s.frame.contains(frame) { return true }
+            return s.children.contains(where: clipped)
+        }
+        if clipped(root) { return true }
         func contains(_ s: any XCUIElementSnapshot) -> Bool {
             if s.elementType == type, s.frame == frame, s.identifier == identifier { return true }
             return s.children.contains(where: contains)

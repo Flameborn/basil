@@ -9,18 +9,31 @@ public enum SortKey: String, Sendable, Codable, CaseIterable {
 public struct ListSortOrder: Sendable, Equatable, Codable {
     public var key: SortKey
     public var ascending: Bool
-    public init(key: SortKey, ascending: Bool = true) {
+    /// Folders (and links to folders) before files. Off sorts them in with the files by the key.
+    public var foldersFirst: Bool
+    public init(key: SortKey, ascending: Bool = true, foldersFirst: Bool = true) {
         self.key = key
         self.ascending = ascending
+        self.foldersFirst = foldersFirst
+    }
+
+    private enum CodingKeys: String, CodingKey { case key, ascending, foldersFirst }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decodeIfPresent(SortKey.self, forKey: .key) ?? .name
+        ascending = try c.decodeIfPresent(Bool.self, forKey: .ascending) ?? true
+        foldersFirst = try c.decodeIfPresent(Bool.self, forKey: .foldersFirst) ?? true
     }
     public static let `default` = ListSortOrder(key: .name)
 }
 
-/// Total Commander-style ordering: directories (and links to directories) always
-/// come first; ties fall back to a natural, case-insensitive name comparison.
+/// Total Commander-style ordering: directories (and links to directories) come first
+/// (unless `foldersFirst` is off); ties fall back to a natural, case-insensitive name comparison.
 public enum ItemSorter {
     public static func sorted(_ items: [FileItem], by order: ListSortOrder) -> [FileItem] {
         if order.key == .unsorted {
+            guard order.foldersFirst else { return items }
             return items.filter(\.isDirectoryLike) + items.filter { !$0.isDirectoryLike }
         }
         // Precompute keys once, then sort indices: avoids moving large structs and repeated string work.
@@ -36,6 +49,7 @@ public enum ItemSorter {
     public static func insertionIndex(of item: FileItem, in sorted: [FileItem], by order: ListSortOrder) -> Int {
         if order.key == .unsorted {
             // New items go last among the folders or among the files.
+            guard order.foldersFirst else { return sorted.count }
             return item.isDirectoryLike ? (sorted.firstIndex { !$0.isDirectoryLike } ?? sorted.count) : sorted.count
         }
         let key = Keyed(item)
@@ -67,13 +81,14 @@ public enum ItemSorter {
     }
 
     private static func areInIncreasingOrder(_ a: Keyed, _ b: Keyed, _ order: ListSortOrder) -> Bool {
-        if a.isDir != b.isDir { return a.isDir }
+        if order.foldersFirst, a.isDir != b.isDir { return a.isDir }
         let primary: ComparisonResult
         switch order.key {
         case .name:
             primary = .orderedSame
         case .ext:
-            primary = a.isDir ? .orderedSame : NaturalKey.compare(a.ext, b.ext)
+            // Folders have no extension (they sort with extensionless files when mixed in).
+            primary = NaturalKey.compare(a.isDir ? [] : a.ext, b.isDir ? [] : b.ext)
         case .size:
             primary = compare(a.size, b.size)
         case .modified:

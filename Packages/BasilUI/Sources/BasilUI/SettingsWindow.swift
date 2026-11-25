@@ -400,7 +400,21 @@ struct DisplaySettings: View {
                 Picker("Time", selection: $store.settings.date.time) {
                     ForEach(TimeFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                Text("Example: \(store.formatters.date(Date()))")
+                Toggle("Relative dates in the last week", isOn: $store.settings.date.relative)
+                    .accessibilityLabel("Relative dates in the last week")
+                Text("When on, dates in the last week read like 5 minutes ago, 3 hours ago or 2 days ago.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.secondaryTextColor)
+                Text("Example: \(store.formatters.date(Date().addingTimeInterval(-300))), \(store.formatters.date(Date().addingTimeInterval(-30 * 86_400)))")
+                    .foregroundStyle(Theme.secondaryTextColor)
+            }
+            Section("Lists") {
+                Toggle("Folders on top", isOn: $store.settings.foldersFirst)
+                    .accessibilityLabel("Folders on top")
+                Toggle("Show hidden files", isOn: $store.settings.showHidden)
+                    .accessibilityLabel("Show hidden files")
+                Text("These are the defaults for every pane tab. View Options (Cmd+J) changes them, the columns, sorting and the formats above for one tab.")
+                    .font(.callout)
                     .foregroundStyle(Theme.secondaryTextColor)
             }
         }
@@ -505,7 +519,7 @@ struct CopySettings: View {
         Form {
             Toggle("Show a progress window for operations", isOn: $store.settings.showProgressWindow)
                 .accessibilityLabel("Show a progress window for operations")
-            Text("Like Total Commander: a running copy, move, delete, pack or test shows its progress in a window with Background, Pause and Cancel. Background hides it; the operation keeps running in the queue (Cmd+J).")
+            Text("Like Total Commander: a running copy, move, delete, pack or test shows its progress in a window with Background, Pause and Cancel. Background hides it; the operation keeps running in the queue (Cmd+Shift+J).")
                 .font(.callout)
                 .foregroundStyle(Theme.secondaryTextColor)
             Toggle("Secure copy and move", isOn: $store.settings.secureCopy)

@@ -423,3 +423,37 @@ struct Setup {
         #expect(KeyChord(parsing: "Cmd+Shift+L")?.description == "Shift+Cmd+L")
     }
 }
+
+@Suite struct PluginDocumentationTests {
+    @Test @MainActor func guideAndExamplesAreCopiedAndNotLoaded() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("basil-plugin-docs-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        let bundled = root.appendingPathComponent("bundled")
+        let example = bundled.appendingPathComponent("Examples/hello")
+        try fm.createDirectory(at: example, withIntermediateDirectories: true)
+        try Data("# Guide 2".utf8).write(to: bundled.appendingPathComponent("README.md"))
+        try Data(#"{"id":"x.hello","name":"Hello","version":"1"}"#.utf8).write(to: example.appendingPathComponent("plugin.json"))
+        let plugins = root.appendingPathComponent("Plugins")
+        let mine = plugins.appendingPathComponent("mine")
+        try fm.createDirectory(at: mine, withIntermediateDirectories: true)
+        try Data(#"{"id":"x.mine","name":"Mine","version":"1"}"#.utf8).write(to: mine.appendingPathComponent("plugin.json"))
+        // An older guide is replaced.
+        try Data("# Guide 1".utf8).write(to: plugins.appendingPathComponent("README.md"))
+
+        PluginManager.installDocumentation(from: bundled, into: plugins)
+        #expect(try String(contentsOf: plugins.appendingPathComponent("README.md"), encoding: .utf8) == "# Guide 2")
+        #expect(fm.fileExists(atPath: plugins.appendingPathComponent("Examples/hello/plugin.json").path))
+        #expect(PluginManager.sameContents(bundled.appendingPathComponent("Examples"), plugins.appendingPathComponent("Examples")))
+        // Running again changes nothing; the user's plugin stays.
+        PluginManager.installDocumentation(from: bundled, into: plugins)
+        #expect(fm.fileExists(atPath: mine.appendingPathComponent("plugin.json").path))
+        let leftovers = try fm.contentsOfDirectory(atPath: plugins.path).filter { $0.hasPrefix(".basil-partial") }
+        #expect(leftovers.isEmpty)
+
+        let manager = PluginManager(folder: plugins, registry: ProviderRegistry(), commands: CommandRegistry(),
+                                    settings: SettingsStore(defaults: UserDefaults(suiteName: root.appendingPathComponent("defaults").path)!))
+        manager.scan()
+        #expect(manager.entries.map(\.id) == ["x.mine"])
+    }
+}

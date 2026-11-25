@@ -220,6 +220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         // Lua plugins in Application Support/Basil/Plugins (UI tests: the test data folder).
         let pluginFolder = PluginManager.defaultFolder(in: dataDirectory)
+        // The plugin guide and the example plugins, for writing plugins without Basil's sources.
+        if let bundled = Bundle.main.url(forResource: "Plugins", withExtension: nil) {
+            PluginManager.installDocumentation(from: bundled, into: pluginFolder)
+        }
         #if DEBUG
         if UITestFixture.isActive { UITestFixture.installTestPlugin(in: pluginFolder) }
         #endif

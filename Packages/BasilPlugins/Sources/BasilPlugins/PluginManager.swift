@@ -45,12 +45,55 @@ public final class PluginManager {
         dataDirectory.appendingPathComponent("Plugins", isDirectory: true)
     }
 
+    /// The folder in the Plugins folder that holds Basil's example plugins. It is never loaded:
+    /// copy an example out of it to try it.
+    public static let examplesFolderName = "Examples"
+
+    /// Puts the plugin guide (README.md) and the example plugins (Examples) from `bundled` (the
+    /// app's Plugins resource) into the Plugins folder, so plugin authors have them without
+    /// Basil's sources. Copies that differ from the bundled ones (an older Basil's, or edited) are
+    /// replaced; plugins of the user are never touched.
+    public static func installDocumentation(from bundled: URL, into folder: URL) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        for name in ["README.md", examplesFolderName] {
+            let source = bundled.appendingPathComponent(name)
+            let target = folder.appendingPathComponent(name)
+            guard fm.fileExists(atPath: source.path), !sameContents(source, target) else { continue }
+            let partial = folder.appendingPathComponent(".basil-partial-\(UUID().uuidString)-\(name)")
+            do {
+                try fm.copyItem(at: source, to: partial)
+                if fm.fileExists(atPath: target.path) {
+                    _ = try fm.replaceItemAt(target, withItemAt: partial)
+                } else {
+                    try fm.moveItem(at: partial, to: target)
+                }
+            } catch {
+                try? fm.removeItem(at: partial)
+            }
+        }
+    }
+
+    /// Same files with the same bytes (folders compared file by file).
+    static func sameContents(_ a: URL, _ b: URL) -> Bool {
+        let fm = FileManager.default
+        var aIsDir: ObjCBool = false, bIsDir: ObjCBool = false
+        guard fm.fileExists(atPath: a.path, isDirectory: &aIsDir), fm.fileExists(atPath: b.path, isDirectory: &bIsDir),
+              aIsDir.boolValue == bIsDir.boolValue else { return false }
+        guard aIsDir.boolValue else { return fm.contentsEqual(atPath: a.path, andPath: b.path) }
+        let names = { (url: URL) in Set((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).filter { $0 != ".DS_Store" } }
+        let aNames = names(a)
+        guard aNames == names(b) else { return false }
+        return aNames.allSatisfy { sameContents(a.appendingPathComponent($0), b.appendingPathComponent($0)) }
+    }
+
     /// Reads the Plugins folder again (plugin.json of every folder in it).
     public func scan() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let folders = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
                                                                       options: [.skipsHiddenFiles])) ?? [])
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter { $0.lastPathComponent != Self.examplesFolderName }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         var result: [Entry] = []
         var seen: Set<String> = []

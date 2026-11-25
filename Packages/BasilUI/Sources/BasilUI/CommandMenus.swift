@@ -50,7 +50,7 @@ enum BuiltinMenus {
                 + (1...9).map { N.command(CommandID(rawValue: "view.custom\($0)")) }),
             .submenu("Sort By", c("sort.name", "sort.ext", "sort.date", "sort.size", "sort.unsorted")),
             .separator,
-        ] + c("pane.toggleHidden", "pane.readStatus"))
+        ] + c("view.options", "pane.toggleHidden", "pane.readStatus"))
 
         layout.addMenu("Tabs", items:
             c("tab.new", "tab.duplicate", "tab.openCursorFolder", "tab.close", "tab.closeOthers") + [.separator]

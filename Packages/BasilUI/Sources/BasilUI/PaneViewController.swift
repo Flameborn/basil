@@ -50,6 +50,12 @@ final class PaneViewController: NSViewController {
 
     /// The list view (Brief, Full, custom) shown in this pane.
     private(set) var viewID: String
+    /// The active tab's View Options (Cmd+J): what it changes of the global display settings.
+    private(set) var viewOptions = PaneViewOptions()
+    /// Size and date formatting for this pane: the tab's View Options over the global settings.
+    private(set) var formatters: DisplayFormatters
+    /// Redraws relative dates ("5 minutes ago") once a minute while they are shown.
+    private var relativeDateTimer: Timer?
     private var columnContext: ColumnDefinition.Context
     /// What the column annotators (Git status) said about the shown folder, by column.
     private var annotations: [ColumnID: ColumnAnnotation] = [:]
@@ -81,8 +87,13 @@ final class PaneViewController: NSViewController {
         self.driveBar = DriveBar(side: side)
         viewID = defaults.string(forKey: "pane.\(side.identifier).view") ?? ListView.full.id
         lastDirectoryByVolume = defaults.dictionary(forKey: "pane.\(side.identifier).volumeDirectories") as? [String: String] ?? [:]
+        formatters = settings.formatters
         columnContext = ColumnDefinition.Context(formatters: settings.formatters)
         super.init(nibName: nil, bundle: nil)
+        var order = model.sortOrder
+        order.foldersFirst = settings.settings.foldersFirst
+        model.prepareSortOrder(order)
+        model.prepareShowHidden(settings.settings.showHidden)
         tabs = [PaneTab(directory: model.directory, sort: model.sortOrder, viewID: viewID)]
     }
 
@@ -92,6 +103,7 @@ final class PaneViewController: NSViewController {
     isolated deinit {
         if let settingsToken { settings.removeHandler(settingsToken) }
         annotationWatch?.task.cancel()
+        relativeDateTimer?.invalidate()
     }
 
     var tableView: NSTableView { table }
@@ -205,25 +217,113 @@ final class PaneViewController: NSViewController {
 
     // MARK: Views and columns
 
-    var currentView: ListView { settings.settings.view(id: viewID) }
-
-    func setView(_ id: String) {
-        guard settings.settings.views.contains(where: { $0.id == id }) else { return }
-        viewID = id
-        defaults.set(id, forKey: "pane.\(side.identifier).view")
-        rebuildColumnsKeepingCursor()
-        delegate?.pane(self, announce: "\(currentView.name) view")
+    /// The view shown, with the tab's own columns (View Options) when it has them.
+    var currentView: ListView {
+        var view = globalView
+        if let columns = viewOptions.columns { view.columns = columns }
+        return view
     }
 
-    /// Switching tabs: the tab's view and sort order, without speech (the tab is announced).
-    func applyTabView(_ id: String, sort: ListSortOrder) {
+    /// The view as Settings defines it.
+    var globalView: ListView { settings.settings.view(id: viewID) }
+
+    var effectiveFoldersFirst: Bool { viewOptions.foldersFirst ?? settings.settings.foldersFirst }
+    var effectiveShowHidden: Bool { viewOptions.showHidden ?? settings.settings.showHidden }
+
+    /// Choosing a view drops the tab's own columns: the view's columns show.
+    func setView(_ id: String, announce: Bool = true) {
+        guard settings.settings.views.contains(where: { $0.id == id }) else { return }
+        viewID = id
+        viewOptions.columns = nil
+        defaults.set(id, forKey: "pane.\(side.identifier).view")
+        rebuildColumnsKeepingCursor()
+        tabsDirectoryChanged()
+        if announce { delegate?.pane(self, announce: "\(currentView.name) view") }
+    }
+
+    /// Switching tabs: the tab's view, sort order and View Options, without speech (the tab is announced).
+    func applyTabView(_ id: String, sort: ListSortOrder, options: PaneViewOptions) {
         if settings.settings.views.contains(where: { $0.id == id }) {
             viewID = id
             defaults.set(id, forKey: "pane.\(side.identifier).view")
         }
-        model.prepareSortOrder(sort)
+        viewOptions = options
+        formatters = options.formatters(global: settings.settings)
+        var order = sort
+        order.foldersFirst = effectiveFoldersFirst
+        model.prepareSortOrder(order)
+        model.prepareShowHidden(effectiveShowHidden)
         applyColumns()
         table.reloadData()
+        updateRelativeDateTimer()
+    }
+
+    /// View Options (Cmd+J) changed something for this tab: applies it at once and saves the tabs.
+    func setViewOptions(_ options: PaneViewOptions) {
+        let new = options.normalized(global: settings.settings, view: globalView)
+        guard new != viewOptions else { return }
+        viewOptions = new
+        applyEffectiveOptions()
+        tabsDirectoryChanged()
+    }
+
+    /// Cmd+Shift+.: the tab's own hidden-files setting.
+    func setShowHidden(_ show: Bool) {
+        var options = viewOptions
+        options.showHidden = show
+        setViewOptions(options)
+    }
+
+    /// Applies the tab's View Options over the global settings: formatting, columns, folders
+    /// first and hidden files.
+    private func applyEffectiveOptions() {
+        formatters = viewOptions.formatters(global: settings.settings)
+        let wanted = shownColumns.map(\.id.rawValue)
+        if wanted != table.tableColumns.map(\.identifier.rawValue) {
+            rebuildColumnsKeepingCursor()
+        } else {
+            for spec in shownColumns {
+                if let column = table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(spec.id.rawValue)),
+                   abs(column.width - spec.width) > 0.5 {
+                    column.width = spec.width
+                }
+            }
+            columnContext = makeColumnContext()
+            table.withoutFocusAnnouncements { table.reloadData() }
+        }
+        if model.sortOrder.foldersFirst != effectiveFoldersFirst {
+            var order = model.sortOrder
+            order.foldersFirst = effectiveFoldersFirst
+            model.setSortOrder(order, cursor: cursorPath)
+        }
+        model.setShowHidden(effectiveShowHidden, cursor: cursorPath)
+        updateRelativeDateTimer()
+        updateStatus()
+    }
+
+    /// Relative dates change as time passes: the visible rows are redrawn once a minute.
+    private func updateRelativeDateTimer() {
+        guard formatters.relativeDates else {
+            relativeDateTimer?.invalidate()
+            relativeDateTimer = nil
+            return
+        }
+        guard relativeDateTimer == nil else { return }
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.redrawVisibleRows() }
+        }
+        timer.tolerance = 5
+        RunLoop.main.add(timer, forMode: .common)
+        relativeDateTimer = timer
+    }
+
+    private func redrawVisibleRows() {
+        let visible = table.rows(in: table.visibleRect)
+        guard visible.length > 0 else { return }
+        table.withoutFocusAnnouncements {
+            table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
+                             columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
+        }
     }
 
     /// The view's visible columns, without those shown only where an annotator answered (the
@@ -236,7 +336,7 @@ final class PaneViewController: NSViewController {
     }
 
     private func makeColumnContext() -> ColumnDefinition.Context {
-        ColumnDefinition.Context(formatters: settings.formatters, annotations: annotations,
+        ColumnDefinition.Context(formatters: formatters, annotations: annotations,
                                  namesRelativeTo: Listings.info(model.directory.location)?.origin)
     }
 
@@ -360,23 +460,15 @@ final class PaneViewController: NSViewController {
     }
 
     private func settingsChanged() {
-        let wanted = shownColumns.map(\.id.rawValue)
-        let shown = table.tableColumns.map(\.identifier.rawValue)
-        if wanted != shown {
-            rebuildColumnsKeepingCursor()
-            return updateStatus()
-        } else {
-            // Same columns: only widths/formatting may have changed. Don't rebuild (the user may be dragging).
-            for spec in shownColumns {
-                if let column = table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(spec.id.rawValue)),
-                   abs(column.width - spec.width) > 0.5 {
-                    column.width = spec.width
-                }
-            }
-            columnContext = makeColumnContext()
+        // Overrides that now equal the global settings are dropped (they no longer differ).
+        let normalized = viewOptions.normalized(global: settings.settings, view: globalView)
+        if normalized != viewOptions {
+            viewOptions = normalized
+            tabsDirectoryChanged()
         }
-        table.reloadData()
-        updateStatus()
+        // Same columns: only widths/formatting may have changed; columns are not rebuilt (the
+        // user may be dragging).
+        applyEffectiveOptions()
     }
 
     /// Writes the table's column order and widths back to the view (debounced while dragging).
@@ -405,7 +497,11 @@ final class PaneViewController: NSViewController {
                 reordered.insert(spec, at: at)
             }
             view.columns = reordered
-            if let index = self.settings.settings.views.firstIndex(where: { $0.id == view.id }) {
+            // A tab with its own columns (View Options) keeps the change to itself.
+            if self.viewOptions.columns != nil {
+                self.viewOptions.columns = reordered
+                self.tabsDirectoryChanged()
+            } else if let index = self.settings.settings.views.firstIndex(where: { $0.id == view.id }) {
                 self.settings.settings.views[index] = view
             }
         }
@@ -582,7 +678,7 @@ final class PaneViewController: NSViewController {
                 guard !Task.isCancelled else { break }
                 self.updateStatus()
                 if self.spaceSizeQueue.isEmpty, self.model.selected.contains(next.path) {
-                    self.delegate?.pane(self, announce: "\(next.name), \(self.settings.formatters.size.string(totals.bytes))")
+                    self.delegate?.pane(self, announce: "\(next.name), \(self.formatters.size.string(totals.bytes))")
                 }
             }
             if let self, self.spaceSizeRun == run { self.spaceSizeTask = nil }
@@ -598,7 +694,7 @@ final class PaneViewController: NSViewController {
     /// "Alpha, 1.5 MB, 120 files, 8 folders" or "3 folders, 4.2 GB, 1,200 files, 30 folders".
     private func describeTotals(_ results: [VFSPath: DirectoryTotals], folders: [FileItem]) -> String {
         let total = results.values.reduce(DirectoryTotals(), +)
-        let size = settings.formatters.size.string(total.bytes)
+        let size = formatters.size.string(total.bytes)
         func count(_ n: Int, _ word: String) -> String { "\(n.formatted()) \(word)\(n == 1 ? "" : "s")" }
         var text = folders.count == 1 ? "\(folders[0].name), \(size)" : "\(count(folders.count, "folder")), \(size)"
         text += ", \(count(total.files, "file")), \(count(total.folders, "folder"))"
@@ -875,7 +971,7 @@ final class PaneViewController: NSViewController {
     /// The status line text; also what Option+I reads.
     var statusText: String {
         if model.isLoading { return "Loading..." }
-        let size = settings.formatters.size
+        let size = formatters.size
         var files = 0, dirs = 0, selFiles = 0, selDirs = 0
         var totalBytes: Int64 = 0, selBytes: Int64 = 0
         for item in model.rows {
@@ -975,7 +1071,8 @@ extension PaneViewController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         guard !isApplyingColumns,
               let d = tableView.sortDescriptors.first, let key = d.key.flatMap(SortKey.init(rawValue:)) else { return }
-        model.setSortOrder(ListSortOrder(key: key, ascending: d.ascending), cursor: cursorPath)
+        model.setSortOrder(ListSortOrder(key: key, ascending: d.ascending, foldersFirst: effectiveFoldersFirst), cursor: cursorPath)
+        tabsDirectoryChanged()
         delegate?.pane(self, announce: key == .unsorted ? "Unsorted"
                        : "Sorted by \(key.spokenName), \(d.ascending ? "ascending" : "descending")")
     }

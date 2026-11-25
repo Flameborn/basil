@@ -4,7 +4,7 @@ Basil plugins are written in Lua and run in LuaJIT 2.1. Write them against Lua 5
 
 ## Where plugins live
 
-Each plugin is a folder in `~/Library/Application Support/Basil/Plugins`. Settings > Plugins has Open Plugins Folder, lists every plugin found there, and turns each one on or off. A new plugin is off until you turn it on. Changes to a plugin's files take effect with Reload Plugin.
+Each plugin is a folder in `~/Library/Application Support/Basil/Plugins`. Basil keeps this guide there as `README.md`, and the example plugins in its `Examples` folder (never loaded as plugins); both are replaced with Basil's own copies at launch, so make changes in a copy. Settings > Plugins has Open Plugins Folder, lists every plugin found there, and turns each one on or off. A new plugin is off until you turn it on. Changes to a plugin's files take effect with Reload Plugin.
 
 A plugin folder holds:
 
@@ -160,4 +160,4 @@ basil.placeholder{ name = "Upper", title = "Name in capitals", value = function(
 
 ## Examples
 
-`Plugins/Examples` in Basil's repository has a template (Hello World), a column (Word Count) and a command that uses the shell permission (Open on GitHub). Copy a folder into the Plugins folder and turn it on in Settings > Plugins.
+The `Examples` folder next to this guide in the Plugins folder (`Plugins/Examples` in Basil's repository) has a template (Hello World), a column (Word Count) and a command that uses the shell permission (Open on GitHub). Copy an example's folder up into the Plugins folder itself, give it your own id, and turn it on in Settings > Plugins.

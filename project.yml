@@ -33,6 +33,10 @@ targets:
       # Shown by About Basil > License.
       - path: LICENSE
         buildPhase: resources
+      # The plugin guide and examples, copied into the Plugins folder at launch.
+      - path: Plugins
+        type: folder
+        buildPhase: resources
       # The administrator helper's launchd job, registered through SMAppService.daemon.
       - path: App/LaunchDaemons/com.flameborn.basil.helper.plist
         buildPhase:

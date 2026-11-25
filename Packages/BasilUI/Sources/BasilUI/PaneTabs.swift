@@ -13,6 +13,30 @@ struct PaneTab: Codable, Equatable {
     var locked = false
     var sort: ListSortOrder
     var viewID: String
+    /// View Options (Cmd+J): what this tab changes of the global display settings.
+    var options = PaneViewOptions()
+
+    init(directory: VFSPath, cursor: VFSPath? = nil, customName: String? = nil, locked: Bool = false,
+         sort: ListSortOrder, viewID: String, options: PaneViewOptions = PaneViewOptions()) {
+        self.directory = directory
+        self.cursor = cursor
+        self.customName = customName
+        self.locked = locked
+        self.sort = sort
+        self.viewID = viewID
+        self.options = options
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        directory = try c.decode(VFSPath.self, forKey: .directory)
+        cursor = try c.decodeIfPresent(VFSPath.self, forKey: .cursor)
+        customName = try c.decodeIfPresent(String.self, forKey: .customName)
+        locked = try c.decodeIfPresent(Bool.self, forKey: .locked) ?? false
+        sort = try c.decodeIfPresent(ListSortOrder.self, forKey: .sort) ?? .default
+        viewID = try c.decodeIfPresent(String.self, forKey: .viewID) ?? ListView.full.id
+        options = try c.decodeIfPresent(PaneViewOptions.self, forKey: .options) ?? PaneViewOptions()
+    }
 
     var title: String { customName ?? PathBar.segments(of: directory).last?.title ?? directory.displayName }
 }
@@ -92,6 +116,7 @@ extension PaneViewController {
         tab.cursor = cursorPath
         tab.sort = model.sortOrder
         tab.viewID = viewID
+        tab.options = viewOptions
         return tab
     }
 
@@ -101,7 +126,7 @@ extension PaneViewController {
         tabsChanged()
     }
 
-    private func tabsChanged() {
+    func tabsChanged() {
         tabBar.show(tabs, active: activeTabIndex)
         tabBar.isHidden = tabs.count < 2
         saveTabs()
@@ -116,7 +141,7 @@ extension PaneViewController {
         activeTabIndex = active
         // The active tab's folder is the pane's start folder (already restored); keep the others.
         tabs[active].directory = model.directory
-        applyTabView(tabs[active].viewID, sort: tabs[active].sort)
+        applyTabView(tabs[active].viewID, sort: tabs[active].sort, options: tabs[active].options)
         tabsChanged()
     }
 
@@ -203,7 +228,7 @@ extension PaneViewController {
         if saveCurrent { tabs[activeTabIndex] = currentTabState() }
         activeTabIndex = index
         let tab = tabs[index]
-        applyTabView(tab.viewID, sort: tab.sort)
+        applyTabView(tab.viewID, sort: tab.sort, options: tab.options)
         model.load(tab.directory, cursor: tab.cursor)
         tabsChanged()
         announceTab()

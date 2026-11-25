@@ -288,7 +288,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         return custom.indices.contains(n - 1) ? custom[n - 1].id : nil
     }
 
-    /// Cmd+J: opens the queue panel, or closes it when it is open.
+    /// Cmd+Shift+J: opens the queue panel, or closes it when it is open.
     func toggleQueue() {
         let controller = queueWindow ?? QueueWindowController(
             queue: queue,

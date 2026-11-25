@@ -1,6 +1,6 @@
 import XCTest
 
-/// The operation queue panel (Cmd+J), driven with the keyboard. Items come from the
+/// The operation queue panel (Cmd+Shift+J), driven with the keyboard. Items come from the
 /// Debug menu's "Add Test Operation" (a 10-second fake operation).
 @MainActor
 final class QueueUITests: XCTestCase {
@@ -52,7 +52,7 @@ final class QueueUITests: XCTestCase {
         XCTAssertTrue(leftTable.waitForExistence(timeout: 5))
         addTestOperation()
         addTestOperation()
-        leftTable.typeKey("j", modifierFlags: .command)
+        leftTable.typeKey("j", modifierFlags: [.command, .shift])
         XCTAssertTrue(panel.waitForExistence(timeout: 3))
         XCTAssertTrue(waitFor { self.rowLabels().count == 2 }, list.debugDescription)
         XCTAssertTrue(rowLabels()[0].hasPrefix("Test operation 1, running"), rowLabels()[0])
@@ -83,19 +83,19 @@ final class QueueUITests: XCTestCase {
             return false
         }
 
-        // Escape closes the panel; Cmd+J opens it again and closes it again.
+        // Escape closes the panel; Cmd+Shift+J opens it again and closes it again.
         panel.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(waitFor { !self.panel.exists })
-        leftTable.typeKey("j", modifierFlags: .command)
+        leftTable.typeKey("j", modifierFlags: [.command, .shift])
         XCTAssertTrue(panel.waitForExistence(timeout: 3))
-        panel.typeKey("j", modifierFlags: .command)
+        panel.typeKey("j", modifierFlags: [.command, .shift])
         XCTAssertTrue(waitFor { !self.panel.exists })
     }
 
     func testFinishedItemsCanBeRemoved() {
         XCTAssertTrue(leftTable.waitForExistence(timeout: 5))
         addTestOperation()
-        leftTable.typeKey("j", modifierFlags: .command)
+        leftTable.typeKey("j", modifierFlags: [.command, .shift])
         XCTAssertTrue(panel.waitForExistence(timeout: 3))
         XCTAssertTrue(waitFor({ self.rowLabels().first?.hasPrefix("Test operation 1, finished") == true }, timeout: 20), "rows=\(rowLabels()) panelExists=\(panel.exists)")
         panel.buttons["Remove Finished"].click()

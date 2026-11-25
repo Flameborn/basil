@@ -21,6 +21,10 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var size = SizeFormat()
     public var date = DateFormatSettings()
     public var views: [ListView] = ListView.defaults
+    /// Folders before files in the panes (on, like Total Commander); View Options can change it per tab.
+    public var foldersFirst = true
+    /// Hidden files shown in the panes (off); Cmd+Shift+. and View Options change it per tab.
+    public var showHidden = false
     /// Switching to a volume from the drive menu goes to its root instead of the last folder visited there.
     public var goToRootOnVolumeSwitch = false
     /// The user's changes to the default keys (Settings, Keys), applied to the command registry.
@@ -115,6 +119,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         size = try c.decodeIfPresent(SizeFormat.self, forKey: .size) ?? d.size
         date = try c.decodeIfPresent(DateFormatSettings.self, forKey: .date) ?? d.date
         views = try c.decodeIfPresent([ListView].self, forKey: .views) ?? d.views
+        foldersFirst = try c.decodeIfPresent(Bool.self, forKey: .foldersFirst) ?? d.foldersFirst
+        showHidden = try c.decodeIfPresent(Bool.self, forKey: .showHidden) ?? d.showHidden
         goToRootOnVolumeSwitch = try c.decodeIfPresent(Bool.self, forKey: .goToRootOnVolumeSwitch) ?? d.goToRootOnVolumeSwitch
         keyBindings = try c.decodeIfPresent([KeyBindingOverride].self, forKey: .keyBindings) ?? d.keyBindings
         spaceCalculatesFolderSizes = try c.decodeIfPresent(Bool.self, forKey: .spaceCalculatesFolderSizes) ?? d.spaceCalculatesFolderSizes

@@ -117,6 +117,11 @@ final class PaneModel {
         sortOrder = order
     }
 
+    /// Hidden files for the next load, without rebuilding what is shown now (switching tabs).
+    func prepareShowHidden(_ show: Bool) {
+        showHidden = show
+    }
+
     func setSortOrder(_ order: ListSortOrder, cursor: VFSPath?) {
         sortOrder = order
         // The listing order is gone once sorted, so unsorted lists the folder again.
@@ -133,6 +138,7 @@ final class PaneModel {
     }
 
     func setShowHidden(_ show: Bool, cursor: VFSPath?) {
+        guard show != showHidden else { return }
         showHidden = show
         Task { await rebuildRows(cursor: cursor) }
     }

@@ -40,7 +40,7 @@ enum BuiltinCommands {
             C(id: "pane.toggleHidden", title: "Show Hidden Files", defaultKeys: [K(.character("."), [.command, .shift])],
               isChecked: { _ in pane()?.model.showHidden ?? false }) { ctx in
                 guard let p = pane() else { return }
-                p.model.setShowHidden(!p.model.showHidden, cursor: p.cursorPath)
+                p.setShowHidden(!p.model.showHidden)
                 ctx.announce(p.model.showHidden ? "Showing hidden files" : "Hiding hidden files")
             },
             C(id: "pane.focusPath", title: "Go to Path Bar", defaultKeys: [K(.character("l"), .command)]) { _ in
@@ -64,9 +64,9 @@ enum BuiltinCommands {
             C(id: "pane.locationsRight", title: "Right Pane Locations", defaultKeys: [K(.function(2), .command)]) { _ in
                 w?.showLocationsMenu(for: .right)
             },
-            // Go (Finder's Go menu keys). Cmd+G asks for a path, with suggestions.
+            // Go (Finder's Go menu keys). Cmd+Shift+G asks for a path, with suggestions.
             C(id: "go.path", title: "Go to Folder or File",
-              defaultKeys: [K(.character("g"), .command), K(.character("g"), [.command, .shift])]) { _ in w?.goToPath() },
+              defaultKeys: [K(.character("g"), [.command, .shift])]) { _ in w?.goToPath() },
             C(id: "go.home", title: "Go to Home", defaultKeys: [K(.character("h"), [.command, .shift])]) { _ in
                 pane()?.navigate(to: .local(home))
             },
@@ -132,7 +132,9 @@ enum BuiltinCommands {
             C(id: "tools.findFiles", title: "Find Files...", defaultKeys: [K(.function(7), .option)]) { _ in w?.findFiles() },
             // Like TC, no default key (Settings > Keys can give it one).
             C(id: "tools.sync", title: "Synchronize Directories...") { _ in w?.synchronizeDirectories() },
-            C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), .command)]) { _ in w?.toggleQueue() },
+            C(id: "queue.show", title: "Operation Queue", defaultKeys: [K(.character("j"), [.command, .shift])]) { _ in w?.toggleQueue() },
+            // Finder's Show View Options: this tab's columns, sorting, hidden files, date and size format.
+            C(id: "view.options", title: "View Options...", defaultKeys: [K(.character("j"), .command)]) { _ in w?.showViewOptions() },
             C(id: "app.settings", title: "Settings", defaultKeys: [K(.character(","), .command)]) { _ in w?.showSettings() },
 
             // File operations. All of them go through the queue.
