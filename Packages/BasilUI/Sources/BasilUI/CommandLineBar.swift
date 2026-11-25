@@ -243,6 +243,7 @@ extension MainWindowController {
             pane.hideCommandLine()
             CommandOutputWindowController.run(command, in: URL(fileURLWithPath: local.path, isDirectory: true),
                                               folderName: pane.commandLineFolderName,
+                                              shell: settings.settings.commandLineShell,
                                               announce: { [weak self] in self?.announce($0) },
                                               finished: { [weak self] in self?.commandLineFinished(in: directory) })
         }

@@ -84,6 +84,15 @@ final class PaneUITests: XCTestCase {
         leftTable.typeKey(.delete, modifierFlags: [])           // Backspace: parent
         XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
         XCTAssertTrue(leftTable.tableRows.element(boundBy: 0).isSelected, "cursor returns to the folder we came from")
+        // Not just the first row: Beta is the second.
+        leftTable.typeKey(.downArrow, modifierFlags: [])
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count != 6 })
+        leftTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).count == 6 })
+        XCTAssertTrue(waitFor { self.leftTable.tableRows.element(boundBy: 1).isSelected }, "cursor returns to Beta")
+        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(leftTable.tableRows.element(boundBy: 1).isSelected, "cursor stays on Beta")
 
         leftTable.typeKey(.tab, modifierFlags: [])
         XCTAssertTrue(waitFor { (self.rightTable.value(forKey: "hasKeyboardFocus") as? Bool) == true })

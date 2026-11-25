@@ -607,6 +607,21 @@ struct EditorSettings: View {
                         .font(.callout)
                         .foregroundStyle(Theme.secondaryTextColor)
                 }
+                Section("Command line") {
+                    Picker("Shell", selection: shellChoice) {
+                        Text("Login shell (\((ShellCommand.loginShell as NSString).lastPathComponent))").tag("")
+                        ForEach(shells, id: \.self) { path in Text(path).tag(path) }
+                        Text("Other").tag(Self.otherShell)
+                    }
+                    .accessibilityLabel("Shell")
+                    if customShell {
+                        TextField("Shell path", text: $store.settings.commandLineShell, prompt: Text("/opt/homebrew/bin/fish"))
+                            .accessibilityLabel("Shell path")
+                    }
+                    Text("Commands typed in a pane's command line run as shell -l -c command, so the shell's login configuration is read (fish: config.fish and conf.d, with its functions and abbreviations defined there). They run without a terminal: parts of the configuration that only apply to interactive shells, key bindings and prompts are left out.")
+                        .font(.callout)
+                        .foregroundStyle(Theme.secondaryTextColor)
+                }
             }
             .formStyle(.grouped)
             .frame(maxWidth: 480)
@@ -630,6 +645,25 @@ struct EditorSettings: View {
             }
             .padding(.top, 10)
         }
+    }
+
+    private static let otherShell = "other"
+    @State private var otherChosen = false
+
+    /// Shells found on this Mac (a path not among them shows as Other).
+    private var shells: [String] { ShellCommand.installedShells() }
+
+    private var customShell: Bool {
+        otherChosen || (!store.settings.commandLineShell.isEmpty && !shells.contains(store.settings.commandLineShell))
+    }
+
+    private var shellChoice: Binding<String> {
+        Binding(
+            get: { customShell ? Self.otherShell : store.settings.commandLineShell },
+            set: { choice in
+                otherChosen = choice == Self.otherShell
+                if !otherChosen { store.settings.commandLineShell = choice }
+            })
     }
 
     /// Installed terminals, plus the chosen one even when it is not installed (so the picker shows it).

@@ -739,6 +739,7 @@ final class PaneViewController: NSViewController {
             table.reloadData()
             let target = cursor.flatMap { path in model.rows.firstIndex { $0.path == path } } ?? 0
             moveCursor(to: target)
+            table.rowsReplaced()
             updateHeader()
             updateStatus()
             if changedDirectory {

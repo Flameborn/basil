@@ -23,6 +23,11 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - Archives on mounted SMB shares are packed and changed in place, like local ones.
 - Copies inside an SMB share are made by the server when it can (Windows servers, Samba with fruit:copyfile), so the data does not travel to the Mac and back. This also works on shares mounted by Finder.
 - SMB: a password to remember is saved only after the server has really checked it (macOS accepts any password for a few seconds after a share of that server was unmounted).
+- Administrator rights, like Finder and ForkLift: copying or moving into a folder you may not change (such as /Applications), and deleting or trashing items that belong to the system, asks for an administrator password once and runs through Basil's own helper, which keeps the copy engine's checks. The dialog says what Basil is about to do and why. The password is remembered for 5 minutes, so several operations in a row ask once. The first time, macOS asks you to allow the helper in System Settings; Settings, Copying shows its status and can remove it.
+- The pane command line can run in another shell than the login shell, for example fish with its functions and plugins: Settings, Editor and Terminal, Command line, Shell (the shells found on this Mac, or Other with a path).
+- Questions during an operation (Retry, Skip, replace) open on the progress window and take focus; Cancel there also closes a waiting question.
+- Fixed: Backspace could put the cursor on the first item instead of the folder just left.
+- Fixed: deleting an app that belongs to the system could stay at "Moving to the Trash" for ever.
 - Fixed: Basil could quit unexpectedly when a server connection was closed while a request to it was still being made.
 
 ## 0.2.0 - 2026-11-24

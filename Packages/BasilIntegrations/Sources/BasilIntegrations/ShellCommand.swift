@@ -2,8 +2,8 @@ import Darwin
 import Foundation
 import Synchronization
 
-/// Runs one command line from the pane's command line (TC style) through the user's login
-/// shell, in a folder, without a terminal: standard input is /dev/null, standard output and
+/// Runs one command line from the pane's command line (TC style) through the chosen shell
+/// (the login shell unless Settings names another, such as fish), in a folder, without a terminal: standard input is /dev/null, standard output and
 /// error arrive merged, cleaned of terminal escape codes (`TerminalText.clean`).
 ///
 /// posix_spawn in a new session (no controlling terminal; the shell's process group is its
@@ -12,6 +12,8 @@ import Synchronization
 public final class ShellCommand: Sendable {
     public let command: String
     public let folder: URL
+    /// The shell's path: `<shell> -l -c <command>` (zsh, bash, fish and nu all take these).
+    public let shell: String
     private let state = Mutex<State>(State())
 
     private struct State {
@@ -26,9 +28,27 @@ public final class ShellCommand: Sendable {
         case stopped
     }
 
-    public init(_ command: String, in folder: URL) {
+    /// `shell` is a path; nil or empty is the login shell.
+    public init(_ command: String, in folder: URL, shell: String? = nil) {
         self.command = command
         self.folder = folder
+        let chosen = shell?.trimmingCharacters(in: .whitespaces) ?? ""
+        self.shell = chosen.isEmpty ? Self.loginShell : (chosen as NSString).expandingTildeInPath
+    }
+
+    /// Shells to offer in Settings: those in /etc/shells plus Homebrew's and MacPorts' (fish is
+    /// usually installed there and often not listed), each once, existing and executable.
+    public static func installedShells(shellsFile: String = "/etc/shells") -> [String] {
+        let listed = ((try? String(contentsOfFile: shellsFile, encoding: .utf8)) ?? "")
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("/") }
+        let names = ["fish", "zsh", "bash", "nu", "elvish", "xonsh"]
+        let extra = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].flatMap { dir in names.map { "\(dir)/\($0)" } }
+        var seen = Set<String>()
+        return (listed + extra).filter { path in
+            access(path, X_OK) == 0 && seen.insert(path).inserted
+        }
     }
 
     /// The user's login shell (from the user database), else zsh.
@@ -75,7 +95,7 @@ public final class ShellCommand: Sendable {
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSID))
 
-        let shell = Self.loginShell
+        let shell = self.shell
         let argv = [shell, "-l", "-c", command]
         var env = Self.environment()
         env["PWD"] = folder.path

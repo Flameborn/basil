@@ -51,6 +51,8 @@ public struct BasilSettings: Codable, Equatable, Sendable {
     public var terminalID = "terminal"
     /// Shell command for the "custom" terminal; `{dir}` is replaced by the quoted folder path.
     public var terminalCommand = ""
+    /// The shell the pane's command line runs commands in, as a path. Empty = the login shell.
+    public var commandLineShell = ""
     /// Store extended attributes, Finder tags and resource forks in zip and tar archives (like Finder).
     public var packMacMetadata = true
     /// The pack dialog starts with the format and level used last.
@@ -128,6 +130,7 @@ public struct BasilSettings: Codable, Equatable, Sendable {
         editorRules = try c.decodeIfPresent([EditorRule].self, forKey: .editorRules) ?? d.editorRules
         terminalID = try c.decodeIfPresent(String.self, forKey: .terminalID) ?? d.terminalID
         terminalCommand = try c.decodeIfPresent(String.self, forKey: .terminalCommand) ?? d.terminalCommand
+        commandLineShell = try c.decodeIfPresent(String.self, forKey: .commandLineShell) ?? d.commandLineShell
         packMacMetadata = try c.decodeIfPresent(Bool.self, forKey: .packMacMetadata) ?? d.packMacMetadata
         packFormat = try c.decodeIfPresent(String.self, forKey: .packFormat) ?? d.packFormat
         packLevel = try c.decodeIfPresent(String.self, forKey: .packLevel) ?? d.packLevel

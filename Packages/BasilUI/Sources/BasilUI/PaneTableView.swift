@@ -110,8 +110,19 @@ final class PaneTableView: NSTableView {
     private var rowElements: [Int: PaneRowElement] = [:]
 
     override func reloadData() {
+        // VoiceOver may still hold row elements of the old rows (the folder just left). Detached,
+        // they can no longer move the cursor: before, one of them put it back on row 1 after
+        // Backspace instead of the folder left.
+        for element in rowElements.values { element.table = nil }
         rowElements.removeAll()
         super.reloadData()
+    }
+
+    /// After the rows were replaced: VoiceOver gets the cursor row's new element even when the
+    /// cursor stayed at the same index (no selection change is posted then).
+    func rowsReplaced() {
+        guard rowHasFocus else { return }
+        postCursorFocus()
     }
 
     func rowElement(_ row: Int) -> PaneRowElement {

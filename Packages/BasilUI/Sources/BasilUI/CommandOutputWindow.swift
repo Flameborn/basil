@@ -21,6 +21,8 @@ final class CommandOutputWindowController: NSWindowController, NSWindowDelegate 
     private let announce: (String) -> Void
     private let finished: () -> Void
     private var shell: ShellCommand?
+    /// The shell from Settings (nil or empty: the login shell).
+    private var shellPath: String?
     private var generation = 0
     private var lineCount = 0
     private var trimmed = false
@@ -31,10 +33,11 @@ final class CommandOutputWindowController: NSWindowController, NSWindowDelegate 
     private let stopButton = NSButton(title: "Stop Command", target: nil, action: nil)
     private let againButton = NSButton(title: "Run Again", target: nil, action: nil)
 
-    static func run(_ command: String, in folder: URL, folderName: String,
+    static func run(_ command: String, in folder: URL, folderName: String, shell: String? = nil,
                     announce: @escaping (String) -> Void, finished: @escaping () -> Void) {
         let controller = CommandOutputWindowController(command: command, folder: folder, folderName: folderName,
                                                        announce: announce, finished: finished)
+        controller.shellPath = shell
         open[ObjectIdentifier(controller)] = controller
         controller.start()
     }
@@ -135,7 +138,7 @@ final class CommandOutputWindowController: NSWindowController, NSWindowDelegate 
         setStatus("Running in \(folderName)")
         stopButton.isEnabled = true
         againButton.isEnabled = false
-        let shell = ShellCommand(command, in: folder)
+        let shell = ShellCommand(command, in: folder, shell: shellPath)
         self.shell = shell
         do {
             try shell.start(output: { [weak self] text in
@@ -149,7 +152,7 @@ final class CommandOutputWindowController: NSWindowController, NSWindowDelegate 
             self.shell = nil
             stopButton.isEnabled = false
             againButton.isEnabled = true
-            append("Could not start \(ShellCommand.loginShell): \(error.localizedDescription)\n")
+            append("Could not start \(shell.shell): \(error.localizedDescription)\n")
             setStatus("Failed to start")
             showWindow()
             announce("Failed to start")
