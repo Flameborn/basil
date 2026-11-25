@@ -4,6 +4,8 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 
 ## Unreleased
 
+This is possibly the last release before the 1.0 version.
+
 - Lua plugins (LuaJIT): a plugin is a folder with a plugin.json and Lua files in Basil's Plugins folder. Plugins can add commands (with keys and menu items, also in the context menu), columns, places to browse, Multi-Rename placeholders and their own queue items, and they work with files through Basil's own copy, move, delete and dialogs. They run in a sandbox; network, shell and native code access are permissions the plugin names and you grant when you turn it on. Settings, Plugins turns each plugin on or off, reloads it and shows its log. Three example plugins and a guide for plugin authors come with Basil, in the Plugins folder.
 - Synchronize Directories (Commands menu), like Total Commander: compares the left and right panes' folders, with subfolders, by size and date (with a tolerance and an option to ignore 1-hour differences) or by content, with a file filter. Each file reads as one sentence with what will happen to it; comma or < copies it to the left, period or > to the right, = leaves it alone, minus leaves it out, and Space selects several to change at once. Checkboxes show or hide each kind of difference. The asymmetric mode deletes files that exist only on the right. Synchronize Now asks with a summary, runs in the queue through the copy engine and compares again when done. S3 files are compared by their kept dates.
 - Settings is now a sidebar of sections, with a new General section (updates) and a Search section (the index).
@@ -29,7 +31,6 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - View Options (Cmd+J), like Finder: each pane tab can have its own view and columns, sorting, Folders on top (off mixes folders in with the files, for example newest first), hidden files, date format and size format. Changes apply at once and are remembered with the tab across restarts. Settings, Display holds the global values every tab starts with; Reset to Global Settings appears when a tab differs.
 - Dates can be relative: "just now", "5 minutes ago", "3 hours ago", "2 days ago" for the last week (Settings, Display, or per tab in View Options).
 - The operation queue moved to Cmd+Shift+J. Go to Folder or File is Cmd+Shift+G only.
-- The plugin guide (README.md) and the example plugins are now in the Plugins folder itself (Examples), so plugins can be written without Basil's sources.
 - Fixed: Backspace out of a Git repository put the cursor on the first item instead of the folder just left.
 - Fixed: VoiceOver could read the cursor row twice when entering or leaving a folder, or when the folder was refreshed. In a Git repository the row is read once, with its Git status.
 - Fixed: deleting an app that belongs to the system could stay at "Moving to the Trash" for ever.
