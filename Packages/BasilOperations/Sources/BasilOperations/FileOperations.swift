@@ -631,7 +631,7 @@ public struct DeleteOperation: QueueOperation {
             context.log("Asking for the administrator password for \(pending.map(\.path).joined(separator: ", "))")
             let failure: any Error
             do {
-                try await administrator.remove(pending.map(\.path), toTrash)
+                try await administrator.remove(pending.map(\.path), toTrash, { context.isCancelled })
                 for p in pending { context.log(toTrash ? "Moved \(p.path) to the Trash as administrator" : "Deleted \(p.path) as administrator") }
                 context.items(done: done + pending.count, total: self.paths.count)
                 return pending.count

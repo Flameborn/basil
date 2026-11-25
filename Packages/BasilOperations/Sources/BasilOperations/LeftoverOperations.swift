@@ -38,7 +38,7 @@ public struct RemoveLeftoversOperation: QueueOperation {
         try await context.checkpoint()
         context.progress(nil, "Waiting for the administrator password")
         do {
-            try await AdministratorRemoval.system.remove(adminPaths.map(\.path), toTrash)
+            try await AdministratorRemoval.system.remove(adminPaths.map(\.path), toTrash, { context.isCancelled })
         } catch is AdministratorRemoval.Declined {
             throw CancellationError()
         }

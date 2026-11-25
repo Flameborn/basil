@@ -485,7 +485,7 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         var calls: [[String]] = []
         var declines = 0
         var removal: AdministratorRemoval {
-            AdministratorRemoval { paths, _ in
+            AdministratorRemoval { paths, _, _ in
                 await MainActor.run { self.calls.append(paths) }
                 if await MainActor.run(body: { self.declines > 0 ? { self.declines -= 1; return true }() : false }) {
                     throw AdministratorRemoval.Declined()
