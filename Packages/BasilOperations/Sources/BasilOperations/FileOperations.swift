@@ -123,7 +123,7 @@ public struct TransferOperation: QueueOperation {
         context.log("Needs an administrator: \(reason)")
         context.progress(nil, "Waiting for the administrator password")
         do {
-            try await administrator.begin(prompt: "Basil wants to \(reason).")
+            try await administrator.begin(prompt: "Basil wants to \(reason). You may not change it as yourself, so an administrator password is needed.")
         } catch is CancellationError {
             throw CancellationError()
         } catch is PrivilegedAccessDeclined {

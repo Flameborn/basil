@@ -57,6 +57,26 @@ public struct AdministratorRemoval: Sendable {
     /// changing the owner of what is inside an app is refused by macOS (App Management), and
     /// Finder empties the Trash with a password for such items.
     static func script(for paths: [String], toTrash: Bool, trash: String) -> String {
+        script(for: paths, toTrash: toTrash, trash: trash, prompt: prompt(for: paths, toTrash: toTrash))
+    }
+
+    /// The text of macOS's password dialog: what Basil is about to do and why it needs the
+    /// password ("Basil wants to move CommanderOne.app to the Trash. It belongs to the system,
+    /// so an administrator password is needed."). Without it macOS only says that a script
+    /// wants to make changes.
+    static func prompt(for paths: [String], toTrash: Bool) -> String {
+        let names = paths.map { ($0 as NSString).lastPathComponent }
+        let what = switch names.count {
+        case 1: names[0]
+        case 2: "\(names[0]) and \(names[1])"
+        default: "\(names.count) items"
+        }
+        let action = toTrash ? "move \(what) to the Trash" : "delete \(what) permanently"
+        let reason = names.count == 1 ? "It belongs to the system" : "They belong to the system"
+        return "Basil wants to \(action). \(reason), so an administrator password is needed."
+    }
+
+    static func script(for paths: [String], toTrash: Bool, trash: String, prompt: String) -> String {
         func literal(_ s: String) -> String {
             "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
@@ -72,7 +92,7 @@ public struct AdministratorRemoval: Sendable {
             }
         }
         // Errors go to the end of the output only once (do shell script reports stderr itself).
-        lines.append("do shell script cmd with administrator privileges")
+        lines.append("do shell script cmd with prompt \(literal(prompt)) with administrator privileges")
         return lines.joined(separator: "\n")
     }
 

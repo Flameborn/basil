@@ -242,7 +242,7 @@ final class FakeAdministratorFiles: AdministratorFiles, @unchecked Sendable {
                                                       target: box.path("locked"), registry: r, options: .init(),
                                                       administrator: fake))
         #expect(item.state == .finished)
-        #expect(fake.prompts == ["Basil wants to copy 2 items into locked."])
+        #expect(fake.prompts == ["Basil wants to copy 2 items into locked. You may not change it as yourself, so an administrator password is needed."])
         #expect(fake.ended == 1)
         #expect(prompts == 0)
         #expect(try box.names("locked") == ["a.txt", "b.txt"])

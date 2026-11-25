@@ -7,7 +7,7 @@ import Testing
         let script = RemoveLeftoversOperation.adminScript(for: [#"/Library/It's "odd"\x"#, "/Library/b"], toTrash: false, trash: "/Users/u/.Trash")
         #expect(script.contains(#"quoted form of "/Library/It's \"odd\"\\x""#))
         #expect(script.contains(#"& " && ""#))
-        #expect(script.hasSuffix("do shell script cmd with administrator privileges"))
+        #expect(script.hasSuffix(#"do shell script cmd with prompt "Basil wants to delete It's \"odd\"\\x and b permanently. They belong to the system, so an administrator password is needed." with administrator privileges"#))
         let trash = RemoveLeftoversOperation.adminScript(for: ["/Library/a"], toTrash: true, trash: "/Users/u/.Trash")
         #expect(trash.contains("/bin/mv -n -- ") && trash.contains(#"quoted form of "/Users/u/.Trash/a "#))
         #expect(!trash.contains(#"& " && ""#))
@@ -26,6 +26,13 @@ import Testing
         process.waitUntilExit()
         try? FileManager.default.removeItem(atPath: file.path + ".scpt")
         #expect(process.terminationStatus == 0)
+    }
+
+    @Test func promptsSayWhatAndWhy() {
+        #expect(AdministratorRemoval.prompt(for: ["/Applications/CommanderOne.app"], toTrash: true)
+            == "Basil wants to move CommanderOne.app to the Trash. It belongs to the system, so an administrator password is needed.")
+        #expect(AdministratorRemoval.prompt(for: ["/Library/a", "/Library/b", "/Library/c"], toTrash: false)
+            == "Basil wants to delete 3 items permanently. They belong to the system, so an administrator password is needed.")
     }
 
     /// A failing script with a lot of error output (one line per file of a big app) ends with
