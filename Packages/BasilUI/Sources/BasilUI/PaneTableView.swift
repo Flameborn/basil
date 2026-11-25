@@ -57,6 +57,7 @@ final class PaneTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
+        releaseAllFocusHolds()
         if let chord = KeyChord(event: event), keyDelegate?.paneTable(self, perform: chord) == true { return }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -138,14 +139,41 @@ final class PaneTableView: NSTableView {
     }
 
     /// Selection changes inside `body` (AppKit moving the cursor during a reload, putting it back)
-    /// are not announced; afterwards the cursor row is, if its element changed.
-    func withoutFocusAnnouncements(_ body: () -> Void) {
-        focusPostsSuppressed = true
-        swallowedFocusPost = false
+    /// are not announced; afterwards the cursor row is, once. With `force` it is posted even when
+    /// its element did not change (after new columns VoiceOver is left on a cell otherwise).
+    func withoutFocusAnnouncements(force: Bool = false, _ body: () -> Void) {
+        holdFocusAnnouncements()
         body()
-        focusPostsSuppressed = false
+        releaseFocusAnnouncements(force: force)
+    }
+
+    /// Holds back announcing the cursor row until the matching release (holds nest): a folder
+    /// change waits for the Git column, so VoiceOver reads the row once with it.
+    func holdFocusAnnouncements() {
+        if focusHolds == 0 { swallowedFocusPost = false; forceFocusPost = false }
+        focusHolds += 1
+    }
+
+    func releaseFocusAnnouncements(force: Bool = false) {
+        guard focusHolds > 0 else { return }
+        focusHolds -= 1
+        if force { forceFocusPost = true }
+        guard focusHolds == 0 else { return }
         // A cursor move that was held back hands focus to the row, as it would have on its own.
-        if swallowedFocusPost { postCursorFocus() } else { rowsReplaced() }
+        if swallowedFocusPost || (forceFocusPost && rowHasFocus) {
+            postCursorFocus(force: forceFocusPost)
+        } else {
+            rowsReplaced()
+        }
+    }
+
+    var isHoldingFocusAnnouncements: Bool { focusHolds > 0 }
+
+    /// A key press ends every hold at once, so moving the cursor is never silent.
+    private func releaseAllFocusHolds() {
+        guard focusHolds > 0 else { return }
+        focusHolds = 1
+        releaseFocusAnnouncements()
     }
 
     func rowElement(_ row: Int) -> PaneRowElement {
@@ -207,17 +235,18 @@ final class PaneTableView: NSTableView {
         }
     }
 
-    private var focusPostsSuppressed = false
+    private var focusHolds = 0
     private var swallowedFocusPost = false
-    /// The element VoiceOver was last sent to; the same one is never posted twice in a row.
+    private var forceFocusPost = false
+    /// The element VoiceOver was last sent to; the same one is not posted twice in a row.
     private weak var lastFocusPosted: PaneRowElement?
 
-    private func postCursorFocus() {
+    private func postCursorFocus(force: Bool = false) {
         guard window?.firstResponder === self, selectedRow >= 0, selectedRow < numberOfRows else { return }
-        if focusPostsSuppressed { swallowedFocusPost = true; return }
+        if focusHolds > 0 { swallowedFocusPost = true; return }
         rowHasFocus = true
         let element = rowElement(selectedRow)
-        guard element !== lastFocusPosted else { return }
+        guard force || element !== lastFocusPosted else { return }
         lastFocusPosted = element
         NSAccessibility.post(element: element, notification: .focusedUIElementChanged)
     }
@@ -462,3 +491,4 @@ extension KeyChord {
         self.init(key, mods)
     }
 }
+

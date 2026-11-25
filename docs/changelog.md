@@ -27,7 +27,7 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - The pane command line can run in another shell than the login shell, for example fish with its functions and plugins: Settings, Editor and Terminal, Command line, Shell (the shells found on this Mac, or Other with a path).
 - Questions during an operation (Retry, Skip, replace) open on the progress window and take focus; Cancel there also closes a waiting question.
 - Fixed: Backspace out of a Git repository put the cursor on the first item instead of the folder just left.
-- Fixed: VoiceOver could read the cursor row twice when entering or leaving a folder, or when the folder was refreshed.
+- Fixed: VoiceOver could read the cursor row twice when entering or leaving a folder, or when the folder was refreshed. In a Git repository the row is read once, with its Git status.
 - Fixed: deleting an app that belongs to the system could stay at "Moving to the Trash" for ever.
 - Fixed: Basil could quit unexpectedly when a server connection was closed while a request to it was still being made.
 

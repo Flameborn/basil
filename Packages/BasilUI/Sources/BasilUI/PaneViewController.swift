@@ -257,7 +257,34 @@ final class PaneViewController: NSViewController {
             let result = await Task.detached { await registry.annotations(for: directory) }.value
             guard let self, generation == self.annotationGeneration, directory == self.model.directory else { return }
             self.apply(annotations: result)
+            self.releaseAnnotationFocusHold()
         }
+    }
+
+    /// The folder change whose cursor announcement waits for the annotators (nil: none waits).
+    private var annotationFocusHold: Int?
+    private var annotationFocusHoldCount = 0
+
+    private func holdFocusForAnnotations() {
+        guard !model.registry.columnAnnotators.isEmpty else { return }
+        // A key press ended the table's holds meanwhile: that wait is over.
+        if annotationFocusHold != nil, !table.isHoldingFocusAnnouncements { annotationFocusHold = nil }
+        guard annotationFocusHold == nil else { return }
+        annotationFocusHoldCount += 1
+        let token = annotationFocusHoldCount
+        annotationFocusHold = token
+        table.holdFocusAnnouncements()
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, self.annotationFocusHold == token else { return }
+            self.releaseAnnotationFocusHold()
+        }
+    }
+
+    private func releaseAnnotationFocusHold() {
+        guard annotationFocusHold != nil else { return }
+        annotationFocusHold = nil
+        table.releaseFocusAnnouncements()
     }
 
     private func apply(annotations new: [ColumnID: ColumnAnnotation]) {
@@ -299,7 +326,7 @@ final class PaneViewController: NSViewController {
     private func rebuildColumnsKeepingCursor() {
         let cursor = cursorRow
         // AppKit's detour through row 1 is not announced, and the cursor row is not read again.
-        table.withoutFocusAnnouncements {
+        table.withoutFocusAnnouncements(force: true) {
             applyColumns()
             table.reloadData()
             if let cursor, cursor < table.numberOfRows, table.selectedRow != cursor {
@@ -751,6 +778,9 @@ final class PaneViewController: NSViewController {
                 annotations = annotations.mapValues { _ in ColumnAnnotation() }
                 columnContext = makeColumnContext()
             }
+            // In a new folder the cursor row is announced once the annotators answered (at most
+            // half a second), so VoiceOver reads it with its Git status and only once.
+            if changedDirectory { holdFocusForAnnotations() }
             // One announcement of the cursor row at the end: AppKit's own fix of the selection
             // during the reload, and the move to the target, are not read on their own.
             table.withoutFocusAnnouncements {
