@@ -318,7 +318,8 @@ extension MainWindowController {
                 queueArchiveUpdate(.delete(items.map(\.path)), reloading: [archive])
             } else {
                 let apps = appIdentities(in: items)
-                let queued = queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers, administrator: administrator))
+                let queued = queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers, administrator: administrator,
+                                                   administratorFiles: administratorFiles))
                 if !apps.isEmpty {
                     queued.whenDone = { [weak self] _ in self?.offerLeftovers(of: apps, toTrash: toTrash) }
                 }

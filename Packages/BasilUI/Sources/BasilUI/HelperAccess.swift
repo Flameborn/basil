@@ -11,9 +11,15 @@ import ServiceManagement
 /// operation then connects, the helper shows macOS's password dialog, and
 /// `PrivilegedLocalProvider` is registered until the operation ends.
 final class HelperAccess: AdministratorFiles, @unchecked Sendable {
+    /// How long the password is remembered after an operation, like sudo.
+    static let remembered: Duration = .seconds(300)
+
     private let registry: ProviderRegistry
     @MainActor private weak var controller: MainWindowController?
+    /// The authorized connection, kept for `remembered` after the last operation ended.
     @MainActor private var client: PrivilegedXPCClient?
+    @MainActor private var provider: PrivilegedLocalProvider?
+    @MainActor private var forget: Task<Void, Never>?
 
     @MainActor init(registry: ProviderRegistry, controller: MainWindowController) {
         self.registry = registry
@@ -22,7 +28,17 @@ final class HelperAccess: AdministratorFiles, @unchecked Sendable {
 
     static var service: SMAppService { SMAppService.daemon(plistName: BasilHelper.plistName) }
 
+    /// Not allowed in System Settings (the user cancelled): callers fall back where they can.
+    struct NotAllowed: LocalizedError {
+        var errorDescription: String? { "Basil's administrator helper is not allowed in System Settings" }
+    }
+
     func begin(prompt: String) async throws {
+        if let kept = await keptProvider(), (try? await kept.item(at: VFSPath(location: .localAdministrator, path: "/"))) != nil {
+            registry.register(kept)
+            return
+        }
+        await forgetNow()
         try await enableHelper()
         guard let client = PrivilegedXPCClient() else {
             throw VFSError.failed("Basil is not signed with a certificate, so its administrator helper cannot check it")
@@ -35,16 +51,36 @@ final class HelperAccess: AdministratorFiles, @unchecked Sendable {
             throw error
         }
         registry.register(provider)
-        await MainActor.run { self.client = client }
+        await MainActor.run {
+            self.client = client
+            self.provider = provider
+        }
     }
 
+    /// Keeps the connection (and so the password) for `remembered`, then closes it.
     func end() async {
-        registry.unregister(.localAdministrator)
-        let client = await MainActor.run { () -> PrivilegedXPCClient? in
-            defer { self.client = nil }
-            return self.client
+        await MainActor.run {
+            forget?.cancel()
+            forget = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: Self.remembered)
+                guard !Task.isCancelled else { return }
+                await self?.forgetNow()
+            }
         }
-        await client?.close()
+    }
+
+    @MainActor private func keptProvider() -> PrivilegedLocalProvider? {
+        forget?.cancel()
+        forget = nil
+        return provider
+    }
+
+    @MainActor private func forgetNow() async {
+        registry.unregister(.localAdministrator)
+        let old = client
+        client = nil
+        provider = nil
+        await old?.close()
     }
 
     /// Registers the helper and waits until macOS allows it. Throws `PrivilegedAccessDeclined`
@@ -60,7 +96,7 @@ final class HelperAccess: AdministratorFiles, @unchecked Sendable {
         guard service.status == .requiresApproval else {
             throw VFSError.failed("macOS did not accept Basil's administrator helper (status \(service.status.rawValue))")
         }
-        guard let controller, try await controller.askToAllowHelper() else { throw PrivilegedAccessDeclined() }
+        guard let controller, try await controller.askToAllowHelper() else { throw NotAllowed() }
     }
 
     /// Settings > Copying: whether the helper is allowed, and removing it.

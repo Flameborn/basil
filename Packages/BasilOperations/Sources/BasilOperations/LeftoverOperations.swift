@@ -13,8 +13,13 @@ public struct RemoveLeftoversOperation: QueueOperation {
     public let adminPaths: [VFSPath]
     public let toTrash: Bool
     let registry: ProviderRegistry
+    /// The administrator helper: with it, the administrator's items go through it (one password,
+    /// remembered for a while) instead of osascript.
+    let administratorFiles: (any AdministratorFiles)?
 
-    public init(appName: String, paths: [VFSPath], adminPaths: [VFSPath], toTrash: Bool, registry: ProviderRegistry) {
+    public init(appName: String, paths: [VFSPath], adminPaths: [VFSPath], toTrash: Bool, registry: ProviderRegistry,
+                administratorFiles: (any AdministratorFiles)? = nil) {
+        self.administratorFiles = administratorFiles
         self.appName = appName
         self.paths = paths
         self.adminPaths = adminPaths
@@ -31,6 +36,12 @@ public struct RemoveLeftoversOperation: QueueOperation {
     }
 
     public func run(_ context: OperationContext) async throws {
+        if let administratorFiles {
+            // Items that need an administrator fail with a permission error and go to the helper.
+            try await DeleteOperation(paths: paths + adminPaths, toTrash: toTrash, registry: registry,
+                                      administrator: .system, administratorFiles: administratorFiles).run(context)
+            return
+        }
         if !paths.isEmpty {
             try await DeleteOperation(paths: paths, toTrash: toTrash, registry: registry, administrator: .system).run(context)
         }

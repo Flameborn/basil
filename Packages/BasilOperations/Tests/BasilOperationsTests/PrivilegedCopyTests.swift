@@ -272,3 +272,100 @@ final class FakeAdministratorFiles: AdministratorFiles, @unchecked Sendable {
         #expect(try box.names("locked") == [])
     }
 }
+
+@MainActor
+@Suite struct AdministratorDeleteTests {
+    func run(_ queue: FileOperationQueue, _ op: any QueueOperation) async -> QueueItem {
+        let item = queue.add(op)
+        _ = await waitUntil(.seconds(10)) { item.state.isDone }
+        return item
+    }
+
+    @Test func helperMovesToTheTrashUnderAFreeNameAndRemovesTrees() async throws {
+        let box = try Sandbox()
+        try box.mkdir("Trash")
+        try box.write("Trash/a.app", Data())
+        try box.mkdir("a.app/Contents")
+        try box.write("a.app/Contents/x", Data("x".utf8))
+        let moved = try PrivilegedFileService.moveToTrash(box.path("a.app").path, folder: box.path("Trash").path, owner: getuid())
+        #expect(moved == box.path("Trash/a 2.app").path)
+        #expect(try box.names("Trash") == ["a 2.app", "a.app"])
+        // A missing Trash folder is made, owner-only.
+        try box.write("b.txt", Data())
+        _ = try PrivilegedFileService.moveToTrash(box.path("b.txt").path, folder: box.path(".Trashes/501").path, owner: getuid())
+        var st = stat()
+        lstat(box.path(".Trashes").path, &st)
+        #expect(st.st_mode & 0o7777 == 0o1333)
+        chmod(box.path(".Trashes").path, 0o755)
+        #expect(try box.names(".Trashes/501") == ["b.txt"])
+
+        let provider = try await adminProvider()
+        try await provider.removeTree(admin(box.path("Trash")))
+        #expect(try box.names() == [".Trashes"])
+    }
+
+    @Test func lockedItemsAreDeletedThroughTheHelperAfterOnePassword() async throws {
+        let box = try Sandbox()
+        try box.mkdir("locked/inner")
+        try box.write("locked/inner/x", Data())
+        try box.mkdir("locked2/inner")
+        try box.write("locked2/inner/y", Data())
+        chmod(box.path("locked/inner").path, 0o555)
+        chmod(box.path("locked2/inner").path, 0o555)
+        defer { chmod(box.path("locked/inner").path, 0o755); chmod(box.path("locked2/inner").path, 0o755) }
+        let r = ProviderRegistry()
+        r.register(LocalProvider())
+        let files = FakeAdministratorFiles(registry: r, unlock: [box.path("locked/inner").path, box.path("locked2/inner").path])
+        let script = BasilOperationsDeleteTestsScript()
+        let queue = FileOperationQueue()
+        var questions = 0
+        queue.promptHandler = { _, _ in questions += 1; return .itemFailed(.cancel) }
+        let item = await run(queue, DeleteOperation(paths: [box.path("locked"), box.path("locked2")], toTrash: false, registry: r,
+                                                    administrator: script.removal, administratorFiles: files))
+        #expect(item.state == .finished)
+        #expect(files.prompts == ["Basil wants to delete locked and locked2 permanently. They belong to the system, so an administrator password is needed."])
+        #expect(script.calls == 0)
+        #expect(questions == 0)
+        #expect(try box.names() == [])
+        #expect(item.itemsDone == 2)
+    }
+
+    @Test func withoutTheHelperTheScriptIsUsed() async throws {
+        let box = try Sandbox()
+        try box.mkdir("locked/inner")
+        try box.write("locked/inner/x", Data())
+        chmod(box.path("locked/inner").path, 0o555)
+        defer { chmod(box.path("locked/inner").path, 0o755) }
+        let r = ProviderRegistry()
+        r.register(LocalProvider())
+        let script = BasilOperationsDeleteTestsScript()
+        let item = await run(FileOperationQueue(), DeleteOperation(paths: [box.path("locked")], toTrash: false, registry: r,
+                                                                   administrator: script.removal,
+                                                                   administratorFiles: UnavailableAdministratorFiles()))
+        #expect(item.state == .finished)
+        #expect(script.calls == 1)
+        #expect(item.log.contains { $0.hasPrefix("The administrator helper cannot be used") })
+    }
+}
+
+/// A helper that macOS did not allow.
+struct UnavailableAdministratorFiles: AdministratorFiles {
+    struct NotAllowed: Error {}
+    func begin(prompt: String) async throws { throw NotAllowed() }
+    func end() async {}
+}
+
+/// The osascript fallback, counted; it removes like root would.
+final class BasilOperationsDeleteTestsScript: @unchecked Sendable {
+    private let count = Mutex(0)
+    var calls: Int { count.withLock { $0 } }
+    var removal: AdministratorRemoval {
+        AdministratorRemoval { paths, _, _ in
+            self.count.withLock { $0 += 1 }
+            for path in paths {
+                _ = try? Process.run(URL(fileURLWithPath: "/bin/chmod"), arguments: ["-R", "u+w", path]).waitUntilExit()
+                try FileManager.default.removeItem(atPath: path)
+            }
+        }
+    }
+}

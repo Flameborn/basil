@@ -555,13 +555,19 @@ public struct DeleteOperation: QueueOperation {
     public let paths: [VFSPath]
     public let toTrash: Bool
     let registry: ProviderRegistry
+    /// The fallback when the helper cannot be used: macOS's password dialog through osascript.
     let administrator: AdministratorRemoval?
+    /// The administrator helper (BasilHelper over XPC), tried first. It remembers the password
+    /// for a while, so several deletes in a row ask once.
+    let administratorFiles: (any AdministratorFiles)?
 
-    public init(paths: [VFSPath], toTrash: Bool, registry: ProviderRegistry, administrator: AdministratorRemoval? = nil) {
+    public init(paths: [VFSPath], toTrash: Bool, registry: ProviderRegistry, administrator: AdministratorRemoval? = nil,
+                administratorFiles: (any AdministratorFiles)? = nil) {
         self.paths = paths
         self.toTrash = toTrash
         self.registry = registry
         self.administrator = administrator
+        self.administratorFiles = administratorFiles
     }
 
     public var kind: OperationKind { toTrash ? .trash : .delete }
@@ -576,7 +582,7 @@ public struct DeleteOperation: QueueOperation {
 
     /// Whether a failure on `path` is one the administrator step can fix.
     func needsAdministrator(_ error: any Error, _ path: VFSPath) -> Bool {
-        guard administrator != nil, path.location == .local else { return false }
+        guard administrator != nil || administratorFiles != nil, path.location == .local else { return false }
         if case .permissionDenied = error as? VFSError { return true }
         if let error = error as? CocoaError, error.code == .fileWriteNoPermission || error.code == .fileReadNoPermission {
             return true
@@ -614,10 +620,85 @@ public struct DeleteOperation: QueueOperation {
             context.log(toTrash ? "Moved \(path.path) to the Trash" : "Deleted \(path.path)")
             context.items(done: done, total: paths.count)
         }
-        if let administrator, !forAdministrator.isEmpty {
-            done += try await removeAsAdministrator(forAdministrator, administrator, errors, context, done: done)
+        if !forAdministrator.isEmpty {
+            var pending = forAdministrator
+            if let administratorFiles {
+                switch try await removeWithHelper(pending, administratorFiles, errors, context, done: done) {
+                case .handled(let removed):
+                    done += removed
+                    pending = []
+                case .unavailable(let error):
+                    context.log("The administrator helper cannot be used: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)")
+                }
+            }
+            if !pending.isEmpty {
+                if let administrator {
+                    done += try await removeAsAdministrator(pending, administrator, errors, context, done: done)
+                } else {
+                    for path in pending {
+                        _ = try await errors.handle(VFSError.permissionDenied(path), at: path)
+                    }
+                }
+            }
         }
         context.progress(1, "\(itemsText(done)) \(toTrash ? "moved to the Trash" : "deleted")")
+    }
+
+    enum HelperOutcome {
+        /// Every item was removed, skipped or answered.
+        case handled(removed: Int)
+        /// The helper could not be used (not allowed, not signed, not reachable): try osascript.
+        case unavailable(any Error)
+    }
+
+    /// Removes the collected items through the helper after one password (none when the helper
+    /// still remembers it). A cancelled password asks Retry / Skip / Skip All / Cancel per item.
+    private func removeWithHelper(_ paths: [VFSPath], _ files: any AdministratorFiles, _ errors: ItemErrorPolicy,
+                                  _ context: OperationContext, done: Int) async throws -> HelperOutcome {
+        var pending = paths
+        var removed = 0
+        while !pending.isEmpty {
+            try await context.checkpoint()
+            let what = pending.count == 1 ? pending[0].name : itemsText(pending.count)
+            context.progress(nil, "Waiting for the administrator password to \(toTrash ? "move \(what) to the Trash" : "delete \(what)")")
+            do {
+                try await files.begin(prompt: AdministratorRemoval.prompt(for: pending.map(\.path), toTrash: toTrash))
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch is PrivilegedAccessDeclined {
+                var again: [VFSPath] = []
+                for path in pending {
+                    let declined = VFSError.failed("An administrator password is needed and none was given.")
+                    if case .retry = try await errors.handle(declined, at: path) { again.append(path) }
+                }
+                pending = again
+                continue
+            } catch {
+                return removed == 0 ? .unavailable(error) : .handled(removed: removed)
+            }
+            do {
+                guard let provider = try registry.provider(for: .localAdministrator) as? PrivilegedLocalProvider else {
+                    throw VFSError.noProvider(.localAdministrator)
+                }
+                for path in pending {
+                    try await context.checkpoint()
+                    let elevated = VFSPath(location: .localAdministrator, path: path.path)
+                    let ok = try await errors.run(path) {
+                        if toTrash { try await provider.trash(elevated) } else { try await provider.removeTree(elevated) }
+                    }
+                    guard ok else { continue }
+                    removed += 1
+                    context.log(toTrash ? "Moved \(path.path) to the Trash as administrator" : "Deleted \(path.path) as administrator")
+                    context.items(done: done + removed, total: self.paths.count)
+                }
+            } catch {
+                await files.end()
+                throw error
+            }
+            await files.end()
+            pending = []
+        }
+        return .handled(removed: removed)
     }
 
     /// One password dialog for every collected item. Returns how many were removed.

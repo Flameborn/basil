@@ -115,7 +115,46 @@ public actor PrivilegedFileService {
         case .createSymlink(let path, let target):
             try await local.createSymlink(.local(path), target: target)
             return .done
+        case .trash(let path, let folder, let owner):
+            return .text(try await LocalIO.run { try Self.moveToTrash(path, folder: folder, owner: owner) })
+        case .removeTree(let path):
+            try await LocalIO.run {
+                do {
+                    try FileManager.default.removeItem(atPath: path)
+                } catch let error as CocoaError {
+                    let underlying = (error.userInfo[NSUnderlyingErrorKey] as? NSError)?.code
+                    let failed = (error.userInfo[NSFilePathErrorKey] as? String) ?? path
+                    if let code = underlying.map(Int32.init) { throw LocalProvider.posixError(code, .local(failed)) }
+                    throw VFSError.failed("\(failed): \(error.localizedDescription)")
+                }
+            }
+            return .done
         }
+    }
+
+    /// rename(2) into the Trash folder: "name", else "name 2", "name 3" ... (before the extension).
+    public static func moveToTrash(_ path: String, folder: String, owner: UInt32) throws -> String {
+        var st = stat()
+        if lstat(folder, &st) != 0 {
+            // A volume's ".Trashes" is made like macOS does: everyone may add, nobody may list.
+            let parent = (folder as NSString).deletingLastPathComponent
+            if (parent as NSString).lastPathComponent == ".Trashes", lstat(parent, &st) != 0 {
+                guard mkdir(parent, 0o1333) == 0 || errno == EEXIST else { throw LocalProvider.posixError(errno, .local(parent)) }
+                chmod(parent, 0o1333)
+            }
+            guard mkdir(folder, 0o700) == 0 || errno == EEXIST else { throw LocalProvider.posixError(errno, .local(folder)) }
+            chown(folder, owner, gid_t.max)
+        }
+        let name = (path as NSString).lastPathComponent
+        let ext = (name as NSString).pathExtension
+        let base = ext.isEmpty ? name : (name as NSString).deletingPathExtension
+        for n in 1...10_000 {
+            let candidate = n == 1 ? name : (ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
+            let target = (folder as NSString).appendingPathComponent(candidate)
+            if renamex_np(path, target, UInt32(RENAME_EXCL)) == 0 { return target }
+            if errno != EEXIST { throw LocalProvider.posixError(errno, .local(path)) }
+        }
+        throw VFSError.failed("No free name for \(name) in the Trash")
     }
 
     private func keep(_ file: (any ReadableFile)?) -> UInt64 {

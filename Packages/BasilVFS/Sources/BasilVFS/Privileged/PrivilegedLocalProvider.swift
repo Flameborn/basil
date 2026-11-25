@@ -140,6 +140,29 @@ public struct PrivilegedLocalProvider: WritableProvider, LocalBackedProvider {
         _ = try await call(.createSymlink(path.path, target: target))
     }
 
+    /// Moves an item to the Trash of its volume as root: the user's ~/.Trash on the startup
+    /// disk, "<volume>/.Trashes/<uid>" elsewhere. The item keeps its owner (macOS refuses to
+    /// change the files inside an app), so emptying the Trash asks for a password in Finder.
+    public func trash(_ path: VFSPath) async throws {
+        _ = try await call(.trash(path.path, into: Self.trashFolder(for: path.path), owner: getuid()))
+    }
+
+    /// Removes an item with everything in it in one call.
+    public func removeTree(_ path: VFSPath) async throws {
+        _ = try await call(.removeTree(path.path))
+    }
+
+    static func trashFolder(for path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let url = URL(fileURLWithPath: path)
+        let volume = (try? url.deletingLastPathComponent().resourceValues(forKeys: [.volumeURLKey]))?.volume
+        let homeVolume = (try? home.resourceValues(forKeys: [.volumeURLKey]))?.volume
+        if let volume, volume.path != "/", volume != homeVolume {
+            return volume.appendingPathComponent(".Trashes/\(getuid())").path
+        }
+        return home.appendingPathComponent(".Trash").path
+    }
+
     /// Each chunk is one message; 4 MB keeps them small.
     public var maxTransferChunkSize: Int? { 4 * 1024 * 1024 }
 }

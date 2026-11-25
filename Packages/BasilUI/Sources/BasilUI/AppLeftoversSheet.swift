@@ -94,7 +94,7 @@ extension MainWindowController {
         let normal = chosen.filter { !$0.needsAdmin }.map { VFSPath.local($0.url.path) }
         let admin = chosen.filter(\.needsAdmin).map { VFSPath.local($0.url.path) }
         queue.add(RemoveLeftoversOperation(appName: app.displayName, paths: normal, adminPaths: admin,
-                                           toTrash: toTrash, registry: providers))
+                                           toTrash: toTrash, registry: providers, administratorFiles: administratorFiles))
     }
 }
 

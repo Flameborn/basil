@@ -43,6 +43,11 @@ public enum PrivilegedRequest: Codable, Sendable {
     case synchronize(String)
     case readSymlink(String)
     case createSymlink(String, target: String)
+    /// Moves an item into `folder` (the user's Trash on its volume) under a free name, making
+    /// the folder (mode 700, owned by `owner`) when it is missing. Returns the new path.
+    case trash(String, into: String, owner: UInt32)
+    /// Removes a file, link or folder with everything in it (links are not followed).
+    case removeTree(String)
 }
 
 public enum PrivilegedReply: Codable, Sendable {
