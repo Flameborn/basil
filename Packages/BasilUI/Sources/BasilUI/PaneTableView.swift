@@ -12,6 +12,9 @@ protocol PaneTableViewKeyDelegate: AnyObject {
     func paneTableMenu(_ table: PaneTableView) -> NSMenu?
     /// What VoiceOver reads for one cell (table column index); "" means the cell is not exposed.
     func paneTable(_ table: PaneTableView, spokenTextForRow row: Int, column: Int) -> String
+    /// What a row shows (the item's path), so a reload keeps the elements of rows that still
+    /// show the same item.
+    func paneTable(_ table: PaneTableView, identityOfRow row: Int) -> AnyHashable?
 }
 
 /// The file list. Routes key presses to the command registry first, then to
@@ -110,25 +113,46 @@ final class PaneTableView: NSTableView {
     private var rowElements: [Int: PaneRowElement] = [:]
 
     override func reloadData() {
-        // VoiceOver may still hold row elements of the old rows (the folder just left). Detached,
-        // they can no longer move the cursor: before, one of them put it back on row 1 after
-        // Backspace instead of the folder left.
-        for element in rowElements.values { element.table = nil }
-        rowElements.removeAll()
+        // Rows that still show the same item keep their element (a refresh, new columns), so
+        // VoiceOver is not sent to the same row again and does not read it twice. The others are
+        // detached: VoiceOver may still hold them, and they must no longer move the cursor.
+        for (row, element) in rowElements {
+            if row < numberOfRowsFromSource, element.identity != nil,
+               keyDelegate?.paneTable(self, identityOfRow: row) == element.identity {
+                element.forgetCells()
+            } else {
+                element.table = nil
+                rowElements[row] = nil
+            }
+        }
         super.reloadData()
     }
 
-    /// After the rows were replaced: VoiceOver gets the cursor row's new element even when the
-    /// cursor stayed at the same index (no selection change is posted then).
+    private var numberOfRowsFromSource: Int { dataSource?.numberOfRows?(in: self) ?? 0 }
+
+    /// After the rows were replaced: VoiceOver gets the cursor row's element when it is a new one,
+    /// also when the cursor stayed at the same index (no selection change is posted then).
     func rowsReplaced() {
         guard rowHasFocus else { return }
         postCursorFocus()
+    }
+
+    /// Selection changes inside `body` (AppKit moving the cursor during a reload, putting it back)
+    /// are not announced; afterwards the cursor row is, if its element changed.
+    func withoutFocusAnnouncements(_ body: () -> Void) {
+        focusPostsSuppressed = true
+        swallowedFocusPost = false
+        body()
+        focusPostsSuppressed = false
+        // A cursor move that was held back hands focus to the row, as it would have on its own.
+        if swallowedFocusPost { postCursorFocus() } else { rowsReplaced() }
     }
 
     func rowElement(_ row: Int) -> PaneRowElement {
         if let element = rowElements[row] { return element }
         if rowElements.count > 500 { rowElements.removeAll() }
         let element = PaneRowElement(table: self, row: row)
+        element.identity = keyDelegate?.paneTable(self, identityOfRow: row)
         rowElements[row] = element
         return element
     }
@@ -183,10 +207,19 @@ final class PaneTableView: NSTableView {
         }
     }
 
+    private var focusPostsSuppressed = false
+    private var swallowedFocusPost = false
+    /// The element VoiceOver was last sent to; the same one is never posted twice in a row.
+    private weak var lastFocusPosted: PaneRowElement?
+
     private func postCursorFocus() {
         guard window?.firstResponder === self, selectedRow >= 0, selectedRow < numberOfRows else { return }
+        if focusPostsSuppressed { swallowedFocusPost = true; return }
         rowHasFocus = true
-        NSAccessibility.post(element: rowElement(selectedRow), notification: .focusedUIElementChanged)
+        let element = rowElement(selectedRow)
+        guard element !== lastFocusPosted else { return }
+        lastFocusPosted = element
+        NSAccessibility.post(element: element, notification: .focusedUIElementChanged)
     }
 
     func refreshVisibleRows() {
@@ -203,7 +236,12 @@ final class PaneTableView: NSTableView {
 final class PaneRowElement: NSAccessibilityElement {
     fileprivate weak var table: PaneTableView?
     let row: Int
+    /// What the row showed when the element was made (the item's path).
+    fileprivate var identity: AnyHashable?
     private var cells: [Int: PaneCellElement] = [:]
+
+    /// The columns may have changed: cells are made again when asked for.
+    fileprivate func forgetCells() { cells.removeAll() }
 
     init(table: PaneTableView, row: Int) {
         self.table = table

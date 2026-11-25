@@ -26,7 +26,8 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 - Administrator rights, like Finder and ForkLift: copying or moving into a folder you may not change (such as /Applications), and deleting or trashing items that belong to the system, asks for an administrator password once and runs through Basil's own helper, which keeps the copy engine's checks. The dialog says what Basil is about to do and why. The password is remembered for 5 minutes, so several operations in a row ask once. The first time, macOS asks you to allow the helper in System Settings; Settings, Copying shows its status and can remove it.
 - The pane command line can run in another shell than the login shell, for example fish with its functions and plugins: Settings, Editor and Terminal, Command line, Shell (the shells found on this Mac, or Other with a path).
 - Questions during an operation (Retry, Skip, replace) open on the progress window and take focus; Cancel there also closes a waiting question.
-- Fixed: Backspace could put the cursor on the first item instead of the folder just left.
+- Fixed: Backspace out of a Git repository put the cursor on the first item instead of the folder just left.
+- Fixed: VoiceOver could read the cursor row twice when entering or leaving a folder, or when the folder was refreshed.
 - Fixed: deleting an app that belongs to the system could stay at "Moving to the Trash" for ever.
 - Fixed: Basil could quit unexpectedly when a server connection was closed while a request to it was still being made.
 

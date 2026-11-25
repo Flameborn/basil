@@ -261,6 +261,19 @@ final class PaneUITests: XCTestCase {
         app.typeKey(.tab, modifierFlags: [])
         XCTAssertTrue(waitFor { window.title.hasPrefix("basil-uitest-") && !window.title.contains("(") }, window.title)
         try audit(app) { _ in false }
+
+        // Backspace out of the repository: the Git column goes, and the cursor stays on Beta
+        // (the reload after the columns changed used to put it on the first item).
+        let beta = leftTable.tableRows.element(boundBy: 1)
+        leftTable.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertTrue(waitFor { beta.isSelected })
+        leftTable.typeKey(.enter, modifierFlags: [])
+        XCTAssertTrue(waitFor { self.names(in: self.leftTable).contains("tracked.txt") }, "\(names(in: leftTable))")
+        XCTAssertTrue(waitFor { self.leftTable.staticTexts["Git"].exists || self.leftTable.buttons["Git"].exists })
+        leftTable.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitFor { !(self.leftTable.staticTexts["Git"].exists || self.leftTable.buttons["Git"].exists) })
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(beta.isSelected, "cursor stays on Beta after the Git column went")
     }
 
     /// Commit window: the changes read as sentences, the diff of the cursor file, Space stages,

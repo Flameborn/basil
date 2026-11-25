@@ -211,8 +211,7 @@ final class PaneViewController: NSViewController {
         guard settings.settings.views.contains(where: { $0.id == id }) else { return }
         viewID = id
         defaults.set(id, forKey: "pane.\(side.identifier).view")
-        applyColumns()
-        table.reloadData()
+        rebuildColumnsKeepingCursor()
         delegate?.pane(self, announce: "\(currentView.name) view")
     }
 
@@ -269,8 +268,7 @@ final class PaneViewController: NSViewController {
         columnContext = makeColumnContext()
         delegate?.paneDidUpdateAnnotations(self)
         if shownColumns.map(\.id) != before {
-            applyColumns()
-            table.reloadData()
+            rebuildColumnsKeepingCursor()
         } else {
             let visible = table.rows(in: table.visibleRect)
             table.reloadData(forRowIndexes: IndexSet(integersIn: visible.location..<(visible.location + visible.length)),
@@ -292,6 +290,22 @@ final class PaneViewController: NSViewController {
             }
         }
         annotationWatch = (paths, task)
+    }
+
+    /// Rebuilds the columns and reloads the rows with the cursor where it was. Without this the
+    /// reload after the columns changed put the cursor on row 1 (AppKit's selection check after
+    /// every column was removed): Backspace out of a Git repository, where the Git column goes,
+    /// landed on the first item instead of the folder left.
+    private func rebuildColumnsKeepingCursor() {
+        let cursor = cursorRow
+        // AppKit's detour through row 1 is not announced, and the cursor row is not read again.
+        table.withoutFocusAnnouncements {
+            applyColumns()
+            table.reloadData()
+            if let cursor, cursor < table.numberOfRows, table.selectedRow != cursor {
+                table.selectRowIndexes(IndexSet(integer: cursor), byExtendingSelection: false)
+            }
+        }
     }
 
     /// Rebuilds the table columns from the current view.
@@ -322,7 +336,8 @@ final class PaneViewController: NSViewController {
         let wanted = shownColumns.map(\.id.rawValue)
         let shown = table.tableColumns.map(\.identifier.rawValue)
         if wanted != shown {
-            applyColumns()
+            rebuildColumnsKeepingCursor()
+            return updateStatus()
         } else {
             // Same columns: only widths/formatting may have changed. Don't rebuild (the user may be dragging).
             for spec in shownColumns {
@@ -736,10 +751,13 @@ final class PaneViewController: NSViewController {
                 annotations = annotations.mapValues { _ in ColumnAnnotation() }
                 columnContext = makeColumnContext()
             }
-            table.reloadData()
-            let target = cursor.flatMap { path in model.rows.firstIndex { $0.path == path } } ?? 0
-            moveCursor(to: target)
-            table.rowsReplaced()
+            // One announcement of the cursor row at the end: AppKit's own fix of the selection
+            // during the reload, and the move to the target, are not read on their own.
+            table.withoutFocusAnnouncements {
+                table.reloadData()
+                let target = cursor.flatMap { path in model.rows.firstIndex { $0.path == path } } ?? 0
+                moveCursor(to: target)
+            }
             updateHeader()
             updateStatus()
             if changedDirectory {
@@ -956,6 +974,10 @@ extension PaneViewController: PaneTableViewKeyDelegate {
 
     /// A cell's spoken text: the column's spoken text when given, otherwise its visible text
     /// ("" leaves the cell out, e.g. a folder's empty extension). The name adds ", selected".
+    func paneTable(_ table: PaneTableView, identityOfRow row: Int) -> AnyHashable? {
+        row >= 0 && row < model.rows.count ? AnyHashable(model.rows[row].path) : nil
+    }
+
     func paneTable(_ table: PaneTableView, spokenTextForRow row: Int, column: Int) -> String {
         guard row < model.rows.count, column < table.tableColumns.count,
               let def = ColumnCatalog.definition(ColumnID(rawValue: table.tableColumns[column].identifier.rawValue))
@@ -1021,3 +1043,4 @@ final class ClosureMenuItem: NSMenuItem {
 
     @objc private func run() { handler() }
 }
+
