@@ -48,8 +48,8 @@ targets:
       properties:
         CFBundleName: Basil
         CFBundleDisplayName: Basil
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.3.0"
+        CFBundleVersion: "3"
         LSApplicationCategoryType: public.app-category.utilities
         NSHumanReadableCopyright: "Copyright 2026 Flameborn. MIT License."
         NSPrincipalClass: NSApplication

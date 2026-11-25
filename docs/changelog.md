@@ -4,6 +4,8 @@ Write new entries under "Unreleased" as you go. `scripts/release.sh` turns that 
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-25
+
 This is possibly the last release before the 1.0 version.
 
 - Lua plugins (LuaJIT): a plugin is a folder with a plugin.json and Lua files in Basil's Plugins folder. Plugins can add commands (with keys and menu items, also in the context menu), columns, places to browse, Multi-Rename placeholders and their own queue items, and they work with files through Basil's own copy, move, delete and dialogs. They run in a sandbox; network, shell and native code access are permissions the plugin names and you grant when you turn it on. Settings, Plugins turns each plugin on or off, reloads it and shows its log. Three example plugins and a guide for plugin authors come with Basil, in the Plugins folder.
