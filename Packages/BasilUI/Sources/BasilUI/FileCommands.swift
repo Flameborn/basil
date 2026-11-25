@@ -317,7 +317,7 @@ extension MainWindowController {
                 queueArchiveUpdate(.delete(items.map(\.path)), reloading: [archive])
             } else {
                 let apps = appIdentities(in: items)
-                let queued = queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers))
+                let queued = queue.add(DeleteOperation(paths: items.map(\.path), toTrash: toTrash, registry: providers, administrator: administrator))
                 if !apps.isEmpty {
                     queued.whenDone = { [weak self] _ in self?.offerLeftovers(of: apps, toTrash: toTrash) }
                 }
@@ -421,8 +421,12 @@ extension MainWindowController {
 
     // MARK: Prompts from running operations
 
-    func answer(_ prompt: QueuePrompt) async -> QueuePromptAnswer {
-        guard let window else {
+    /// Asks a running item's question as a sheet. It goes on the progress window when that window
+    /// shows the item (otherwise the sheet would open behind it, out of sight and focus), else on
+    /// the main window. Cancelling the item closes the sheet as if Cancel was chosen.
+    func answer(_ prompt: QueuePrompt, for item: QueueItem? = nil) async -> QueuePromptAnswer {
+        let host: NSWindow? = if let item, progressWindow.shownItem === item, let w = progressWindow.window { w } else { window }
+        guard let window = host else {
             switch prompt {
             case .conflict: return .conflict(.skip)
             case .unstableSource: return .unstableSource(.skip)
@@ -432,6 +436,12 @@ extension MainWindowController {
             }
         }
         window.makeKeyAndOrderFront(nil)
+        let ask: (NSAlert, NSWindow) async -> Int = { [weak self] alert, window in
+            guard let self else { return -1 }
+            if let item { openPrompts[ObjectIdentifier(item)] = (alert, window) }
+            defer { if let item { openPrompts[ObjectIdentifier(item)] = nil } }
+            return await self.present(alert, in: window)
+        }
         switch prompt {
         case .conflict(let c):
             let alert = NSAlert()
@@ -442,7 +452,7 @@ extension MainWindowController {
                 ("Overwrite All", .overwriteAll), ("Skip All", .skipAll), ("Rename", .rename), ("Cancel", .cancel),
             ]
             for (title, _) in choices { alert.addButton(withTitle: title) }
-            let index = await present(alert, in: window)
+            let index = await ask(alert, window)
             return .conflict(choices.indices.contains(index) ? choices[index].1 : .cancel)
         case .unstableSource(let u):
             let alert = NSAlert()
@@ -452,7 +462,7 @@ extension MainWindowController {
                 ("Keep Retrying", .keepRetrying), ("Accept Latest Copy", .acceptLatest), ("Skip", .skip), ("Cancel", .cancel),
             ]
             for (title, _) in choices { alert.addButton(withTitle: title) }
-            let index = await present(alert, in: window)
+            let index = await ask(alert, window)
             return .unstableSource(choices.indices.contains(index) ? choices[index].1 : .cancel)
         case .itemFailed(let f):
             let alert = NSAlert()
@@ -465,7 +475,7 @@ extension MainWindowController {
                 ("Retry", .retry), ("Skip", .skip), ("Skip All", .skipAll), ("Cancel", .cancel),
             ]
             for (title, _) in choices { alert.addButton(withTitle: title) }
-            let index = await present(alert, in: window)
+            let index = await ask(alert, window)
             return .itemFailed(choices.indices.contains(index) ? choices[index].1 : .cancel)
         case .folderExists(let f):
             let alert = NSAlert()
@@ -479,7 +489,7 @@ extension MainWindowController {
                 alert.showsSuppressionButton = true
                 alert.suppressionButton?.title = "Do the same for the other archives"
             }
-            let index = await present(alert, in: window)
+            let index = await ask(alert, window)
             let forAll = alert.suppressionButton?.state == .on
             return .folderExists(choices.indices.contains(index) ? choices[index].1 : .cancel, forAll: forAll)
         case .changedOnServer(let c):
@@ -489,7 +499,7 @@ extension MainWindowController {
             alert.informativeText = "Replace it with your copy?\nWhen you opened it: \(describe(c.then))\nNow: \(describe(c.now))\nIn \(c.path.parent?.path ?? "")"
             alert.addButton(withTitle: "Replace")
             alert.addButton(withTitle: "Cancel")
-            return .changedOnServer(replace: await present(alert, in: window) == 0)
+            return .changedOnServer(replace: await ask(alert, window) == 0)
         }
     }
 

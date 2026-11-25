@@ -224,6 +224,9 @@ public final class FileOperationQueue {
     /// Shows a prompt to the user and returns the answer. Without a handler, conflicts are
     /// skipped, a changing source is skipped and a failed item fails the operation.
     @ObservationIgnored public var promptHandler: ((QueueItem, QueuePrompt) async -> QueuePromptAnswer)?
+    /// Called when an item waiting for a decision is cancelled or removed: the UI closes the
+    /// question as if Cancel was chosen, so the operation can stop.
+    @ObservationIgnored public var promptCancelHandler: ((QueueItem) -> Void)?
 
     public init() {}
 
@@ -284,6 +287,7 @@ public final class FileOperationQueue {
             item.removeWhenStopped = true
             item.log.append("Cancelling")
             item.gate.cancel()
+            if item.isWaitingForDecision { promptCancelHandler?(item) }
         } else {
             items.removeAll { $0 === item }
         }
@@ -295,6 +299,7 @@ public final class FileOperationQueue {
         if item === current {
             item.log.append("Cancelling")
             item.gate.cancel()
+            if item.isWaitingForDecision { promptCancelHandler?(item) }
         } else {
             item.state = .cancelled
             item.log.append("Cancelled")

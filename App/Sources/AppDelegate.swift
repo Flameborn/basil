@@ -201,7 +201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         #if DEBUG
-        if UITestFixture.isActive { controller.opensBrowser = false }
+        if UITestFixture.isActive {
+            controller.opensBrowser = false
+            controller.administrator = nil
+        }
         // UI tests: Check for Updates finds a made-up release and never goes online.
         if UITestFixture.isActive {
             let offer = ProcessInfo.processInfo.environment["BASIL_UITEST_UPDATE"] == "1"

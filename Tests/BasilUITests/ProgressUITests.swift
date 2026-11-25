@@ -113,3 +113,65 @@ final class ProgressUITests: XCTestCase {
         XCTAssertTrue(waitFor { !window.exists }, app.debugDescription)
     }
 }
+
+/// A delete that fails asks its question on the progress window, in front and with focus, and
+/// the question's Cancel stops the item and closes the window.
+@MainActor
+final class ProgressPromptUITests: XCTestCase {
+    var app: XCUIApplication!
+
+    override func setUp() async throws {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchEnvironment["BASIL_UITEST_FIXTURE"] = "1"
+        app.launchEnvironment["BASIL_UITEST_PROGRESS"] = "1"
+        app.launchEnvironment["BASIL_UITEST_LOCKED"] = "1"
+        app.launch()
+    }
+
+    override func tearDown() async throws {
+        app?.terminate()
+    }
+
+    func waitFor(_ predicate: () -> Bool, timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return predicate()
+    }
+
+    func testFailedDeleteAsksOnTheProgressWindow() throws {
+        let table = app.tables["pane.left.table"]
+        XCTAssertTrue(table.waitForExistence(timeout: 5))
+        table.typeKey("l", modifierFlags: [])   // type-ahead to Locked
+        XCTAssertTrue(waitFor { table.tableRows.element(boundBy: 2).isSelected }, table.debugDescription)
+        table.typeKey(.F8, modifierFlags: .shift)
+        let confirm = app.sheets.firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 3))
+        XCTAssertTrue(confirm.buttons["Delete"].exists, confirm.debugDescription)
+        app.typeKey(.return, modifierFlags: [])
+
+        let progress = app.dialogs["Delete Locked"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 5), app.debugDescription)
+        let question = progress.sheets.firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 5), progress.debugDescription)
+        XCTAssertTrue(question.staticTexts["Cannot delete x"].exists, question.debugDescription)
+        XCTAssertTrue(question.buttons["Retry"].exists && question.buttons["Skip"].exists, question.debugDescription)
+
+        try audit(app) { issue in
+            if self.isCoveredElsewhere(issue, by: question) { return true }
+            // The system NSAlert draws its informative text on translucent glass; the audit misreads
+            // it as it does for the delete confirmation (see testFileOperationsWithKeyboard in PaneUITests).
+            if issue.auditType == .contrast, (issue.element?.value as? String)?.hasPrefix("No permission for") == true { return true }
+            print("AUDIT progress question: \(issue.auditType) \(issue.compactDescription) element=\(issue.element?.debugDescription.prefix(400) ?? "nil")")
+            return false
+        }
+
+        // Keys reach the question: Escape is its Cancel, which stops the item and closes the window.
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(waitFor { !progress.exists }, app.debugDescription)
+        XCTAssertTrue(waitFor { table.tableRows.element(boundBy: 2).exists })
+    }
+}

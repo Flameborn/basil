@@ -42,8 +42,14 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     public var leftoverRoots: AppLeftoverFinder.Roots = .system
     /// Sign-ins on a website open the browser (UI tests turn it off).
     public var opensBrowser = true
+    /// Removes items the user may not remove after macOS's password dialog (F8, Shift+F8).
+    /// Nil in UI tests, where a permission error is just an error.
+    public var administrator: AdministratorRemoval? = .system
     /// True while the "was changed, update it?" sheets are up (ArchiveEditing.swift).
     var offeringEditedCopies = false
+    /// Questions of running queue items on screen (alert and the window it is a sheet of), so
+    /// cancelling the item closes its question.
+    var openPrompts: [ObjectIdentifier: (alert: NSAlert, window: NSWindow)] = [:]
     /// Host key and password questions of remote connections (`RemoteConnections.swift`).
     private(set) var remotePrompts: RemotePromptsUI!
     /// The system git, when found (Git column, Commands > Git). nil: no Git commands.
@@ -200,9 +206,13 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         queue.onEvent = { [weak self] event in self?.handle(event) }
         queue.promptHandler = { [weak self] item, prompt in
             guard let self else { return .conflict(.cancel) }
-            let answer = await self.answer(prompt)
+            let answer = await self.answer(prompt, for: item)
             progressWindow.promptAnswered(for: item)
             return answer
+        }
+        queue.promptCancelHandler = { [weak self] item in
+            guard let open = self?.openPrompts[ObjectIdentifier(item)] else { return }
+            open.window.endSheet(open.alert.window, returnCode: .abort)
         }
         progressWindow.isAllowed = { [weak self] in
             guard let self else { return false }

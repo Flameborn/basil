@@ -78,7 +78,11 @@ final class ProgressWindowController: NSWindowController, NSWindowDelegate {
         if Self.immediateKinds.contains(item.kind) { return show(item) }
         Task {
             try? await Task.sleep(for: Self.delay)
-            if queue.current === item, !item.state.isDone, !backgrounded.contains(item.id) { show(item) }
+            // A question already on the main window would end up behind the window; it opens
+            // once the question is answered instead (`promptAnswered`).
+            if queue.current === item, !item.state.isDone, !item.isWaitingForDecision, !backgrounded.contains(item.id) {
+                show(item)
+            }
         }
     }
 
@@ -89,10 +93,16 @@ final class ProgressWindowController: NSWindowController, NSWindowDelegate {
         state.item = nil
     }
 
-    /// A prompt of the shown item was answered (on the main window): the window takes focus again.
+    /// A prompt of the item was answered: the window takes focus again, or opens when it was
+    /// held back while the question was up.
     func promptAnswered(for item: QueueItem) {
-        guard state.item === item, isOpen, !item.state.isDone else { return }
-        window?.makeKeyAndOrderFront(nil)
+        guard !item.state.isDone, queue.current === item, !backgrounded.contains(item.id) else { return }
+        if isOpen {
+            guard state.item === item else { return }
+            window?.makeKeyAndOrderFront(nil)
+        } else {
+            show(item)
+        }
     }
 
     // MARK: Buttons

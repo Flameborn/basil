@@ -55,6 +55,8 @@ final class ItemErrorPolicy: Sendable {
                 return true
             } catch let error as CancellationError {
                 throw error
+            } catch let error as DeleteOperation.NeedsAdministrator {
+                throw error
             } catch {
                 switch try await handle(error, at: path) {
                 case .retry: context.log("Retrying \(path.path)")
@@ -446,16 +448,21 @@ enum FreeName {
     }
 }
 
-/// F8: moves items to the Trash, or deletes them permanently (Shift+F8).
+/// F8: moves items to the Trash, or deletes them permanently (Shift+F8). Local items the user
+/// may not remove (a root-owned app in /Applications) are collected and, with `administrator`,
+/// removed at the end after one macOS password dialog, like Finder does. A cancelled dialog asks
+/// Retry / Skip / Skip All / Cancel for each of them; Retry shows the password dialog again.
 public struct DeleteOperation: QueueOperation {
     public let paths: [VFSPath]
     public let toTrash: Bool
     let registry: ProviderRegistry
+    let administrator: AdministratorRemoval?
 
-    public init(paths: [VFSPath], toTrash: Bool, registry: ProviderRegistry) {
+    public init(paths: [VFSPath], toTrash: Bool, registry: ProviderRegistry, administrator: AdministratorRemoval? = nil) {
         self.paths = paths
         self.toTrash = toTrash
         self.registry = registry
+        self.administrator = administrator
     }
 
     public var kind: OperationKind { toTrash ? .trash : .delete }
@@ -465,47 +472,122 @@ public struct DeleteOperation: QueueOperation {
         return toTrash ? "Move \(what) to the Trash" : "Delete \(what)"
     }
 
+    /// Thrown inside `removeTree` to hand a top-level item to the administrator step.
+    struct NeedsAdministrator: Error {}
+
+    /// Whether a failure on `path` is one the administrator step can fix.
+    func needsAdministrator(_ error: any Error, _ path: VFSPath) -> Bool {
+        guard administrator != nil, path.location == .local else { return false }
+        if case .permissionDenied = error as? VFSError { return true }
+        if let error = error as? CocoaError, error.code == .fileWriteNoPermission || error.code == .fileReadNoPermission {
+            return true
+        }
+        return false
+    }
+
     public func run(_ context: OperationContext) async throws {
         context.items(done: 0, total: paths.count)
         let errors = ItemErrorPolicy(context: context, action: toTrash ? "move to the Trash" : "delete")
         var done = 0
+        var forAdministrator: [VFSPath] = []
         for (index, path) in paths.enumerated() {
             try await context.checkpoint()
             context.progress(Double(index) / Double(paths.count), "\(index + 1) of \(paths.count), \(path.name)")
             let removed: Bool
-            if toTrash {
-                removed = try await errors.run(path) {
-                    try await registry.writableProvider(for: path.location).trash(path)
+            do {
+                if toTrash {
+                    removed = try await errors.run(path) {
+                        do {
+                            try await registry.writableProvider(for: path.location).trash(path)
+                        } catch where needsAdministrator(error, path) {
+                            throw NeedsAdministrator()
+                        }
+                    }
+                } else {
+                    removed = try await removeTree(path, errors, context)
                 }
-            } else {
-                removed = try await Self.removeTree(path, registry, errors, context)
+            } catch is NeedsAdministrator {
+                forAdministrator.append(path)
+                continue
             }
             guard removed else { continue }
             done += 1
             context.log(toTrash ? "Moved \(path.path) to the Trash" : "Deleted \(path.path)")
             context.items(done: done, total: paths.count)
         }
+        if let administrator, !forAdministrator.isEmpty {
+            done += try await removeAsAdministrator(forAdministrator, administrator, errors, context, done: done)
+        }
         context.progress(1, "\(itemsText(done)) \(toTrash ? "moved to the Trash" : "deleted")")
     }
 
-    /// Deletes a file or a folder with everything in it. False when something was skipped
-    /// after an error (the folders above it are then kept too).
+    /// One password dialog for every collected item. Returns how many were removed.
+    private func removeAsAdministrator(_ paths: [VFSPath], _ administrator: AdministratorRemoval,
+                                       _ errors: ItemErrorPolicy, _ context: OperationContext, done: Int) async throws -> Int {
+        var pending = paths
+        while !pending.isEmpty {
+            try await context.checkpoint()
+            let what = pending.count == 1 ? pending[0].name : itemsText(pending.count)
+            context.progress(nil, "Waiting for the administrator password to \(toTrash ? "move \(what) to the Trash" : "delete \(what)")")
+            context.log("Asking for the administrator password for \(pending.map(\.path).joined(separator: ", "))")
+            let failure: any Error
+            do {
+                try await administrator.remove(pending.map(\.path), toTrash)
+                for p in pending { context.log(toTrash ? "Moved \(p.path) to the Trash as administrator" : "Deleted \(p.path) as administrator") }
+                context.items(done: done + pending.count, total: self.paths.count)
+                return pending.count
+            } catch is AdministratorRemoval.Declined {
+                failure = VFSError.failed("An administrator password is needed and none was given.")
+            } catch {
+                failure = error
+            }
+            var again: [VFSPath] = []
+            for path in pending {
+                switch try await errors.handle(failure, at: path) {
+                case .retry: again.append(path)
+                case .skip: break
+                }
+            }
+            pending = again
+        }
+        return 0
+    }
+
+    /// `removeTree` for other operations (moving out of an archive, deleting unpacked archives),
+    /// without the administrator step.
     static func removeTree(_ path: VFSPath, _ registry: ProviderRegistry, _ errors: ItemErrorPolicy,
                            _ context: OperationContext) async throws -> Bool {
+        try await DeleteOperation(paths: [path], toTrash: false, registry: registry).removeTree(path, errors, context)
+    }
+
+    /// Deletes a file or a folder with everything in it. False when something was skipped
+    /// after an error (the folders above it are then kept too). A permission error throws
+    /// `NeedsAdministrator` when the administrator step can take the whole item.
+    func removeTree(_ path: VFSPath, _ errors: ItemErrorPolicy, _ context: OperationContext) async throws -> Bool {
         try await context.checkpoint()
         let provider = try registry.writableProvider(for: path.location)
         var children: [FileItem] = []
         guard try await errors.run(path, {
             children = []
-            guard try await provider.fingerprint(of: path).kind == .directory else { return }
-            for try await batch in provider.list(path) { children += batch }
+            do {
+                guard try await provider.fingerprint(of: path).kind == .directory else { return }
+                for try await batch in provider.list(path) { children += batch }
+            } catch where needsAdministrator(error, path) {
+                throw NeedsAdministrator()
+            }
         }) else { return false }
         var complete = true
         for child in children {
-            if try await !removeTree(child.path, registry, errors, context) { complete = false }
+            if try await !removeTree(child.path, errors, context) { complete = false }
         }
         guard complete else { return false }
-        return try await errors.run(path) { try await provider.remove(path) }
+        return try await errors.run(path) {
+            do {
+                try await provider.remove(path)
+            } catch where needsAdministrator(error, path) {
+                throw NeedsAdministrator()
+            }
+        }
     }
 }
 

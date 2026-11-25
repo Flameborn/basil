@@ -479,6 +479,92 @@ func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async
         #expect(try box.names() == ["locked"])
         #expect(item.itemsDone == 1 && item.itemsTotal == 2)
     }
+
+    /// A stand-in for macOS's password dialog: records the calls, can decline, then removes.
+    final class FakeAdministrator: @unchecked Sendable {
+        var calls: [[String]] = []
+        var declines = 0
+        var removal: AdministratorRemoval {
+            AdministratorRemoval { paths, _ in
+                await MainActor.run { self.calls.append(paths) }
+                if await MainActor.run(body: { self.declines > 0 ? { self.declines -= 1; return true }() : false }) {
+                    throw AdministratorRemoval.Declined()
+                }
+                for path in paths {
+                    _ = try? Process.run(URL(fileURLWithPath: "/bin/chmod"), arguments: ["-R", "u+w", path]).waitUntilExit()
+                    try FileManager.default.removeItem(atPath: path)
+                }
+            }
+        }
+    }
+
+    @Test func permissionErrorsAreRemovedAsAdministratorAfterOnePrompt() async throws {
+        let box = try Sandbox()
+        try box.mkdir("locked/inner")
+        try box.write("locked/inner/x", Data())
+        try box.mkdir("locked2/inner")
+        try box.write("locked2/inner/y", Data())
+        try box.write("other.txt", Data())
+        chmod(box.path("locked/inner"), 0o555)
+        chmod(box.path("locked2/inner"), 0o555)
+        defer { chmod(box.path("locked/inner"), 0o755); chmod(box.path("locked2/inner"), 0o755) }
+        let queue = FileOperationQueue()
+        var prompts = 0
+        queue.promptHandler = { _, _ in prompts += 1; return .itemFailed(.skip) }
+        let admin = FakeAdministrator()
+        let item = await run(queue, DeleteOperation(paths: [box.path("locked"), box.path("other.txt"), box.path("locked2")],
+                                                    toTrash: false, registry: registry, administrator: admin.removal))
+        #expect(item.state == .finished)
+        #expect(prompts == 0)
+        #expect(admin.calls == [[box.path("locked").path, box.path("locked2").path]])
+        #expect(try box.names() == [])
+        #expect(item.itemsDone == 3)
+    }
+
+    @Test func aDeclinedPasswordAsksAndRetryShowsItAgain() async throws {
+        let box = try Sandbox()
+        try box.mkdir("locked/inner")
+        try box.write("locked/inner/x", Data())
+        chmod(box.path("locked/inner"), 0o555)
+        defer { chmod(box.path("locked/inner"), 0o755) }
+        let queue = FileOperationQueue()
+        var reasons: [String] = []
+        queue.promptHandler = { _, prompt in
+            if case .itemFailed(let f) = prompt { reasons.append(f.reason) }
+            return .itemFailed(.retry)
+        }
+        let admin = FakeAdministrator()
+        admin.declines = 1
+        let item = await run(queue, DeleteOperation(paths: [box.path("locked")], toTrash: false, registry: registry,
+                                                    administrator: admin.removal))
+        #expect(item.state == .finished)
+        #expect(reasons == ["An administrator password is needed and none was given."])
+        #expect(admin.calls.count == 2)
+        #expect(try box.names() == [])
+    }
+
+    @Test func cancellingAnItemWaitingForADecisionClosesTheQuestion() async throws {
+        let box = try Sandbox()
+        try box.mkdir("locked/inner")
+        try box.write("locked/inner/x", Data())
+        chmod(box.path("locked/inner"), 0o555)
+        defer { chmod(box.path("locked/inner"), 0o755) }
+        let queue = FileOperationQueue()
+        var answer: CheckedContinuation<QueuePromptAnswer, Never>?
+        queue.promptHandler = { _, _ in await withCheckedContinuation { answer = $0 } }
+        var closed = 0
+        queue.promptCancelHandler = { _ in
+            closed += 1
+            answer?.resume(returning: .itemFailed(.cancel))
+            answer = nil
+        }
+        let item = queue.add(DeleteOperation(paths: [box.path("locked")], toTrash: false, registry: registry))
+        #expect(await waitUntil { item.isWaitingForDecision })
+        queue.cancel(item.id)
+        #expect(await waitUntil { item.state.isDone })
+        #expect(item.state == .cancelled)
+        #expect(closed == 1)
+    }
 }
 
 @MainActor

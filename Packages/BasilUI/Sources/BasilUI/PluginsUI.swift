@@ -39,7 +39,7 @@ extension MainWindowController: PluginHost {
         alert.addButton(withTitle: "Cancel")
         Task {
             guard await present(alert, in: window) == 0 else { return }
-            queue.add(DeleteOperation(paths: items, toTrash: trash, registry: providers))
+            queue.add(DeleteOperation(paths: items, toTrash: trash, registry: providers, administrator: administrator))
         }
     }
 

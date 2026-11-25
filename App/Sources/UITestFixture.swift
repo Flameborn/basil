@@ -50,7 +50,7 @@ enum UITestFixture {
         // so remove fixtures left by earlier runs first.
         let temp = fm.temporaryDirectory
         for old in (try? fm.contentsOfDirectory(atPath: temp.path)) ?? [] where old.hasPrefix("basil-uitest-") {
-            try? fm.removeItem(at: temp.appendingPathComponent(old))
+            removeTree(temp.appendingPathComponent(old))
         }
         let root = temp.appendingPathComponent("basil-uitest-\(ProcessInfo.processInfo.processIdentifier)")
         do {
@@ -75,6 +75,12 @@ enum UITestFixture {
                 try makeRepository(at: root.appendingPathComponent("Beta"))
                 // An empty remote for publishing, reached from Beta as ../../basil-uitest-origin.git.
                 try makeBareRepository(at: temp.appendingPathComponent("basil-uitest-origin.git"))
+            }
+            if ProcessInfo.processInfo.environment["BASIL_UITEST_LOCKED"] == "1" {
+                // A folder whose contents cannot be deleted: deleting it fails with a permission error.
+                try fm.createDirectory(at: root.appendingPathComponent("Locked/inner"), withIntermediateDirectories: true)
+                try Data("x".utf8).write(to: root.appendingPathComponent("Locked/inner/x"))
+                chmod(root.appendingPathComponent("Locked/inner").path, 0o555)
             }
             if ProcessInfo.processInfo.environment["BASIL_UITEST_RAR"] == "1" {
                 try Data(base64Encoded: rar4Archive.joined())!.write(to: root.appendingPathComponent("Alpha/Inner/old.rar"))
@@ -172,7 +178,20 @@ enum UITestFixture {
     nonisolated(unsafe) private static var createdRoot: URL?
 
     static func cleanup() {
-        if let root = createdRoot { try? FileManager.default.removeItem(at: root) }
+        if let root = createdRoot { removeTree(root) }
+    }
+
+    /// Removes a folder, first making read-only folders in it writable (BASIL_UITEST_LOCKED).
+    private static func removeTree(_ url: URL) {
+        let fm = FileManager.default
+        if let walker = fm.enumerator(atPath: url.path) {
+            for case let relative as String in walker {
+                let path = url.appendingPathComponent(relative).path
+                var isDirectory: ObjCBool = false
+                if fm.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue { chmod(path, 0o755) }
+            }
+        }
+        try? fm.removeItem(at: url)
     }
 }
 #endif

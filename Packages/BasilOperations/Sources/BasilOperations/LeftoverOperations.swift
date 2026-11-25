@@ -32,74 +32,21 @@ public struct RemoveLeftoversOperation: QueueOperation {
 
     public func run(_ context: OperationContext) async throws {
         if !paths.isEmpty {
-            try await DeleteOperation(paths: paths, toTrash: toTrash, registry: registry).run(context)
+            try await DeleteOperation(paths: paths, toTrash: toTrash, registry: registry, administrator: .system).run(context)
         }
         guard !adminPaths.isEmpty else { return }
         try await context.checkpoint()
         context.progress(nil, "Waiting for the administrator password")
-        let script = Self.adminScript(for: adminPaths.map(\.path), toTrash: toTrash,
-                                      trash: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash").path)
-        try await Self.runAppleScript(script)
+        do {
+            try await AdministratorRemoval.system.remove(adminPaths.map(\.path), toTrash)
+        } catch is AdministratorRemoval.Declined {
+            throw CancellationError()
+        }
         for p in adminPaths { context.log(toTrash ? "Moved \(p.path) to the Trash" : "Deleted \(p.path)") }
         context.progress(1, "Done")
     }
 
-    /// One `do shell script` with every path quoted by AppleScript's `quoted form of`. Trash mode
-    /// moves each item into the user's Trash under a free name and gives it to the user.
     static func adminScript(for paths: [String], toTrash: Bool, trash: String) -> String {
-        func literal(_ s: String) -> String {
-            "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
-        }
-        var lines = ["set cmd to \"\""]
-        for (i, path) in paths.enumerated() {
-            if toTrash {
-                let name = (path as NSString).lastPathComponent
-                let target = (trash as NSString).appendingPathComponent("\(name) \(UUID().uuidString.prefix(8))")
-                lines.append("set cmd to cmd & \"/bin/mv -n -- \" & quoted form of \(literal(path)) & \" \" & quoted form of \(literal(target)) & \" && /usr/sbin/chown -R \(getuid()) \" & quoted form of \(literal(target))\(i < paths.count - 1 ? " & \" && \"" : "")")
-            } else {
-                lines.append("set cmd to cmd & \"/bin/rm -rf -- \" & quoted form of \(literal(path))\(i < paths.count - 1 ? " & \" && \"" : "")")
-            }
-        }
-        lines.append("do shell script cmd with administrator privileges")
-        return lines.joined(separator: "\n")
-    }
-
-    /// Runs a script through osascript, fed on stdin. A cancelled password prompt is a cancellation.
-    static func runAppleScript(_ script: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-"]
-            let input = Pipe(), errors = Pipe()
-            process.standardInput = input
-            process.standardError = errors
-            process.standardOutput = FileHandle.nullDevice
-            process.terminationHandler = { p in
-                let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if p.terminationStatus == 0 {
-                    continuation.resume()
-                } else if message.contains("-128") {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    continuation.resume(throwing: AdminRemovalError(message: message))
-                }
-            }
-            do {
-                try process.run()
-                input.fileHandleForWriting.write(Data(script.utf8))
-                try? input.fileHandleForWriting.close()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-}
-
-/// The administrator step failed (not a cancelled password prompt).
-struct AdminRemovalError: LocalizedError {
-    let message: String
-    var errorDescription: String? {
-        "Could not remove the items that need an administrator" + (message.isEmpty ? "" : ": \(message)")
+        AdministratorRemoval.script(for: paths, toTrash: toTrash, trash: trash)
     }
 }
