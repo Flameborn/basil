@@ -946,6 +946,10 @@ final class PaneUITests: XCTestCase {
         let secure = settings.descendants(matching: .any)
             .matching(NSPredicate(format: "label == 'Secure copy and move'")).firstMatch
         XCTAssertEqual(secure.value as? Int, 0, "secure mode is off by default")
+        let helper = settings.staticTexts["settings.helperStatus"]
+        XCTAssertTrue(helper.exists, settings.debugDescription)
+        XCTAssertTrue(((helper.value as? String) ?? helper.label).hasPrefix("Administrator helper: "))
+        XCTAssertTrue(settings.buttons["Open Login Items Settings"].exists, settings.debugDescription)
         try audit(app) { issue in
             if issue.auditType == .action, let element = issue.element, !element.isEnabled { return true }
             if self.isCoveredElsewhere(issue, by: settings) { return true }

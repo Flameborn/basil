@@ -39,7 +39,7 @@ extension MainWindowController {
                 queueArchiveUpdate(.moveOut(sources: sources, target: target, options: options), reloading: [archive])
             } else {
                 queue.add(TransferOperation(mode: mode, sources: sources, target: target,
-                                            registry: providers, options: options))
+                                            registry: providers, options: options, administrator: administratorFiles))
             }
             activePane.model.deselectAll()
         }
@@ -61,7 +61,8 @@ extension MainWindowController {
             let s = settings.settings
             let options = SecureCopyOptions(verifyDestination: s.verifyCopies, unstableRetries: s.unstableSourceRetries,
                                             secure: s.secureCopy)
-            let queued = queue.add(TransferOperation(duplicating: items.map(\.path), registry: providers, options: options))
+            let queued = queue.add(TransferOperation(duplicating: items.map(\.path), registry: providers, options: options,
+                                                     administrator: administratorFiles))
             pane.model.deselectAll()
             queued.whenDone = { _ in
                 if pane.model.directory == directory { pane.model.reload(cursor: pane.cursorItem?.path) }

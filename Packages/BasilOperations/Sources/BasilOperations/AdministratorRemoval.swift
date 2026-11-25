@@ -1,3 +1,4 @@
+import BasilVFS
 import Foundation
 
 /// Removes local items the user may not remove (root-owned apps in /Applications, items in
@@ -81,4 +82,13 @@ public struct AdministratorRemoval: Sendable {
             }
         }
     }
+}
+
+/// Copies and moves as an administrator, through Basil's helper (the UI's `HelperAccess`).
+/// `begin` asks for the password (installing or approving the helper first when needed) and
+/// registers `PrivilegedLocalProvider` under `.localAdministrator` until `end`.
+public protocol AdministratorFiles: Sendable {
+    /// Throws `PrivilegedAccessDeclined` when the user said no.
+    func begin(prompt: String) async throws
+    func end() async
 }

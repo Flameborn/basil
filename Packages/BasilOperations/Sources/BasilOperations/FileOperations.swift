@@ -79,24 +79,32 @@ public struct TransferOperation: QueueOperation {
     public let duplicate: Bool
     let registry: ProviderRegistry
     let options: SecureCopyOptions
+    /// Copies and moves of local items the user may not change run through the administrator
+    /// helper after a password (nil: never; tests and plugins without it).
+    let administrator: (any AdministratorFiles)?
 
-    public init(mode: TransferMode, sources: [VFSPath], target: VFSPath, registry: ProviderRegistry, options: SecureCopyOptions) {
-        self.mode = mode
-        self.sources = sources
-        self.target = target
-        self.duplicate = false
-        self.registry = registry
-        self.options = options
+    public init(mode: TransferMode, sources: [VFSPath], target: VFSPath, registry: ProviderRegistry, options: SecureCopyOptions,
+                administrator: (any AdministratorFiles)? = nil) {
+        self.init(mode: mode, sources: sources, target: target, duplicate: false, registry: registry, options: options,
+                  administrator: administrator)
     }
 
     /// Copies each source into its own folder under a free "name (2).ext" name.
-    public init(duplicating sources: [VFSPath], registry: ProviderRegistry, options: SecureCopyOptions) {
-        self.mode = .copy
+    public init(duplicating sources: [VFSPath], registry: ProviderRegistry, options: SecureCopyOptions,
+                administrator: (any AdministratorFiles)? = nil) {
+        self.init(mode: .copy, sources: sources, target: sources.first?.parent ?? VFSPath(location: .local, path: "/"),
+                  duplicate: true, registry: registry, options: options, administrator: administrator)
+    }
+
+    private init(mode: TransferMode, sources: [VFSPath], target: VFSPath, duplicate: Bool, registry: ProviderRegistry,
+                 options: SecureCopyOptions, administrator: (any AdministratorFiles)?) {
+        self.mode = mode
         self.sources = sources
-        self.target = sources.first?.parent ?? VFSPath(location: .local, path: "/")
-        self.duplicate = true
+        self.target = target
+        self.duplicate = duplicate
         self.registry = registry
         self.options = options
+        self.administrator = administrator
     }
 
     public var kind: OperationKind { mode == .copy ? .copy : .move }
@@ -108,7 +116,98 @@ public struct TransferOperation: QueueOperation {
     }
 
     public func run(_ context: OperationContext) async throws {
-        _ = try await transferAll(context)
+        guard let administrator, let reason = administratorReason() else {
+            _ = try await transferAll(context)
+            return
+        }
+        context.log("Needs an administrator: \(reason)")
+        context.progress(nil, "Waiting for the administrator password")
+        do {
+            try await administrator.begin(prompt: "Basil wants to \(reason).")
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch is PrivilegedAccessDeclined {
+            context.log("No administrator password was given; trying without")
+            _ = try await transferAll(context)
+            return
+        } catch {
+            context.log("Could not work as an administrator: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)")
+            _ = try await transferAll(context)
+            return
+        }
+        context.log("Working as an administrator")
+        do {
+            _ = try await asAdministrator().transferAll(context)
+        } catch {
+            await administrator.end()
+            throw error
+        }
+        await administrator.end()
+    }
+
+    /// The same operation with every local path on the administrator helper's provider, so
+    /// same-volume moves still rename and copies still clone (as root).
+    func asAdministrator() -> TransferOperation {
+        func elevated(_ path: VFSPath) -> VFSPath {
+            path.location == .local ? VFSPath(location: .localAdministrator, path: path.path) : path
+        }
+        return TransferOperation(mode: mode, sources: sources.map(elevated), target: elevated(target), duplicate: duplicate,
+                                 registry: registry, options: options, administrator: nil)
+    }
+
+    /// Why this operation needs an administrator ("copy Foo.app into Applications"), or nil.
+    /// Checked before it starts, by what the user may do (access(2)) with the local folders
+    /// and items involved: the folder items go into (the nearest one that exists when it is to
+    /// be made), an existing folder of the same name that would be merged into, and for moves
+    /// the folder items leave (and a moved folder itself, which a move to another folder
+    /// changes); for copies, sources that cannot be read.
+    func administratorReason() -> String? {
+        let verb = duplicate ? "duplicate" : mode == .copy ? "copy" : "move"
+        let what = sources.count == 1 ? sources[0].name : itemsText(sources.count)
+        func isDirectory(_ path: String) -> Bool {
+            var st = stat()
+            return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR
+        }
+        func exists(_ path: String) -> Bool {
+            var st = stat()
+            return lstat(path, &st) == 0
+        }
+        func writable(_ path: String) -> Bool { access(path, W_OK | X_OK) == 0 }
+        func nearestExisting(_ path: VFSPath) -> VFSPath {
+            var p = path
+            while !exists(p.path), let parent = p.parent { p = parent }
+            return p
+        }
+        func name(of folder: VFSPath) -> String { folder.isRoot ? "the startup disk" : folder.name }
+
+        if target.location == .local {
+            var destinations: [(folder: VFSPath, item: VFSPath)] = []
+            if duplicate {
+                destinations = sources.compactMap { s in s.parent.map { ($0, $0.appending(s.name)) } }
+            } else if isDirectory(target.path) {
+                destinations = sources.map { (target, target.appending($0.name)) }
+            } else if sources.count == 1, let parent = target.parent {
+                destinations = [(nearestExisting(parent), target)]
+            } else {
+                let folder = nearestExisting(target)
+                destinations = sources.map { (folder, target.appending($0.name)) }
+            }
+            for (folder, item) in destinations {
+                if !writable(folder.path) { return "\(verb) \(what) into \(name(of: folder))" }
+                if !duplicate, isDirectory(item.path), !writable(item.path) {
+                    return "\(verb) \(what) into \(name(of: folder)), replacing \(item.name)"
+                }
+            }
+        }
+        for source in sources where source.location == .local {
+            if mode == .move {
+                if let parent = source.parent, !writable(parent.path) { return "move \(what) out of \(name(of: parent))" }
+                if isDirectory(source.path), !writable(source.path) { return "move \(what)" }
+            } else if access(source.path, isDirectory(source.path) ? R_OK | X_OK : R_OK) != 0 {
+                return "\(verb) \(what)"
+            }
+        }
+        return nil
     }
 
     /// Runs the transfers and returns the sources that were transferred completely (nothing

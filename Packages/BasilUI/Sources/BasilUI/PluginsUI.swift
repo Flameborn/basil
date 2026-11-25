@@ -22,7 +22,7 @@ extension MainWindowController: PluginHost {
         let options = SecureCopyOptions(verifyDestination: s.verifyCopies, unstableRetries: s.unstableSourceRetries,
                                         secure: s.secureCopy)
         queue.add(TransferOperation(mode: move ? .move : .copy, sources: sources, target: target,
-                                    registry: providers, options: options))
+                                    registry: providers, options: options, administrator: administratorFiles))
     }
 
     /// Deletes a plugin asks for are confirmed first, like F8 and Shift+F8.

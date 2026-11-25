@@ -45,6 +45,8 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
     /// Removes items the user may not remove after macOS's password dialog (F8, Shift+F8).
     /// Nil in UI tests, where a permission error is just an error.
     public var administrator: AdministratorRemoval? = .system
+    /// Copies and moves as an administrator through BasilHelper (F5, F6, Shift+F5). Nil in UI tests.
+    public var administratorFiles: (any AdministratorFiles)?
     /// True while the "was changed, update it?" sheets are up (ArchiveEditing.swift).
     var offeringEditedCopies = false
     /// Questions of running queue items on screen (alert and the window it is a sheet of), so
@@ -202,6 +204,7 @@ public final class MainWindowController: NSWindowController, WorkspaceContext {
         setActive(.left)
         window.makeFirstResponder(left.tableView)
         installPasswordPrompt(secrets: secrets)
+        administratorFiles = HelperAccess(registry: providers, controller: self)
         remotePrompts = RemotePromptsUI(controller: self, secrets: remoteSecrets)
         queue.onEvent = { [weak self] event in self?.handle(event) }
         queue.promptHandler = { [weak self] item, prompt in

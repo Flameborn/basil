@@ -2,6 +2,7 @@ import AppKit
 import BasilCore
 import BasilIntegrations
 import BasilPlugins
+import ServiceManagement
 import SwiftUI
 
 /// The sections of Settings, in the sidebar's order.
@@ -530,8 +531,39 @@ struct CopySettings: View {
             Text("Packing zip and tar archives keeps extended attributes, Finder tags and resource forks, the way Finder does (zip archives get a __MACOSX folder, which other systems show as extra files). Basil restores them when extracting. On by default.")
                 .font(.callout)
                 .foregroundStyle(Theme.secondaryTextColor)
+            AdministratorHelperSettings()
         }
         .formStyle(.grouped)
+    }
+}
+
+/// The administrator helper's state and a way to remove it.
+struct AdministratorHelperSettings: View {
+    @State private var status = HelperAccess.statusText
+    @State private var message = ""
+
+    var body: some View {
+        Text("Administrator helper: \(status)")
+            .accessibilityIdentifier("settings.helperStatus")
+        Text("Copying or moving items into folders you may not change (Applications, Library) asks for an administrator password and works through a helper that macOS runs for Basil. The first time, macOS asks you to allow it under Allow in the Background in System Settings. New items made this way belong to the system administrator (root).")
+            .font(.callout)
+            .foregroundStyle(Theme.secondaryTextColor)
+        HStack {
+            Button("Remove Helper") {
+                Task { @MainActor in
+                    do {
+                        try await HelperAccess.service.unregister()
+                        message = "The helper was removed."
+                    } catch {
+                        message = "The helper could not be removed: \(error.localizedDescription)"
+                    }
+                    status = HelperAccess.statusText
+                }
+            }
+            .disabled(status == "Not installed")
+            Button("Open Login Items Settings") { SMAppService.openSystemSettingsLoginItems() }
+        }
+        if !message.isEmpty { Text(message) }
     }
 }
 

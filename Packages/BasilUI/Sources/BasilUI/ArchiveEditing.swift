@@ -97,6 +97,7 @@ extension MainWindowController {
     /// archive, "/Photos on alice@example.com" on a server.
     func placeName(of folder: VFSPath) -> String {
         if folder.location.provider == .local || folder.location.container != nil { return folder.clipboardPath }
+        if folder.location.provider == .localAdministrator { return folder.path }
         return "\(folder.path) on \(serverName(of: folder.location))"
     }
 

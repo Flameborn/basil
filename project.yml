@@ -33,6 +33,12 @@ targets:
       # Shown by About Basil > License.
       - path: LICENSE
         buildPhase: resources
+      # The administrator helper's launchd job, registered through SMAppService.daemon.
+      - path: App/LaunchDaemons/com.flameborn.basil.helper.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
     info:
       path: App/Resources/Info.plist
       properties:
@@ -88,6 +94,26 @@ targets:
       - package: BasilPlugins
       - package: BasilIntegrations
       - package: BasilUI
+      # Contents/MacOS/BasilHelper (the plist's BundleProgram).
+      - target: BasilHelper
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+
+  BasilHelper:
+    type: tool
+    platform: macOS
+    sources: [Helper/Sources]
+    settings:
+      base:
+        PRODUCT_NAME: BasilHelper
+        PRODUCT_BUNDLE_IDENTIFIER: com.flameborn.basil.helper
+        # A tool has no Info.plist; the signing identifier is what Basil checks it against.
+        OTHER_CODE_SIGN_FLAGS: "--identifier com.flameborn.basil.helper"
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: BasilVFS
 
   BasilUITests:
     type: bundle.ui-testing

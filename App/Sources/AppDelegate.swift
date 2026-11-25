@@ -204,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UITestFixture.isActive {
             controller.opensBrowser = false
             controller.administrator = nil
+            controller.administratorFiles = nil
         }
         // UI tests: Check for Updates finds a made-up release and never goes online.
         if UITestFixture.isActive {
