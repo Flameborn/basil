@@ -98,7 +98,7 @@ public enum SoundChoice: Codable, Hashable, Sendable {
     case none
     /// A macOS system sound by name ("Glass", "Basso", ...), from /System/Library/Sounds.
     case system(String)
-    /// Any audio file chosen by the user.
+    /// An audio file by path, either built in or chosen by the user.
     case file(String)
 
     public var title: String {
@@ -108,6 +108,14 @@ public enum SoundChoice: Codable, Hashable, Sendable {
         case .file(let path): (path as NSString).lastPathComponent
         }
     }
+}
+
+/// File-backed macOS sounds, which NSSound cannot find by alert-sound name.
+public enum SystemSoundFiles {
+    public static let directory = "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds"
+    public static let volumeMount = SoundChoice.file(directory + "/system/Volume Mount.aif")
+    public static let dragToTrash = SoundChoice.file(directory + "/dock/drag to trash.aif")
+    public static let emptyTrash = SoundChoice.file(directory + "/finder/empty trash.aif")
 }
 
 /// Sound and speech for one event.
@@ -131,6 +139,15 @@ public struct FeedbackSettings: Codable, Equatable, Sendable {
     public var defaults: [String: EventFeedback]
     /// Keyed by `OperationKind.rawValue`, then `QueueOutcome.rawValue`.
     public var overrides: [String: [String: EventFeedback]]
+    /// Keeps an explicit return to the Any operation setting after the one-time migration.
+    private var finderSoundsVersion = 1
+
+    private static let finishedSounds: [OperationKind: SoundChoice] = [
+        .copy: SystemSoundFiles.volumeMount,
+        .move: SystemSoundFiles.volumeMount,
+        .trash: SystemSoundFiles.dragToTrash,
+        .delete: SystemSoundFiles.emptyTrash,
+    ]
 
     public static let standardDefaults: [QueueOutcome: EventFeedback] = [
         .finished: EventFeedback(sound: .system("Glass"), speak: true, text: "{operation} complete, {done} {verb}"),
@@ -142,14 +159,28 @@ public struct FeedbackSettings: Codable, Equatable, Sendable {
     public init() {
         defaults = Dictionary(uniqueKeysWithValues: Self.standardDefaults.map { ($0.key.rawValue, $0.value) })
         overrides = [:]
+        applyFinderSounds()
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = FeedbackSettings()
         defaults = try c.decodeIfPresent([String: EventFeedback].self, forKey: .defaults) ?? d.defaults
-        overrides = try c.decodeIfPresent([String: [String: EventFeedback]].self, forKey: .overrides) ?? d.overrides
+        overrides = try c.decodeIfPresent([String: [String: EventFeedback]].self, forKey: .overrides) ?? [:]
         for (key, value) in d.defaults where defaults[key] == nil { defaults[key] = value }
+        let version = try c.decodeIfPresent(Int.self, forKey: .finderSoundsVersion) ?? 0
+        if version < 1 { applyFinderSounds() }
+        finderSoundsVersion = max(1, version)
+    }
+
+    /// Replace only the old completion sound, preserving custom sounds and all speech settings.
+    private mutating func applyFinderSounds() {
+        for (kind, sound) in Self.finishedSounds {
+            var current = feedback(for: kind, .finished)
+            guard current.sound == Self.standardDefaults[.finished]!.sound else { continue }
+            current.sound = sound
+            setOverride(current, for: kind, .finished)
+        }
     }
 
     /// The feedback that applies to an event: the override for the kind if there is one, else the default.
