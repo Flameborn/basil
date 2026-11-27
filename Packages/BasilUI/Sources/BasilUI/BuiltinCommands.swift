@@ -100,11 +100,11 @@ enum BuiltinCommands {
             C(id: "select.toggleUp", title: "Select and Move Up", defaultKeys: [K(.up, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: -1) },
             // Like Select and Move Up/Down, these stay out of menus to avoid extra VoiceOver speech.
             C(id: "select.toStart", title: "Select to Start",
-              defaultKeys: [K(.up, [.option, .shift]), K(.home, [.option, .shift])]) { _ in
+              defaultKeys: [K(.up, [.option, .shift]), K(.home, .shift)]) { _ in
                 pane()?.selectToBoundary(end: false)
             },
             C(id: "select.toEnd", title: "Select to End",
-              defaultKeys: [K(.down, [.option, .shift]), K(.end, [.option, .shift])]) { _ in
+              defaultKeys: [K(.down, [.option, .shift]), K(.end, .shift)]) { _ in
                 pane()?.selectToBoundary(end: true)
             },
             C(id: "select.all", title: "Select All",
