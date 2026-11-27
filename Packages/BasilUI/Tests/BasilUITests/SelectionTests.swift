@@ -124,8 +124,8 @@ import Testing
 
         let expected: [(CommandID, [KeyChord])] = [
             ("select.all", [KeyChord(.character("a"), .command), KeyChord(.numpad("+"), .command)]),
-            ("select.toStart", [KeyChord(.up, [.option, .shift]), KeyChord(.home, [.option, .shift])]),
-            ("select.toEnd", [KeyChord(.down, [.option, .shift]), KeyChord(.end, [.option, .shift])]),
+            ("select.toStart", [KeyChord(.up, [.option, .shift]), KeyChord(.home, .shift)]),
+            ("select.toEnd", [KeyChord(.down, [.option, .shift]), KeyChord(.end, .shift)]),
             ("select.group", [KeyChord(.character("="), .command), KeyChord(.numpad("+"))]),
             ("select.ungroup", [KeyChord(.character("-"), .command), KeyChord(.numpad("-"))]),
             ("select.invert", [KeyChord(.character("8"), [.command, .shift]), KeyChord(.numpad("*"))]),
