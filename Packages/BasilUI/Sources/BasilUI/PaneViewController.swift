@@ -611,8 +611,10 @@ final class PaneViewController: NSViewController {
 
     func selectToBoundary(end: Bool) {
         guard let row = cursorRow else { return }
-        model.selectRange(from: row, to: end ? model.rows.count - 1 : 0)
+        let boundary = end ? model.rows.count - 1 : 0
+        model.selectRange(from: row, to: boundary)
         delegate?.pane(self, announce: "Selected, \(itemCount(model.selected.count))")
+        moveCursor(to: boundary)
     }
 
     /// Space (and Shift+Up/Down). With `calculateSize` and the "Space calculates folder sizes"
