@@ -98,10 +98,29 @@ enum BuiltinCommands {
             C(id: "select.toggle", title: "Select or Deselect", defaultKeys: [K(.space)]) { _ in pane()?.toggleSelectionAtCursor(calculateSize: true) },
             C(id: "select.toggleDown", title: "Select and Move Down", defaultKeys: [K(.down, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: 1) },
             C(id: "select.toggleUp", title: "Select and Move Up", defaultKeys: [K(.up, .shift)]) { _ in pane()?.toggleSelectionAtCursor(advance: -1) },
-            C(id: "select.allFiles", title: "Select All Files",
+            // Like Select and Move Up/Down, these stay out of menus to avoid extra VoiceOver speech.
+            C(id: "select.toStart", title: "Select to Start",
+              defaultKeys: [K(.up, [.option, .shift]), K(.home, [.option, .shift])]) { _ in
+                pane()?.selectToBoundary(end: false)
+            },
+            C(id: "select.toEnd", title: "Select to End",
+              defaultKeys: [K(.down, [.option, .shift]), K(.end, [.option, .shift])]) { _ in
+                pane()?.selectToBoundary(end: true)
+            },
+            C(id: "select.all", title: "Select All",
               defaultKeys: [K(.character("a"), .command), K(.numpad("+"), .command)]) { ctx in
                 guard let p = pane() else { return }
+                p.model.selectAll()
+                ctx.announce("Selected, \(itemCount(p.model.selected.count))")
+            },
+            C(id: "select.allFiles", title: "Select All Files") { ctx in
+                guard let p = pane() else { return }
                 p.model.selectAllFiles()
+                ctx.announce("Selected, \(itemCount(p.model.selected.count))")
+            },
+            C(id: "select.allFolders", title: "Select All Folders") { ctx in
+                guard let p = pane() else { return }
+                p.model.selectAllFolders()
                 ctx.announce("Selected, \(itemCount(p.model.selected.count))")
             },
             C(id: "select.none", title: "Deselect All",
@@ -109,15 +128,19 @@ enum BuiltinCommands {
                 pane()?.model.deselectAll()
                 ctx.announce("Deselected")
             },
-            // Total Commander's numpad keys.
-            C(id: "select.group", title: "Select Group...", defaultKeys: [K(.numpad("+"))]) { _ in w?.selectGroup(true) },
-            C(id: "select.ungroup", title: "Deselect Group...", defaultKeys: [K(.numpad("-"))]) { _ in w?.selectGroup(false) },
-            C(id: "select.invert", title: "Invert Selection", defaultKeys: [K(.numpad("*"))]) { _ in w?.invertSelection() },
-            C(id: "select.restore", title: "Restore Selection", defaultKeys: [K(.numpad("/"))]) { _ in w?.restoreSelection() },
+            // Total Commander's numpad keys, with alternatives for keyboards without a numpad.
+            C(id: "select.group", title: "Select Group...",
+              defaultKeys: [K(.numpad("+")), K(.character("="), .command)]) { _ in w?.selectGroup(true) },
+            C(id: "select.ungroup", title: "Deselect Group...",
+              defaultKeys: [K(.numpad("-")), K(.character("-"), .command)]) { _ in w?.selectGroup(false) },
+            C(id: "select.invert", title: "Invert Selection",
+              defaultKeys: [K(.numpad("*")), K(.character("8"), [.command, .shift])]) { _ in w?.invertSelection() },
+            C(id: "select.restore", title: "Restore Selection",
+              defaultKeys: [K(.numpad("/")), K(.character("/"), .command)]) { _ in w?.restoreSelection() },
             C(id: "select.sameExtension", title: "Select Files with Same Extension",
-              defaultKeys: [K(.numpad("+"), .option)]) { _ in w?.selectSameExtension(true) },
+              defaultKeys: [K(.numpad("+"), .option), K(.character("="), .option)]) { _ in w?.selectSameExtension(true) },
             C(id: "select.deselectSameExtension", title: "Deselect Files with Same Extension",
-              defaultKeys: [K(.numpad("-"), .option)]) { _ in w?.selectSameExtension(false) },
+              defaultKeys: [K(.numpad("-"), .option), K(.character("-"), .option)]) { _ in w?.selectSameExtension(false) },
 
             // Views and sorting on Ctrl+Shift+F keys, in TC's Ctrl+F order (Option+F keys are actions).
             C(id: "view.brief", title: "Brief View", defaultKeys: [K(.function(1), [.control, .shift])], isChecked: showing(ListView.brief.id)) { _ in pane()?.setView(ListView.brief.id) },

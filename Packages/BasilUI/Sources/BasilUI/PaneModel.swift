@@ -203,9 +203,23 @@ final class PaneModel {
         onEvent?(.selectionChanged)
     }
 
+    func selectAll() {
+        setSelection(true) { _ in true }
+    }
+
     func selectAllFiles() {
+        setSelection(true) { !$0.isDirectoryLike }
+    }
+
+    func selectAllFolders() {
+        setSelection(true) { $0.isDirectoryLike }
+    }
+
+    /// Selects the inclusive range in the visible sort order, keeping other selections.
+    func selectRange(from start: Int, to end: Int) {
+        guard rows.indices.contains(start), rows.indices.contains(end) else { return }
         rememberSelection()
-        for item in rows where !item.isDirectoryLike { selected.insert(item.path) }
+        for item in rows[min(start, end)...max(start, end)] { selected.insert(item.path) }
         onEvent?(.selectionChanged)
     }
 

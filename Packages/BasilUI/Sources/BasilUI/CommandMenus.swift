@@ -23,7 +23,7 @@ enum BuiltinMenus {
 
         layout.addMenu("Mark", items:
             c("select.toggle", "select.group", "select.ungroup") + [.separator]
-            + c("select.allFiles", "select.none", "select.invert", "select.restore") + [
+            + c("select.all", "select.allFiles", "select.allFolders", "select.none", "select.invert", "select.restore") + [
                 .submenu("Same Extension", c("select.sameExtension", "select.deselectSameExtension")),
             ])
 
