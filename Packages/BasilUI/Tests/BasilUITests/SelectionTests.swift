@@ -163,14 +163,18 @@ import Testing
         #expect(controller.right.model.selected.count == 4)
         #expect(controller.left.model.selected.isEmpty)
         let pane = controller.right
-        for (id, selectedNames) in [("select.toStart", Set(["Folder", "a.txt"])),
-                                    ("select.toEnd", Set(["a.txt", "b.txt", "c.mp3"]))] {
+        for (id, selectedNames, boundary) in [("select.toStart", Set(["Folder", "a.txt"]), 0),
+                                              ("select.toEnd", Set(["a.txt", "b.txt", "c.mp3"]), 3)] {
             for chord in registry.chords(for: CommandID(rawValue: id)) {
                 pane.model.deselectAll()
                 pane.moveCursor(to: 1)
                 #expect(registry.perform(chord, in: controller))
                 #expect(Set(pane.model.selectedItems.map(\.name)) == selectedNames)
-                #expect(pane.cursorRow == 1)
+                #expect(pane.cursorRow == boundary)
+                // Repeating at the boundary keeps the selection and focus there.
+                #expect(registry.perform(chord, in: controller))
+                #expect(Set(pane.model.selectedItems.map(\.name)) == selectedNames)
+                #expect(pane.cursorRow == boundary)
             }
         }
         #expect(controller.left.model.selected.isEmpty)
