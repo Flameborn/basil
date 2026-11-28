@@ -849,7 +849,7 @@ struct FeedbackSettingsView: View {
     @Bindable var store: SettingsStore
     @State private var kind: OperationKind? = nil
     @State private var player = EventFeedbackPlayer()
-    private let soundNames = EventFeedbackPlayer.systemSoundNames()
+    private let sounds = EventFeedbackPlayer.availableSounds()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -902,8 +902,14 @@ struct FeedbackSettingsView: View {
         HStack {
             Picker("\(label) sound", selection: soundBinding(feedback)) {
                 Text("None").tag("none")
-                ForEach(soundNames, id: \.self) { Text($0).tag("system:" + $0) }
-                if case .file(let path) = feedback.wrappedValue.sound {
+                ForEach(sounds, id: \.self) { sound in
+                    switch sound {
+                    case .system(let name): Text(sound.title).tag("system:" + name)
+                    case .file(let path): Text(sound.title).tag("file:" + path)
+                    case .none: EmptyView()
+                    }
+                }
+                if case .file(let path) = feedback.wrappedValue.sound, !sounds.contains(.file(path)) {
                     Text((path as NSString).lastPathComponent).tag("file:" + path)
                 }
                 Text("Choose File...").tag("choose")

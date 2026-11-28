@@ -337,9 +337,10 @@ import Testing
         let custom = EventFeedback(sound: .file("/tmp/a.aiff"), speak: false, text: "x")
         f.setOverride(custom, for: .delete, .finished)
         #expect(f.feedback(for: .delete, .finished) == custom)
-        #expect(f.feedback(for: .copy, .finished).sound == .system("Glass"))
+        #expect(f.feedback(for: .copy, .finished).sound == SystemSoundFiles.volumeMount)
         f.setOverride(nil, for: .delete, .finished)
-        #expect(f.overrides.isEmpty)
+        #expect(f.override(for: .delete, .finished) == nil)
+        #expect(f.feedback(for: .delete, .finished).sound == .system("Glass"))
 
         let partial = try JSONDecoder().decode(FeedbackSettings.self, from: Data(#"{"defaults":{}}"#.utf8))
         #expect(partial.feedback(for: .copy, .failed).sound == .system("Basso"))
@@ -349,6 +350,70 @@ import Testing
         let round = try JSONDecoder().decode(BasilSettings.self, from: JSONEncoder().encode(s))
         #expect(round == s)
         #expect(BasilSettings().secureCopy == false)
+    }
+
+    @Test func finderCompletionDefaultsOverrideOnlyTheRequestedOutcomes() {
+        let f = FeedbackSettings()
+        let root = "/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds"
+        let expected: [(OperationKind, String)] = [
+            (.copy, root + "/system/Volume Mount.aif"),
+            (.move, root + "/system/Volume Mount.aif"),
+            (.trash, root + "/dock/drag to trash.aif"),
+            (.delete, root + "/finder/empty trash.aif"),
+        ]
+        #expect(f.overrides.count == 4)
+        for (kind, path) in expected {
+            #expect(f.override(for: kind, .finished)?.sound == .file(path))
+            #expect(f.feedback(for: kind, .finished).speak)
+            #expect(f.feedback(for: kind, .finished).text == FeedbackSettings.standardDefaults[.finished]?.text)
+            for outcome in [QueueOutcome.failed, .cancelled, .needsDecision] {
+                #expect(f.override(for: kind, outcome) == nil)
+                #expect(f.feedback(for: kind, outcome) == FeedbackSettings.standardDefaults[outcome])
+            }
+        }
+        #expect(f.feedback(for: .other, .finished).sound == .system("Glass"))
+        #expect(f.override(for: .rename, .finished) == nil)
+    }
+
+    private func decodeLegacy(_ settings: FeedbackSettings) throws -> FeedbackSettings {
+        let data = try JSONEncoder().encode(settings)
+        var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        json.removeValue(forKey: "finderSoundsVersion")
+        return try JSONDecoder().decode(FeedbackSettings.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    @Test func migratesOldSoundsWhilePreservingSpeechAndCustomOverrides() throws {
+        var old = FeedbackSettings()
+        old.overrides = [:]
+        old.defaults[QueueOutcome.finished.rawValue] = EventFeedback(sound: .system("Glass"), speak: false, text: "Done")
+        old.setOverride(EventFeedback(sound: .system("Glass"), speak: true, text: "Moved"), for: .move, .finished)
+        let custom = EventFeedback(sound: .file("/tmp/custom.aif"), speak: false, text: "Trash")
+        old.setOverride(custom, for: .trash, .finished)
+        old.setOverride(EventFeedback(sound: .none, speak: true, text: "Deleted"), for: .delete, .finished)
+        let migrated = try decodeLegacy(old)
+        #expect(migrated.feedback(for: .copy, .finished) == EventFeedback(sound: SystemSoundFiles.volumeMount, speak: false, text: "Done"))
+        #expect(migrated.feedback(for: .move, .finished) == EventFeedback(sound: SystemSoundFiles.volumeMount, speak: true, text: "Moved"))
+        #expect(migrated.feedback(for: .trash, .finished) == custom)
+        #expect(migrated.feedback(for: .delete, .finished).sound == .none)
+        #expect(migrated.defaults == old.defaults)
+    }
+
+    @Test func keepsCustomAnySoundAndDoesNotRepeatMigration() throws {
+        var old = FeedbackSettings()
+        old.overrides = [:]
+        old.defaults[QueueOutcome.finished.rawValue]?.sound = .system("Ping")
+        let migrated = try decodeLegacy(old)
+        #expect(migrated.overrides.isEmpty)
+        #expect(migrated.feedback(for: .copy, .finished).sound == .system("Ping"))
+
+        var restored = FeedbackSettings()
+        for kind in [OperationKind.copy, .move, .trash, .delete] {
+            restored.setOverride(nil, for: kind, .finished)
+        }
+        let roundTrip = try JSONDecoder().decode(FeedbackSettings.self, from: JSONEncoder().encode(restored))
+        #expect(roundTrip == restored)
+        #expect(roundTrip.overrides.isEmpty)
+        #expect(roundTrip.feedback(for: .copy, .finished).sound == .system("Glass"))
     }
 }
 
