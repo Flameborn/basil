@@ -609,6 +609,14 @@ final class PaneViewController: NSViewController {
 
     // MARK: Selection (Total Commander "marking"; the cursor is separate)
 
+    func selectToBoundary(end: Bool) {
+        guard let row = cursorRow else { return }
+        let boundary = end ? model.rows.count - 1 : 0
+        model.selectRange(from: row, to: boundary)
+        delegate?.pane(self, announce: "Selected, \(itemCount(model.selected.count))")
+        moveCursor(to: boundary)
+    }
+
     /// Space (and Shift+Up/Down). With `calculateSize` and the "Space calculates folder sizes"
     /// setting, selecting a folder also calculates its size (Total Commander's option).
     func toggleSelectionAtCursor(advance: Int = 0, calculateSize: Bool = false) {
